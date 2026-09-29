@@ -1,0 +1,85 @@
+# =============================================================================
+# .htaccess - Configuração de Reverse Proxy & Segurança para Next.js / Node.js
+# =============================================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # -------------------------------------------------------------------------
+    # 1. Redirecionamento Forçado para HTTPS (Opcional - remova o comentário para ativar)
+    # -------------------------------------------------------------------------
+    # RewriteCond %{HTTPS} off
+    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # -------------------------------------------------------------------------
+    # 2. Ignorar diretórios especiais como certificados Let's Encrypt
+    # -------------------------------------------------------------------------
+    RewriteCond %{REQUEST_URI} ^/\.well-known/ [NC]
+    RewriteRule ^ - [L]
+
+    # -------------------------------------------------------------------------
+    # 3. Suporte a WebSockets para Next.js (HMR / Fast Refresh / API WebSockets)
+    # -------------------------------------------------------------------------
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteCond %{HTTP:Connection} =Upgrade [NC]
+    RewriteRule ^(.*)$ ws://127.0.0.1:3000/$1 [P,L]
+
+    # -------------------------------------------------------------------------
+    # 4. Proxy Reverso para o Container Next.js / Node (Porta 3000)
+    # -------------------------------------------------------------------------
+    RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,L]
+</IfModule>
+
+# -----------------------------------------------------------------------------
+# 5. Configurações do Módulo de Proxy (Apache mod_proxy)
+# -----------------------------------------------------------------------------
+<IfModule mod_proxy.c>
+    ProxyPreserveHost On
+    ProxyRequests Off
+    ProxyTimeout 300
+
+    # Configuração de ProxyPass reverso
+    ProxyPassReverse / http://127.0.0.1:3000/
+</IfModule>
+
+# -----------------------------------------------------------------------------
+# 6. Cabeçalhos de Segurança HTTP (mod_headers)
+# -----------------------------------------------------------------------------
+<IfModule mod_headers.c>
+    # Previne Clickjacking
+    Header set X-Frame-Options "SAMEORIGIN"
+
+    # Previne sniffing de MIME types
+    Header set X-Content-Type-Options "nosniff"
+
+    # Proteção contra XSS
+    Header set X-XSS-Protection "1; mode=block"
+
+    # Política de Referrer segura
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # HSTS (Ativar apenas se HTTPS estiver plenamente configurado no domínio)
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+    # Repasse de cabeçalhos originais para a aplicação Node.js
+    RequestHeader set X-Forwarded-Proto "https" env=HTTPS
+    RequestHeader set X-Forwarded-Port "443" env=HTTPS
+</IfModule>
+
+# -----------------------------------------------------------------------------
+# 7. Compressão GZIP / Deflate para tráfego otimizado (mod_deflate)
+# -----------------------------------------------------------------------------
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE text/javascript
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
