@@ -2,8 +2,9 @@
 
 # -----------------------------------------------------------------------------
 # Base Image com Node.js (Alpine para menor superfície e tamanho reduzido)
+# Node 22 LTS: o Node 20 chegou ao fim de vida (EOL) em abril/2026.
 # -----------------------------------------------------------------------------
-ARG NODE_VERSION=20-alpine
+ARG NODE_VERSION=22-alpine
 FROM node:${NODE_VERSION} AS base
 
 WORKDIR /app
@@ -28,6 +29,19 @@ RUN \
   else echo "Aviso: Nenhum lockfile encontrado, instalando com npm install..." && npm install; \
   fi
 
+# Somente dependências de produção (usadas pelo job de migrations/seed)
+FROM base AS prod-deps
+WORKDIR /app
+
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
+
+RUN \
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile --production; \
+  elif [ -f package-lock.json ]; then npm ci --omit=dev; \
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile --prod; \
+  else npm install --omit=dev; \
+  fi
+
 # -----------------------------------------------------------------------------
 # 2. Ambiente de Desenvolvimento (Hot-reload / Front & Back)
 # -----------------------------------------------------------------------------
@@ -46,7 +60,24 @@ EXPOSE 3000
 CMD ["npm", "run", "dev"]
 
 # -----------------------------------------------------------------------------
-# 3. Build da Aplicação Next.js (Compilação Full-Stack)
+# 3. Migrations / Seed do banco (job one-shot executado antes da aplicação)
+# -----------------------------------------------------------------------------
+FROM base AS migrator
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY package.json ./
+COPY db ./db
+COPY scripts ./scripts
+
+USER node
+
+CMD ["node", "scripts/migrate.mjs"]
+
+# -----------------------------------------------------------------------------
+# 4. Build da Aplicação Next.js (Compilação Full-Stack)
 # -----------------------------------------------------------------------------
 FROM base AS builder
 WORKDIR /app
@@ -61,7 +92,7 @@ RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-# Executa o build (gerando output standalone configurado no next.config.js/ts)
+# Executa o build (gerando output standalone configurado no next.config.ts)
 RUN \
   if [ -f yarn.lock ]; then yarn run build; \
   elif [ -f package-lock.json ]; then npm run build; \
@@ -70,7 +101,7 @@ RUN \
   fi
 
 # -----------------------------------------------------------------------------
-# 4. Imagem Final de Produção (Runner - Leve, Segura e Standalone)
+# 5. Imagem Final de Produção (Runner - Leve, Segura e Standalone)
 # -----------------------------------------------------------------------------
 FROM base AS runner
 WORKDIR /app
@@ -90,13 +121,16 @@ COPY --from=builder /app/public ./public
 # Configura diretório de cache do Next.js com as permissões corretas
 RUN mkdir .next && chown nextjs:nodejs .next
 
-# Copia os arquivos compilados do modo standalone
-# (Nota: certifique-se de ter `output: 'standalone'` no seu next.config.js/ts)
+# Copia os arquivos compilados do modo standalone (`output: 'standalone'` no next.config.ts)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
 EXPOSE 3000
+
+# Verifica aplicação + conexão com o banco (rota /api/health)
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/api/health > /dev/null || exit 1
 
 CMD ["node", "server.js"]

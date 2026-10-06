@@ -7,6 +7,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: Nenhuma
+- **Status**: ✅ API concluída (Semana 1) · ⏳ Tela de login (Semana 3)
 
 ---
 
@@ -19,14 +20,25 @@ O sistema deve permitir o login e controle de acesso baseado em papéis (**RBAC*
 ---
 
 ## Regras de Negócio (RN)
-1. **Validação de Credenciais**: O sistema deve validar e-mail e senha (criptografada com bcrypt/argon2) no banco de dados.
-2. **Geração de Sessão JWT**: Ao confirmar o login, o sistema deve ler a coluna `papel` (Role) do usuário e gerar um token de sessão (`JWT`) com as permissões e claims exatas (id, nome, email, papel, id_abrigo).
-3. **Bloqueio de Inativos/Desvinculados**: O acesso deve ser negado caso o usuário esteja inativo ou desvinculado de um abrigo (com exceção do Administrador Geral).
+1. **Validação de Credenciais**: O sistema deve validar e-mail e senha (hash bcrypt, custo 12) no banco de dados.
+2. **Geração de Sessão JWT**: Ao confirmar o login, o sistema lê o papel do usuário (`PAPEL_USUARIO`) e gera um token JWT (HS256) com as claims: `sub` (id), `nome`, `email`, `papel`, `idAbrigo`. O token é devolvido no corpo e gravado em cookie `httpOnly`.
+3. **Bloqueio de Inativos/Desvinculados**: O acesso é negado se o usuário estiver inativo (`USUARIO.ativo = false`) ou desvinculado de um abrigo ativo (sem abrigo ou abrigo desativado), exceto o Administrador Geral, que não pertence a abrigo.
+4. **Revalidação por requisição**: a cada chamada autenticada o usuário é relido no banco; desativação, troca de papel ou desativação do abrigo têm efeito imediato, sem esperar o token expirar.
+5. **Proteção contra força bruta**: após 10 falhas por (IP + e-mail) em 15 minutos, novas tentativas recebem `429`. A comparação de senha roda mesmo para e-mails inexistentes (tempo de resposta igual).
+6. **Auditoria**: login com sucesso, falha e bloqueio são registrados em `LOG_AUDITORIA` (`LOGIN_SUCESSO`, `LOGIN_FALHA`, `LOGIN_BLOQUEADO`) com IP.
 
 ---
 
 ## Critérios de Aceite
 - **Login de Voluntário**: Se as credenciais forem de um Voluntário, o sistema deve redirecioná-lo diretamente para a tela do Gerenciador de Inventário (`/admin/inventario` - Fast-CRUD), ocultando botões administrativos.
 - **Login de Coordenador**: Se as credenciais forem de um Coordenador, o sistema deve redirecioná-lo para o Dashboard de Triagem (`/admin/dashboard`), exibindo alertas críticos e infraestrutura.
-- **Login de Administrador**: Acesso global ao gerenciamento de coordenadores e auditoria.
+- **Login de Administrador**: Acesso global ao gerenciamento de coordenadores e auditoria (`/admin/geral`).
 - **Falha de Segurança**: Se o usuário inserir dados errados, o sistema deve exibir `"Credenciais inválidas"` (sem especificar se foi o e-mail ou a senha que errou, para mitigar ataques de enumeração e força bruta).
+
+---
+
+## Implementação (backend)
+- `POST /api/auth/login` → `{ token, expiraEm, usuario, redirecionarPara }` + cookie `wtg_sessao`
+- `GET /api/auth/me`, `POST /api/auth/logout`, `PUT /api/auth/senha`
+- Código: `src/modules/auth/auth.service.ts`, `src/lib/auth/*` (jwt, sessão, rbac, senha)
+- Testes: `tests/integration/auth.test.ts`, `tests/e2e/api.test.ts`

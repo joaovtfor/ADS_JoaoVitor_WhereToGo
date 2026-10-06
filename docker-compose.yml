@@ -1,23 +1,48 @@
 services:
   # ---------------------------------------------------------------------------
-  # Aplicação Full-Stack (Next.js 16 + Node.js)
+  # Aplicação Full-Stack (Next.js 16 + Node.js 22)
   # ---------------------------------------------------------------------------
   app:
     container_name: wheretogo_app
     build:
       context: .
       dockerfile: .docker/Dockerfile
-      target: runner # Altere para 'dev' caso deseje rodar em modo desenvolvimento com hot-reload
+      target: runner # Para desenvolvimento use o override: docker-compose.dev.yml
       args:
-        NODE_VERSION: 20-alpine
+        NODE_VERSION: 22-alpine
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-wheretogo_db}?schema=public
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-wheretogo_db}
+      - JWT_SECRET=${JWT_SECRET:?Defina JWT_SECRET no arquivo .env}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - wheretogo-net
+
+  # ---------------------------------------------------------------------------
+  # Job one-shot: aplica as migrations (db/migrations) antes de subir a app
+  # ---------------------------------------------------------------------------
+  migrate:
+    container_name: wheretogo_migrate
+    build:
+      context: .
+      dockerfile: .docker/Dockerfile
+      target: migrator
+      args:
+        NODE_VERSION: 22-alpine
+    restart: "no"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-wheretogo_db}
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,7 +50,7 @@ services:
       - wheretogo-net
 
   # ---------------------------------------------------------------------------
-  # Banco de Dados Relacional (PostgreSQL 16)
+  # Banco de Dados Relacional (PostgreSQL 16 + PostGIS 3.4)
   # ---------------------------------------------------------------------------
   postgres:
     container_name: wheretogo_postgres

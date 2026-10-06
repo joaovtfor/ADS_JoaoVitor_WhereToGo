@@ -11,6 +11,7 @@ Conforme definido na Seção 1.3.2 do Documento de Visão do Produto:
   - Peso inicial da página (HTML/CSS/JS inicial) reduzido (< 300KB compactado).
   - PWA com Service Worker para cache agressivo de casca da aplicação (App Shell) e mapa estático.
   - Formato de dados geoespaciais enxuto (GeoJSON simplificado ou endpoints leves).
+- **Backend (Semana 2)**: `/api/public/*` sem dados pessoais nem quantidades, `?formato=geojson`, `Cache-Control: s-maxage=10, stale-while-revalidate=30` para CDN. Service Worker/PWA ficam para as Semanas 5-6.
 
 ---
 
@@ -18,7 +19,7 @@ Conforme definido na Seção 1.3.2 do Documento de Visão do Produto:
 - **Identificação**: RNF02
 - **Descrição**: A Aplicação Web Pública não deve exigir nenhum tipo de login ou cadastro para ser acessada, garantindo acesso imediato à informação a sobreviventes, voluntários e doadores.
 - **Critérios de Verificação**:
-  - As rotas públicas de consulta (`/`, `/api/public/...`) não devem exigir tokens, cookies ou credenciais.
+  - As rotas públicas de consulta (`/`, `/api/public/...`, `/api/referencias`, `/api/health`) não devem exigir tokens, cookies ou credenciais.
   - Zero atrito para obter rotas de fuga, localização de abrigos e chaves PIX.
 
 ---
@@ -29,6 +30,11 @@ Conforme definido na Seção 1.3.2 do Documento de Visão do Produto:
 - **Critérios de Verificação**:
   - Tabela `LOG_AUDITORIA` sem permissão de UPDATE ou DELETE (apenas INSERT).
   - Execução assíncrona/background para não degradar a latência do Fast-CRUD.
+- **Implementação**:
+  - Triggers `fn_bloquear_alteracao_imutavel` recusam UPDATE, DELETE e TRUNCATE em `LOG_AUDITORIA`, `MOVIMENTACAO_ESTOQUE` e `TRANSFERENCIA_ABRIGADO` (vale até para acesso direto ao banco).
+  - O log é gravado com `after()` do Next.js, depois do envio da resposta; falhas de gravação não derrubam a operação e o evento completo vai para o log do servidor.
+  - O histórico de estoque (`MOVIMENTACAO_ESTOQUE`) é gravado na mesma transação da alteração: o saldo nunca muda sem registro.
+  - Também são auditados login (sucesso/falha/bloqueio), logout, troca de senha e alterações de abrigos, usuários, catálogo, ocorrências e abrigados.
 
 ---
 
@@ -47,3 +53,4 @@ Conforme definido na Seção 1.3.2 do Documento de Visão do Produto:
 - **Critérios de Verificação**:
   - Validação de papel (`ADMIN`, `COORDENADOR`, `VOLUNTARIO`) em middlewares de rota e handlers de API.
   - Voluntário não tem acesso a dashboards de triagem, edição de dados do abrigo ou exclusões.
+- **Implementação**: matriz única de permissões em `src/lib/auth/rbac.ts` (`PERMISSOES`), verificada nos services junto com o escopo do abrigo do usuário (COORDENADOR/VOLUNTARIO só acessam o próprio abrigo). Matriz documentada em `.specs/context/06-api.md`. O usuário é revalidado no banco a cada requisição.

@@ -32,5 +32,13 @@ O sistema **WhereToGo** é uma plataforma integrada de gestão de crise dividida
 - **Controle de Acesso Baseado em Papéis (RBAC)**: perfis com permissões isoladas (Administrador Geral, Coordenador de Abrigo, Voluntário Local).
 - **Gestão de Inventário de Resposta Rápida (Fast-CRUD)**: interface tátil com botões de incremento/decremento (`+` e `-`), sem necessidade de digitação contínua, com persistência assíncrona.
 - **Gestão de Necessidades**: marcação de suprimentos como "Urgente" ou "Bloqueado por excesso".
-- **Monitoramento de Infraestrutura**: reporte de alertas de energia elétrica e colapso de vias.
+- **Monitoramento de Infraestrutura**: reporte de alertas de energia elétrica e colapso de vias (ocorrências simultâneas, com histórico).
+- **Gestão de Acolhidos**: entrada/saída de pessoas e transferências entre abrigos, mantendo a lotação real (DER v2).
 - **Logs de Auditoria Imutáveis**: registro em background com ID do usuário, IP, timestamp, item e ação (+1/-1), prevenindo desvios e fraudes.
+
+---
+
+## 4. Requisitos
+- Funcionais do DVP: RF01–RF09 (`.specs/tasks/RF01..RF09`).
+- Complementares, derivados do DER v2 e do cronograma: RF10 (cadastro de abrigos), RF11 (usuários), RF12 (abrigados e transferências), RF13 (auditoria e histórico).
+- Não funcionais: RNF01–RNF05 (`.specs/tasks/RNF-requisitos-nao-funcionais.md`).

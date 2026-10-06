@@ -31,3 +31,9 @@ docker-compose*.yml
 *.log
 .DS_Store
 Thumbs.db
+
+# Documentação e testes (não fazem parte da imagem)
+.specs
+tests
+coverage
+README.md

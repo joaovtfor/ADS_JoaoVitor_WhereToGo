@@ -9,8 +9,17 @@ services:
       target: dev
     environment:
       - NODE_ENV=development
+      # Bind mounts no Windows/macOS não propagam eventos de arquivo: usa polling
+      - WATCHPACK_POLLING=true
     volumes:
       - .:/app
       - /app/node_modules
       - /app/.next
     command: npm run dev
+
+  # Em desenvolvimento, além das migrations, popula o banco com dados de teste
+  migrate:
+    environment:
+      - NODE_ENV=development
+      - SEED_SENHA_PADRAO=${SEED_SENHA_PADRAO:-WhereToGo@2026}
+    command: ["sh", "-c", "node scripts/migrate.mjs && node scripts/seed.mjs"]

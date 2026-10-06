@@ -7,6 +7,7 @@
 - **Importância**: Importante
 - **Priorização**: 2
 - **Dependências**: RF06, RF03
+- **Status**: ✅ API pública pronta (Semana 2) · ⏳ Filtros na interface (Semana 6)
 
 ---
 
@@ -16,9 +17,10 @@ O sistema deve permitir que o doador selecione quais categorias de itens ele pos
 ---
 
 ## Regras de Negócio (RN)
-1. **Filtro de Urgência**: O filtro deve buscar apenas abrigos em que o Coordenador tenha classificado o item específico com a flag de `"URGENTE"`.
-2. **Exclusão de Bloqueados**: Abrigos que marcaram o item como `"BLOQUEADO"` (não aceitam mais doações deste tipo) não devem ser destacados para o doador caso o filtro seja aplicado.
-3. **Cálculo de Proximidade (PostGIS)**: Ordenação ou destaque de abrigos calculados via coordenadas geográficas da localização do doador.
+1. **Filtro de Urgência**: O filtro destaca apenas abrigos em que o Coordenador tenha classificado algum item da categoria escolhida (ou o item escolhido) com status `URGENTE`.
+2. **Exclusão de Bloqueados**: Itens marcados como `BLOQUEADO` (não aceitam mais doações deste tipo) nunca geram destaque.
+3. **Cálculo de Proximidade (PostGIS)**: Com a localização do doador, os abrigos destacados são ordenados por distância (`ST_Distance` sobre `ABRIGO.localizacao`), podendo limitar a um raio (`ST_DWithin`).
+4. As categorias usam o identificador estável `CATEGORIA_ITEM.slug` (ex.: `agua`, `cama-e-banho`), que também nomeia os ícones do menu.
 
 ---
 
@@ -26,3 +28,9 @@ O sistema deve permitir que o doador selecione quais categorias de itens ele pos
 - A aplicação web pública possui menu visual e limpo de filtros rápidos (ícones minimalistas representando água, comida, higiene, cobertores, etc.).
 - O filtro é utilizável sem login ou cadastro.
 - Ao clicar no ícone "Água", o mapa foca e destaca os marcadores dos abrigos que demandam água urgentemente, diminuindo a opacidade ou ocultando os demais.
+
+---
+
+## Implementação (backend)
+- `GET /api/public/categorias` – categorias/itens do menu de filtros.
+- `GET /api/public/abrigos?necessidade=agua&lat=..&lng=..[&raioKm=..][&somenteDestaque=true]` – cada abrigo traz `destaque` (true/false) e `distanciaKm`; destacados vêm primeiro.
