@@ -7,7 +7,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: RF01
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Interface touch (Semana 4)
+- **Status**: ✅ Concluído (API na Semana 2 · Interface touch Fast-CRUD na Semana 3)
 
 ---
 
@@ -19,10 +19,10 @@ O catálogo é organizado em **categoria macro** (`CATEGORIA_ITEM`, ex.: "Água"
 ---
 
 ## Regras de Negócio (RN)
-1. **Permissão**: Apenas usuários autenticados com papéis de `VOLUNTARIO` ou `COORDENADOR` podem alterar o estoque do seu respectivo abrigo (`id_abrigo`). O ADMIN apenas consulta.
+1. **Permissão**: Usuários autenticados com papéis de `VOLUNTARIO` ou `COORDENADOR` podem alterar o estoque do seu respectivo abrigo (`id_abrigo`), e o `ADMIN` pode operar, ajustar e transferir o estoque de qualquer abrigo ativo.
 2. **Não-Negatividade**: O estoque não pode assumir valores negativos (quantidade < 0). Garantido no banco (`estoque_abrigo_quantidade_ck`); a operação inteira é recusada com `409 ESTOQUE_INSUFICIENTE`.
 3. **Histórico transacional**: toda alteração de saldo é um registro em `MOVIMENTACAO_ESTOQUE` (tipo, quantidade com sinal, saldo resultante, usuário, data/hora). O saldo de `ESTOQUE_ABRIGO` é atualizado por trigger na mesma transação: **saldo = soma das movimentações**.
-4. **Tipos de movimentação**: `ENTRADA_DOACAO` (+), `SAIDA_CONSUMO` (-), `PERDA` (-), `AJUSTE` (±, contagem física, somente COORDENADOR, com justificativa), `TRANSFERENCIA_SAIDA`/`TRANSFERENCIA_ENTRADA` (entre abrigos, somente COORDENADOR da origem, operação atômica).
+4. **Tipos de movimentação**: `ENTRADA_DOACAO` (+), `SAIDA_CONSUMO` (-), `PERDA` (-), `AJUSTE` (±, contagem física, somente COORDENADOR do próprio abrigo ou ADMIN, com justificativa), `TRANSFERENCIA_SAIDA`/`TRANSFERENCIA_ENTRADA` (entre abrigos, somente COORDENADOR da origem ou ADMIN, operação atômica).
 5. **Auditoria Obrigatória (RNF03)**: Cada incremento ou decremento gera um log automático de auditoria em background contendo:
    - `id_usuario`
    - `id_abrigo`
@@ -40,10 +40,11 @@ O catálogo é organizado em **categoria macro** (`CATEGORIA_ITEM`, ex.: "Água"
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `GET /api/abrigos/{id}/estoque?incluirCatalogo=true` – lista para a tela Fast-CRUD (inclui itens com saldo 0)
 - `POST /api/abrigos/{id}/estoque/{itemId}/movimentacoes` – `{ "quantidade": 1 }` / `{ "quantidade": -1 }`
 - `GET /api/abrigos/{id}/movimentacoes` – histórico paginado
 - `POST /api/abrigos/{id}/transferencias-estoque` – transferência de itens entre abrigos
 - `GET|POST /api/categorias`, `GET|POST /api/itens`, `PATCH` de ambos – catálogo (ADMIN)
-- Código: `src/modules/estoque/estoque.service.ts`, `src/modules/catalogo/catalogo.service.ts`
+- Código Backend: `src/modules/estoque/estoque.service.ts`, `src/modules/catalogo/catalogo.service.ts`
+- Código Frontend: `src/app/admin/inventario/page.tsx`, `src/app/admin/geral/page.tsx`

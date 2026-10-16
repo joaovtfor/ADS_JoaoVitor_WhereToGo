@@ -5,7 +5,7 @@
 - **Importância**: Importante
 - **Priorização**: 2
 - **Dependências**: RF01
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Tela (Semana 3)
+- **Status**: ✅ Concluído (API na Semana 2 · Telas na Semana 3)
 
 ---
 
@@ -29,6 +29,7 @@ O sistema deve permitir o registro e atualização rápida de incidentes operaci
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `GET|POST /api/abrigos/{id}/ocorrencias`, `POST /api/abrigos/{id}/ocorrencias/{ocorrenciaId}/resolucao`
-- Código: `src/modules/ocorrencias/ocorrencias.service.ts`; trigger `fn_atualizar_status_infraestrutura`.
+- Código Backend: `src/modules/ocorrencias/ocorrencias.service.ts`; trigger `fn_atualizar_status_infraestrutura`.
+- Código Frontend: `src/app/admin/dashboard/page.tsx` (toggles rápidos) e `src/app/admin/ocorrencias/page.tsx` (gestão detalhada com GPS).

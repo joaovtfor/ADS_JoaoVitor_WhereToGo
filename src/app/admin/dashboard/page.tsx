@@ -188,8 +188,31 @@ export default function PaginaDashboard() {
     }
   }
 
-  async function reportarAlertaRapido(tipo: string) {
-    if (!idAbrigoAtivo) return;
+  async function alternarAlertaRapido(tipo: string) {
+    if (!idAbrigoAtivo || !dados) return;
+    const ativasDoTipo = dados.ocorrenciasAtivas.filter((o) => o.tipo === tipo);
+    if (ativasDoTipo.length > 0) {
+      setProcessando(true);
+      setErro(null);
+      try {
+        await Promise.all(
+          ativasDoTipo.map((o) =>
+            api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${o.id}/resolucao`, {
+              method: "POST",
+              body: JSON.stringify({ observacao: "Desativado pelo toggle rápido do painel de triagem" }),
+            }),
+          ),
+        );
+        await Promise.all([carregar(), recarregarAbrigos()]);
+        setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" resolvido e desativado.`);
+      } catch (err) {
+        setErro(mensagemErro(err));
+      } finally {
+        setProcessando(false);
+      }
+      return;
+    }
+
     setProcessando(true);
     setErro(null);
     try {
@@ -482,26 +505,36 @@ export default function PaginaDashboard() {
             )}
           </div>
 
-          {/* Botões de Reporte Rápido em 1 Clique */}
+          {/* Toggles Rápidos de Incidentes (RF05: ativar = registrar ocorrência; desativar = resolver) */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-2.5">
-            <p className="text-xs font-bold text-slate-300">Acionar Alerta Rápido (1 clique):</p>
+            <p className="text-xs font-bold text-slate-300">
+              Toggles Rápidos de Incidente (1 clique ativa ou resolve no mapa):
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { tipo: "SEM_ENERGIA", rotulo: "⚡ Sem Energia" },
                 { tipo: "SEM_AGUA", rotulo: "🚰 Sem Água" },
+                { tipo: "SEM_COMUNICACAO", rotulo: "📡 Sem Internet/Sinal" },
                 { tipo: "VIA_BLOQUEADA", rotulo: "🚧 Via Bloqueada" },
                 { tipo: "ALAGAMENTO", rotulo: "🌊 Alagamento" },
+                { tipo: "DESLIZAMENTO", rotulo: "⛰️ Deslizamento" },
+                { tipo: "RISCO_ESTRUTURAL", rotulo: "🏚️ Risco Estrutural" },
               ].map((alerta) => {
                 const jaAtiva = ocorrenciasAtivas.some((o) => o.tipo === alerta.tipo);
                 return (
                   <button
                     key={alerta.tipo}
                     type="button"
-                    disabled={processando || jaAtiva}
-                    onClick={() => reportarAlertaRapido(alerta.tipo)}
-                    className="min-h-11 rounded-xl border border-red-500/30 bg-red-950/40 px-2.5 py-2 text-xs font-bold text-red-200 hover:bg-red-900/50 disabled:opacity-40 cursor-pointer"
+                    disabled={processando}
+                    aria-pressed={jaAtiva}
+                    onClick={() => alternarAlertaRapido(alerta.tipo)}
+                    className={`min-h-11 rounded-xl border px-2.5 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
+                      jaAtiva
+                        ? "border-red-500 bg-red-500/25 text-red-100 hover:bg-red-500/35"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white"
+                    }`}
                   >
-                    {jaAtiva ? `${alerta.rotulo} (Ativo)` : alerta.rotulo}
+                    {jaAtiva ? `${alerta.rotulo} • ATIVO` : alerta.rotulo}
                   </button>
                 );
               })}

@@ -5,7 +5,7 @@
 - **Importância**: Importante
 - **Priorização**: 2
 - **Dependências**: RF01, RF02
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Tela (Semana 3)
+- **Status**: ✅ Concluído (API na Semana 2 · Telas na Semana 3)
 
 ---
 
@@ -28,6 +28,7 @@ O sistema deve permitir consultar os logs de auditoria imutáveis e o histórico
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `GET /api/auditoria` (logs) e `GET /api/abrigos/{id}/movimentacoes` (histórico de estoque)
-- Código: `src/modules/auditoria/auditoria.service.ts`, `src/lib/auditoria.ts`
+- Código Backend: `src/modules/auditoria/auditoria.service.ts`, `src/lib/auditoria.ts`
+- Código Frontend: `src/app/admin/geral/page.tsx` (aba Auditoria) e `src/app/admin/inventario/page.tsx` (Histórico de Movimentações do Estoque)

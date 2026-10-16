@@ -6,7 +6,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: RF01, RF02
-- **Status**: ✅ API concluída (Semana 2)
+- **Status**: ✅ Concluído (API na Semana 2 · Painel na Semana 3)
 
 ---
 
@@ -22,7 +22,7 @@ O sistema deve permitir ao coordenador do abrigo definir quais itens são de nec
    - `NORMAL` (prioridade 2): Estoque em nível adequado ou estável (padrão).
    - `BLOQUEADO` (prioridade 3): Abrigo saturado deste item. Nenhum doador deve ser incentivado a enviar este item para este abrigo específico.
 3. **Item sem saldo**: um item pode ser marcado como `URGENTE` mesmo que o abrigo ainda não tenha registro dele (quantidade 0) — é justamente o caso mais comum de falta.
-4. **Estoque mínimo**: junto com o status, o coordenador define `quantidade_minima` (usada pelo alerta de estoque crítico do RF04).
+4. **Estoque mínimo e promoção automática**: junto com o status, o coordenador define `quantidade_minima` (usada pelo alerta de estoque crítico do RF04). Quando uma movimentação reduz `quantidade` para abaixo de `quantidade_minima` e o status era `NORMAL`, a trigger `fn_aplicar_movimentacao_estoque` promove automaticamente o status para `URGENTE` (sem alterar itens `BLOQUEADO`), destacando o abrigo no roteamento público de doações (RF08).
 5. **Reflexo Imediato**: A alteração é refletida nas consultas públicas da API de mapa (cache de CDN de no máximo 10 s).
 
 ---
@@ -34,6 +34,7 @@ O sistema deve permitir ao coordenador do abrigo definir quais itens são de nec
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `PATCH /api/abrigos/{id}/estoque/{itemId}` – `{ "statusNecessidade": "URGENTE", "quantidadeMinima": 20 }`
-- Código: `classificarItem` em `src/modules/estoque/estoque.service.ts`
+- Código Backend: `classificarItem` em `src/modules/estoque/estoque.service.ts` e trigger `fn_aplicar_movimentacao_estoque`
+- Código Frontend: `src/app/admin/inventario/page.tsx`, `src/app/admin/dashboard/page.tsx`

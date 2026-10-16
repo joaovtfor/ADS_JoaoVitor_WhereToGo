@@ -5,7 +5,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: RF01, RF10
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Telas (Semana 3)
+- **Status**: ✅ Concluído (API na Semana 2 · Telas na Semana 3)
 
 ---
 
@@ -31,6 +31,7 @@ O sistema deve permitir o cadastro e a manutenção dos usuários do painel inte
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `GET|POST /api/usuarios`, `GET|PATCH /api/usuarios/{id}`
-- Código: `src/modules/usuarios/usuarios.service.ts`
+- Código Backend: `src/modules/usuarios/usuarios.service.ts`
+- Código Frontend: `src/app/admin/geral/page.tsx` (aba Equipe e Acessos)

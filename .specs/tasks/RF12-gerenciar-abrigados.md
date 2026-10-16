@@ -5,7 +5,7 @@
 - **Importância**: Importante
 - **Priorização**: 2
 - **Dependências**: RF01, RF10
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Telas (a planejar nas Semanas 3-4)
+- **Status**: ✅ Concluído (API na Semana 2 · Telas na Semana 3)
 
 ---
 
@@ -15,12 +15,12 @@ O sistema deve registrar as pessoas acolhidas em cada abrigo (entrada e saída) 
 ---
 
 ## Regras de Negócio (RN)
-1. **Entrada (check-in)**: Voluntário ou Coordenador do abrigo (ou ADMIN) registra nome completo; CPF e data de nascimento são opcionais (documentos podem ter sido perdidos). CPF é validado pelos dígitos verificadores.
+1. **Entrada (check-in)**: Voluntário ou Coordenador do abrigo (ou ADMIN) registra nome completo; CPF e data de nascimento são opcionais (documentos podem ter sido perdidos). CPF é validado pelos dígitos verificadores. Opcionalmente, `descontarDaTriagem: true` converte 1 vaga previamente reservada em `acolhidos_nao_triados` em check-in nominal sem incrementar a lotação total duas vezes.
 2. **Capacidade**: abrigo lotado (`lotacao_atual >= capacidade_maxima`) ou desativado não recebe novas pessoas (`409 ABRIGO_LOTADO`).
-3. **Unicidade**: uma pessoa (CPF) não pode estar `PRESENTE` em dois abrigos. Se o CPF pertence a alguém `DESLIGADO`, o cadastro é reaproveitado (reentrada).
+3. **Unicidade e Histórico de Reentradas**: uma pessoa (CPF) não pode estar `PRESENTE` em dois abrigos (`abrigado_cpf_presente_uk`). Se o CPF pertence a alguém já `DESLIGADO`, uma **nova linha** de acolhimento é inserida com os dados cadastrais reaproveitados como sugestão, preservando integralmente o histórico de estadias anteriores (`data_entrada`/`data_saida`) e suas transferências.
 4. **Status**: `PRESENTE` ou `DESLIGADO`. Desligar (saída definitiva) é exclusivo de Coordenador/ADMIN e preenche `data_saida`.
 5. **Transferência**: Coordenador do abrigo atual (ou ADMIN) transfere um abrigado `PRESENTE` para outro abrigo **ativo e com vaga**, informando o motivo. O histórico (`TRANSFERENCIA_ABRIGADO`) é imutável e o banco garante que a origem registrada é o abrigo atual.
-6. **Lotação automática**: `ABRIGO.lotacao_atual` é recalculada por trigger em toda entrada, saída e transferência (base do RF04 e do RF06).
+6. **Lotação automática**: `ABRIGO.lotacao_atual` é recalculada por triggers (`fn_atualizar_lotacao_abrigo` e `fn_sincronizar_nao_triados_abrigo`) em toda entrada, saída, transferência e ajuste de `acolhidos_nao_triados` (base do RF04 e do RF06).
 7. **LGPD**: dados de abrigados nunca aparecem na API pública; cada coordenador vê apenas os abrigados do próprio abrigo.
 
 ---
@@ -32,7 +32,8 @@ O sistema deve registrar as pessoas acolhidas em cada abrigo (entrada e saída) 
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `GET|POST /api/abrigos/{id}/abrigados`, `GET|PATCH /api/abrigados/{id}`
 - `POST /api/abrigados/{id}/desligamento`, `GET|POST /api/abrigados/{id}/transferencias`
-- Código: `src/modules/abrigados/abrigados.service.ts`; triggers `fn_atualizar_lotacao_abrigo` e `fn_processar_transferencia_abrigado`.
+- Código Backend: `src/modules/abrigados/abrigados.service.ts`; triggers `fn_atualizar_lotacao_abrigo`, `fn_sincronizar_nao_triados_abrigo` e `fn_processar_transferencia_abrigado`.
+- Código Frontend: `src/app/admin/abrigados/page.tsx`.

@@ -7,7 +7,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: Nenhuma
-- **Status**: ✅ API concluída (Semana 1) · ⏳ Tela de login (Semana 3)
+- **Status**: ✅ Concluído (API na Semana 1 · Tela de login e Proxy na Semana 3)
 
 ---
 
@@ -24,7 +24,7 @@ O sistema deve permitir o login e controle de acesso baseado em papéis (**RBAC*
 2. **Geração de Sessão JWT**: Ao confirmar o login, o sistema lê o papel do usuário (`PAPEL_USUARIO`) e gera um token JWT (HS256) com as claims: `sub` (id), `nome`, `email`, `papel`, `idAbrigo`. O token é devolvido no corpo e gravado em cookie `httpOnly`.
 3. **Bloqueio de Inativos/Desvinculados**: O acesso é negado se o usuário estiver inativo (`USUARIO.ativo = false`) ou desvinculado de um abrigo ativo (sem abrigo ou abrigo desativado), exceto o Administrador Geral, que não pertence a abrigo.
 4. **Revalidação por requisição**: a cada chamada autenticada o usuário é relido no banco; desativação, troca de papel ou desativação do abrigo têm efeito imediato, sem esperar o token expirar.
-5. **Proteção contra força bruta**: após 10 falhas por (IP + e-mail) em 15 minutos, novas tentativas recebem `429`. A comparação de senha roda mesmo para e-mails inexistentes (tempo de resposta igual).
+5. **Proteção contra força bruta**: após 10 falhas por (IP + e-mail) ou 25 falhas por e-mail em 15 minutos, novas tentativas recebem `429`. A comparação de senha roda mesmo para e-mails inexistentes (tempo de resposta igual).
 6. **Auditoria**: login com sucesso, falha e bloqueio são registrados em `LOG_AUDITORIA` (`LOGIN_SUCESSO`, `LOGIN_FALHA`, `LOGIN_BLOQUEADO`) com IP.
 
 ---
@@ -37,8 +37,11 @@ O sistema deve permitir o login e controle de acesso baseado em papéis (**RBAC*
 
 ---
 
-## Implementação (backend)
-- `POST /api/auth/login` → `{ token, expiraEm, usuario, redirecionarPara }` + cookie `wtg_sessao`
-- `GET /api/auth/me`, `POST /api/auth/logout`, `PUT /api/auth/senha`
-- Código: `src/modules/auth/auth.service.ts`, `src/lib/auth/*` (jwt, sessão, rbac, senha)
+## Implementação
+- Backend:
+  - `POST /api/auth/login` → `{ token, expiraEm, usuario, redirecionarPara }` + cookie `wtg_sessao`
+  - `GET /api/auth/me`, `POST /api/auth/logout`, `PUT /api/auth/senha`
+  - Código: `src/modules/auth/auth.service.ts`, `src/lib/auth/*` (jwt, sessão, rbac, senha)
+- Frontend & Proteção de Rota (Semana 3):
+  - `src/app/login/page.tsx`, `src/proxy.ts`, `src/app/admin/contexto-admin.tsx`, `src/app/admin/layout.tsx`
 - Testes: `tests/integration/auth.test.ts`, `tests/e2e/api.test.ts`

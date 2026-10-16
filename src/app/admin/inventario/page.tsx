@@ -19,18 +19,46 @@ interface ItemEstoque {
   critico: boolean;
 }
 
+interface MovimentacaoEstoque {
+  id: number;
+  tipo: string;
+  quantidade: number;
+  quantidadeResultante: number;
+  dataHora: string;
+  observacao: string | null;
+  idItem: number;
+  item: string;
+  unidadeMedida: string;
+  idUsuario: number;
+  usuario: string;
+  idAbrigoContraparte: number | null;
+  abrigoContraparte: string | null;
+}
+
+interface PaginaMovimentacoes {
+  itens: MovimentacaoEstoque[];
+  paginacao: { pagina: number; tamanho: number; total: number; totalPaginas: number };
+}
+
 export default function PaginaInventario() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, abrigos } = useAdmin();
   const podeClassificar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
 
   const [itens, setItens] = useState<ItemEstoque[]>([]);
   const [incluirCatalogo, setIncluirCatalogo] = useState(true);
+  const [modoSaida, setModoSaida] = useState<"SAIDA_CONSUMO" | "PERDA">("SAIDA_CONSUMO");
   const [categoriaAtiva, setCategoriaAtiva] = useState<string>("TODAS");
   const [busca, setBusca] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupadoId, setOcupadoId] = useState<number | null>(null);
+
+  // Histórico de movimentações do abrigo (RF13)
+  const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  const [movimentacoes, setMovimentacoes] = useState<MovimentacaoEstoque[]>([]);
+  const [filtroItemHist, setFiltroItemHist] = useState<string>("");
+  const [filtroTipoHist, setFiltroTipoHist] = useState<string>("");
 
   // Modal de Ajuste Físico / Config Mínimo (Coordenador/Admin)
   const [itemConfig, setItemConfig] = useState<ItemEstoque | null>(null);
@@ -58,20 +86,45 @@ export default function PaginaInventario() {
     }
   }, [idAbrigoAtivo, incluirCatalogo]);
 
+  const carregarHistorico = useCallback(async () => {
+    if (!idAbrigoAtivo || !podeClassificar) return;
+    try {
+      const params = new URLSearchParams({ tamanho: "50" });
+      if (filtroItemHist) params.set("idItem", filtroItemHist);
+      if (filtroTipoHist) params.set("tipo", filtroTipoHist);
+      const res = await api<PaginaMovimentacoes>(
+        `/api/abrigos/${idAbrigoAtivo}/movimentacoes?${params.toString()}`,
+      );
+      setMovimentacoes(res.itens);
+    } catch (err) {
+      setErro(mensagemErro(err));
+    }
+  }, [idAbrigoAtivo, podeClassificar, filtroItemHist, filtroTipoHist]);
+
   useEffect(() => {
     void Promise.resolve().then(carregar);
   }, [carregar]);
+
+  useEffect(() => {
+    if (!mostrarHistorico) return;
+    void Promise.resolve().then(carregarHistorico);
+  }, [mostrarHistorico, carregarHistorico]);
 
   async function movimentarRapido(item: ItemEstoque, delta: number) {
     if (!idAbrigoAtivo) return;
     setOcupadoId(item.idItem);
     setErro(null);
     try {
+      const corpo: Record<string, unknown> = { quantidade: delta };
+      if (delta < 0 && modoSaida === "PERDA") {
+        corpo.tipo = "PERDA";
+        corpo.observacao = "Baixa por perda/avaria via Fast-CRUD";
+      }
       const res = await api<{ quantidadeAtual: number }>(
         `/api/abrigos/${idAbrigoAtivo}/estoque/${item.idItem}/movimentacoes`,
         {
           method: "POST",
-          body: JSON.stringify({ quantidade: delta }),
+          body: JSON.stringify(corpo),
         },
       );
       setItens((atual) =>
@@ -88,6 +141,7 @@ export default function PaginaInventario() {
           };
         }),
       );
+      if (mostrarHistorico) await carregarHistorico();
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -207,15 +261,56 @@ export default function PaginaInventario() {
           </p>
         </div>
 
-        <label className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={incluirCatalogo}
-            onChange={(e) => setIncluirCatalogo(e.target.checked)}
-            className="h-4 w-4 accent-amber-500"
-          />
-          Mostrar itens com saldo zero
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-slate-800 bg-slate-900 p-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setModoSaida("SAIDA_CONSUMO")}
+              className={`rounded-lg px-2.5 py-1.5 font-semibold transition cursor-pointer ${
+                modoSaida === "SAIDA_CONSUMO"
+                  ? "bg-amber-500 text-slate-950"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              − Saída Consumo
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoSaida("PERDA")}
+              className={`rounded-lg px-2.5 py-1.5 font-semibold transition cursor-pointer ${
+                modoSaida === "PERDA"
+                  ? "bg-red-500 text-slate-950"
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              − Baixa por Perda
+            </button>
+          </div>
+
+          <label className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={incluirCatalogo}
+              onChange={(e) => setIncluirCatalogo(e.target.checked)}
+              className="h-4 w-4 accent-amber-500"
+            />
+            Mostrar itens com saldo zero
+          </label>
+
+          {podeClassificar && (
+            <button
+              type="button"
+              onClick={() => setMostrarHistorico((v) => !v)}
+              className={`rounded-xl border px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+                mostrarHistorico
+                  ? "border-amber-500 bg-amber-500/20 text-amber-200"
+                  : "border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800"
+              }`}
+            >
+              📜 {mostrarHistorico ? "Ocultar Histórico" : "Histórico do Estoque (RF13)"}
+            </button>
+          )}
+        </div>
       </div>
 
       {erro && (
@@ -537,6 +632,100 @@ export default function PaginaInventario() {
           </div>
         </div>
       )}
+
+      {/* Histórico Imutável de Movimentações do Abrigo (RF13) */}
+      {mostrarHistorico && podeClassificar && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-white">
+                Histórico de Movimentações de Estoque (RF13)
+              </h2>
+              <p className="text-xs text-slate-400">
+                Livro-razão imutável de entradas, saídas, perdas, ajustes e transferências do abrigo.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <select
+                value={filtroItemHist}
+                onChange={(e) => setFiltroItemHist(e.target.value)}
+                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white"
+              >
+                <option value="">Todos os itens</option>
+                {itens.map((i) => (
+                  <option key={i.idItem} value={String(i.idItem)}>
+                    {i.nome}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filtroTipoHist}
+                onChange={(e) => setFiltroTipoHist(e.target.value)}
+                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white"
+              >
+                <option value="">Todos os tipos</option>
+                <option value="ENTRADA_DOACAO">ENTRADA_DOACAO</option>
+                <option value="SAIDA_CONSUMO">SAIDA_CONSUMO</option>
+                <option value="PERDA">PERDA</option>
+                <option value="AJUSTE">AJUSTE</option>
+                <option value="TRANSFERENCIA_ENTRADA">TRANSFERENCIA_ENTRADA</option>
+                <option value="TRANSFERENCIA_SAIDA">TRANSFERENCIA_SAIDA</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400">
+                  <th className="pb-2.5 font-semibold">Data / Hora</th>
+                  <th className="pb-2.5 font-semibold">Item</th>
+                  <th className="pb-2.5 font-semibold">Tipo</th>
+                  <th className="pb-2.5 font-semibold">Variação / Saldo</th>
+                  <th className="pb-2.5 font-semibold">Responsável / Obs.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70">
+                {movimentacoes.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-6 text-center text-slate-400">
+                      Nenhuma movimentação encontrada para o filtro selecionado.
+                    </td>
+                  </tr>
+                ) : (
+                  movimentacoes.map((m) => (
+                    <tr key={m.id}>
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-slate-400 font-mono">
+                        {new Date(m.dataHora).toLocaleString("pt-BR")}
+                      </td>
+                      <td className="py-2.5 pr-3 font-semibold text-white">{m.item}</td>
+                      <td className="py-2.5 pr-3">
+                        <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-amber-300">
+                          {m.tipo}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-3 font-mono">
+                        <span className={m.quantidade > 0 ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
+                          {m.quantidade > 0 ? `+${m.quantidade}` : m.quantidade}
+                        </span>{" "}
+                        <span className="text-slate-400">→ saldo {m.quantidadeResultante}</span>
+                      </td>
+                      <td className="py-2.5 text-slate-300">
+                        {m.usuario}
+                        {m.abrigoContraparte && (
+                          <span className="text-sky-300"> ({m.abrigoContraparte})</span>
+                        )}
+                        {m.observacao && <span className="text-slate-400"> • {m.observacao}</span>}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
+

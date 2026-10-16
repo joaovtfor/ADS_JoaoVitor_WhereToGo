@@ -80,6 +80,7 @@ export default function PaginaAdminGeral() {
 
   // --- Estado: Usuários (RF11) -----------------------------------------------
   const [usuarios, setUsuarios] = useState<UsuarioLista[]>([]);
+  const [usuarioEditando, setUsuarioEditando] = useState<UsuarioLista | null>(null);
   const [nomeUsuario, setNomeUsuario] = useState("");
   const [emailUsuario, setEmailUsuario] = useState("");
   const [senhaUsuario, setSenhaUsuario] = useState("");
@@ -97,6 +98,7 @@ export default function PaginaAdminGeral() {
   // --- Estado: Auditoria (RF13) ----------------------------------------------
   const [logs, setLogs] = useState<LogAuditoria[]>([]);
   const [filtroAcao, setFiltroAcao] = useState("");
+  const [filtroIdAbrigoAudit, setFiltroIdAbrigoAudit] = useState("");
   const [filtroDe, setFiltroDe] = useState("");
   const [filtroAte, setFiltroAte] = useState("");
 
@@ -127,6 +129,7 @@ export default function PaginaAdminGeral() {
     try {
       const params = new URLSearchParams({ tamanho: "80" });
       if (filtroAcao.trim()) params.set("acao", filtroAcao.trim().toUpperCase());
+      if (ehAdmin && filtroIdAbrigoAudit) params.set("idAbrigo", filtroIdAbrigoAudit);
       if (filtroDe) params.set("de", filtroDe);
       if (filtroAte) params.set("ate", filtroAte);
       const res = await api<PaginaAuditoria>(`/api/auditoria?${params.toString()}`);
@@ -134,7 +137,7 @@ export default function PaginaAdminGeral() {
     } catch (err) {
       setErro(mensagemErro(err));
     }
-  }, [filtroAcao, filtroDe, filtroAte]);
+  }, [ehAdmin, filtroAcao, filtroIdAbrigoAudit, filtroDe, filtroAte]);
 
   useEffect(() => {
     void Promise.resolve().then(() => {
@@ -212,7 +215,16 @@ export default function PaginaAdminGeral() {
     }
   }
 
-  async function criarNovoUsuario(e: FormEvent) {
+  function preencherFormUsuario(u: UsuarioLista | null) {
+    setUsuarioEditando(u);
+    setNomeUsuario(u?.nome ?? "");
+    setEmailUsuario(u?.email ?? "");
+    setSenhaUsuario("");
+    setPapelNovoUsuario(u?.papel ?? "VOLUNTARIO");
+    setIdAbrigoUsuario(u?.idAbrigo ?? usuario.idAbrigo ?? (abrigos[0]?.id ?? ""));
+  }
+
+  async function salvarUsuario(e: FormEvent) {
     e.preventDefault();
     setEnviando(true);
     setErro(null);
@@ -221,21 +233,35 @@ export default function PaginaAdminGeral() {
       const papel = ehAdmin ? papelNovoUsuario : "VOLUNTARIO";
       const idAbrigo =
         papel === "ADMIN" ? null : ehAdmin ? Number(idAbrigoUsuario) : usuario.idAbrigo;
-      await api("/api/usuarios", {
-        method: "POST",
-        body: JSON.stringify({
-          nome: nomeUsuario,
-          email: emailUsuario,
-          senha: senhaUsuario,
-          papel,
-          idAbrigo,
-        }),
-      });
-      setNomeUsuario("");
-      setEmailUsuario("");
-      setSenhaUsuario("");
+
+      if (usuarioEditando) {
+        const corpoPatch: Record<string, unknown> = { nome: nomeUsuario };
+        if (senhaUsuario.trim()) corpoPatch.senha = senhaUsuario;
+        if (ehAdmin) {
+          corpoPatch.email = emailUsuario;
+          corpoPatch.papel = papel;
+          corpoPatch.idAbrigo = idAbrigo;
+        }
+        await api(`/api/usuarios/${usuarioEditando.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(corpoPatch),
+        });
+        setAviso(`Usuário "${nomeUsuario}" atualizado.`);
+      } else {
+        await api("/api/usuarios", {
+          method: "POST",
+          body: JSON.stringify({
+            nome: nomeUsuario,
+            email: emailUsuario,
+            senha: senhaUsuario,
+            papel,
+            idAbrigo,
+          }),
+        });
+        setAviso("Usuário cadastrado com sucesso.");
+      }
+      preencherFormUsuario(null);
       await carregarUsuarios();
-      setAviso("Usuário cadastrado com sucesso.");
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -570,10 +596,25 @@ export default function PaginaAdminGeral() {
       {aba === "usuarios" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <section className="lg:col-span-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4 h-fit">
-            <h2 className="text-lg font-bold text-white">
-              {ehAdmin ? "Cadastrar Usuário" : "Cadastrar Voluntário do Abrigo"}
-            </h2>
-            <form onSubmit={criarNovoUsuario} className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">
+                {usuarioEditando
+                  ? `Editar: ${usuarioEditando.nome}`
+                  : ehAdmin
+                    ? "Cadastrar Usuário"
+                    : "Cadastrar Voluntário do Abrigo"}
+              </h2>
+              {usuarioEditando && (
+                <button
+                  type="button"
+                  onClick={() => preencherFormUsuario(null)}
+                  className="text-xs text-amber-400 hover:underline cursor-pointer"
+                >
+                  + Novo cadastro
+                </button>
+              )}
+            </div>
+            <form onSubmit={salvarUsuario} className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Nome Completo *</label>
                 <input
@@ -589,17 +630,20 @@ export default function PaginaAdminGeral() {
                 <input
                   type="email"
                   required
+                  disabled={Boolean(usuarioEditando && !ehAdmin)}
                   value={emailUsuario}
                   onChange={(e) => setEmailUsuario(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white disabled:opacity-50"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Senha Inicial (mín. 8 car.) *</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  {usuarioEditando ? "Nova Senha (deixe em branco p/ manter)" : "Senha Inicial (mín. 8 car.) *"}
+                </label>
                 <input
                   type="password"
                   minLength={8}
-                  required
+                  required={!usuarioEditando}
                   value={senhaUsuario}
                   onChange={(e) => setSenhaUsuario(e.target.value)}
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
@@ -648,7 +692,7 @@ export default function PaginaAdminGeral() {
                 disabled={enviando}
                 className="w-full min-h-11 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
               >
-                Cadastrar Conta
+                {usuarioEditando ? "Salvar Alterações" : "Cadastrar Conta"}
               </button>
             </form>
           </section>
@@ -692,14 +736,24 @@ export default function PaginaAdminGeral() {
                         </td>
                         <td className="py-3 text-right">
                           {podeAlterar && (
-                            <button
-                              type="button"
-                              disabled={enviando}
-                              onClick={() => alternarAtivoUsuario(u)}
-                              className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
-                            >
-                              {u.ativo ? "Desativar" : "Ativar"}
-                            </button>
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={enviando}
+                                onClick={() => preencherFormUsuario(u)}
+                                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={enviando}
+                                onClick={() => alternarAtivoUsuario(u)}
+                                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+                              >
+                                {u.ativo ? "Desativar" : "Ativar"}
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -830,6 +884,23 @@ export default function PaginaAdminGeral() {
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
+              {ehAdmin && (
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-0.5">Abrigo</label>
+                  <select
+                    value={filtroIdAbrigoAudit}
+                    onChange={(e) => setFiltroIdAbrigoAudit(e.target.value)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
+                  >
+                    <option value="">Todos os abrigos</option>
+                    {abrigos.map((a) => (
+                      <option key={a.id} value={String(a.id)}>
+                        {a.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-[11px] text-slate-400 mb-0.5">Código da Ação</label>
                 <input
@@ -874,7 +945,7 @@ export default function PaginaAdminGeral() {
                 <tr className="border-b border-slate-800 text-slate-400">
                   <th className="pb-2.5 font-semibold">Data / Hora</th>
                   <th className="pb-2.5 font-semibold">Ação</th>
-                  <th className="pb-2.5 font-semibold">Descrição</th>
+                  <th className="pb-2.5 font-semibold">Descrição & Detalhes</th>
                   <th className="pb-2.5 font-semibold">Autor / IP</th>
                   <th className="pb-2.5 font-semibold">Abrigo</th>
                 </tr>
@@ -890,7 +961,14 @@ export default function PaginaAdminGeral() {
                         {l.acao}
                       </span>
                     </td>
-                    <td className="py-2.5 pr-3 text-slate-200">{l.descricao}</td>
+                    <td className="py-2.5 pr-3 text-slate-200">
+                      <p>{l.descricao}</p>
+                      {l.detalhes && Object.keys(l.detalhes).length > 0 && (
+                        <p className="mt-0.5 text-[11px] font-mono text-slate-400 break-all">
+                          {JSON.stringify(l.detalhes)}
+                        </p>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3 text-slate-300">
                       {l.usuario?.nome ?? "Anônimo"}{" "}
                       {l.enderecoIp && <span className="text-slate-500 font-mono">({l.enderecoIp})</span>}

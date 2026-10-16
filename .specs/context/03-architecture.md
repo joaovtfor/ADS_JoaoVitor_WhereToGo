@@ -90,8 +90,11 @@ flowchart TD
 .docker/                    Dockerfile multi-stage + init do PostgreSQL
 db/migrations/              0001 schema · 0002 triggers · 0003 dados de referência
 scripts/                    migrate.mjs (executor de migrations) · seed.mjs (dados de desenvolvimento)
+src/proxy.ts                Proxy de borda Next.js 16 protegendo /admin/* com JWT e RBAC
+src/app/login/              Tela de login segmentado por perfil (RF01)
+src/app/admin/              Painel interno RBAC: dashboard, ocorrencias, abrigados, inventario, geral
 src/app/api/                Route Handlers (rotas REST)
-src/lib/                    db, http, validação, auditoria, auth (jwt, sessão, rbac, senha)
+src/lib/                    db, http, validação, auditoria, cliente-api, auth (jwt, sessão, rbac, senha)
 src/modules/<dominio>/      services: abrigos, estoque, abrigados, ocorrencias, catalogo, usuarios, auditoria, publico
 tests/unit|integration|e2e  Vitest (integração usa um banco PostGIS real recriado a cada execução)
 .specs/                     documentação de contexto, requisitos e tarefas

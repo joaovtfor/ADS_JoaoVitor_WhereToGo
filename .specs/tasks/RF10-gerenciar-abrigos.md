@@ -5,7 +5,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: RF01
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Telas do ADMIN (Semana 3)
+- **Status**: ✅ Concluído (API na Semana 2 · Telas na Semana 3)
 
 ---
 
@@ -17,11 +17,11 @@ O sistema deve permitir que o Administrador Geral cadastre, edite e desative abr
 ## Regras de Negócio (RN)
 1. **Cadastro**: somente `ADMIN`. Campos obrigatórios: nome, endereço, latitude, longitude e capacidade máxima (> 0). Telefone, chave PIX e titular são opcionais; chave PIX e titular são informados **juntos**.
 2. **Edição por papel**:
-   - `ADMIN`: qualquer campo, inclusive localização, chave PIX oficial e `ativo`.
-   - `COORDENADOR`: apenas telefone e capacidade máxima do próprio abrigo (a chave PIX fica com o ADMIN para evitar desvio de doações).
+   - `ADMIN`: qualquer campo, inclusive localização, chave PIX oficial, `acolhidos_nao_triados` e `ativo`.
+   - `COORDENADOR`: apenas telefone, capacidade máxima e `acolhidos_nao_triados` do próprio abrigo (a chave PIX fica com o ADMIN para evitar desvio de doações).
 3. **Capacidade**: não pode ser reduzida abaixo da lotação atual.
-4. **Desativação** (`ativo = false`) em vez de exclusão: o abrigo some do mapa público e a equipe vinculada perde o acesso. Só é permitida com o abrigo **vazio** (transferir ou desligar os abrigados antes).
-5. `lotacao_atual` e `status_infraestrutura` não são editáveis: são calculados a partir dos abrigados (RF12) e das ocorrências (RF05).
+4. **Desativação** (`ativo = false`) em vez de exclusão: o abrigo some do mapa público e a equipe vinculada perde o acesso. Só é permitida com o abrigo **vazio** (`lotacao_atual = 0`).
+5. `lotacao_atual` e `status_infraestrutura` não são editáveis diretamente: `lotacao_atual` é calculada a partir dos abrigados `PRESENTE` (RF12) + `acolhidos_nao_triados`, e `status_infraestrutura` a partir das ocorrências (RF05).
 6. Toda alteração gera log (`ABRIGO_CRIADO`, `ABRIGO_ATUALIZADO`) com os valores antes/depois.
 
 ---
@@ -33,6 +33,7 @@ O sistema deve permitir que o Administrador Geral cadastre, edite e desative abr
 
 ---
 
-## Implementação (backend)
+## Implementação
 - `GET|POST /api/abrigos`, `GET|PATCH /api/abrigos/{id}`
-- Código: `src/modules/abrigos/abrigos.service.ts`
+- Código Backend: `src/modules/abrigos/abrigos.service.ts`
+- Código Frontend: `src/app/admin/geral/page.tsx` (ADMIN) e `src/app/admin/dashboard/page.tsx` (Coordenador/ADMIN)

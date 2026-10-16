@@ -5,7 +5,7 @@
 - **Importância**: Importante
 - **Priorização**: 2
 - **Dependências**: RF01, RF02
-- **Status**: ✅ API concluída (Semana 2) · ⏳ Tela (Semana 3)
+- **Status**: ✅ Concluído (API na Semana 2 · Tela na Semana 3)
 
 ---
 
@@ -15,7 +15,7 @@ O sistema deve exibir um painel visual consolidado para o Coordenador com indica
 ---
 
 ## Regras de Negócio (RN)
-1. O dashboard calcula a taxa de lotação percentual: `(lotacao_atual / capacidade_maxima) * 100`. A `lotacao_atual` é derivada dos abrigados com status `PRESENTE` (RF12).
+1. O dashboard calcula a taxa de lotação percentual: `(lotacao_atual / capacidade_maxima) * 100`. A `lotacao_atual` é derivada dos abrigados com status `PRESENTE` (RF12) somados a `acolhidos_nao_triados` (ajuste rápido de fila de triagem).
 2. Alertas visuais de saturação:
    - Verde: < 70% ocupado
    - Amarelo: 70% a 90% ocupado
@@ -32,6 +32,7 @@ O sistema deve exibir um painel visual consolidado para o Coordenador com indica
 
 ---
 
-## Implementação (backend)
-- `GET /api/abrigos/{id}/dashboard` → `ocupacao` (percentual, nível, vagas), `acolhidos` (presentes, entradas/desligamentos/transferências nas últimas 24h), `estoque.itensCriticos` (com motivo `URGENTE` ou `ABAIXO_DO_MINIMO`), `ocorrenciasAtivas`, `ultimasMovimentacoes`.
-- Código: `obterDashboard` em `src/modules/abrigos/abrigos.service.ts`; regra de cores em `src/modules/abrigos/ocupacao.ts`.
+## Implementação
+- `GET /api/abrigos/{id}/dashboard` → `ocupacao` (percentual, nível, vagas), `acolhidos` (presentes, naoTriados, entradas/desligamentos/transferências nas últimas 24h), `estoque.itensCriticos` (com motivo `URGENTE` ou `ABAIXO_DO_MINIMO`), `ocorrenciasAtivas`, `ultimasMovimentacoes`.
+- Código Backend: `obterDashboard` em `src/modules/abrigos/abrigos.service.ts`; regra de cores em `src/modules/abrigos/ocupacao.ts`.
+- Código Frontend: `src/app/admin/dashboard/page.tsx`.
