@@ -11,7 +11,7 @@ import { compararSenha, gerarHashSenha } from "@/lib/auth/senha";
 import { auditar, registrarAuditoria } from "@/lib/auditoria";
 import { consultar, consultarUm } from "@/lib/db";
 import { ErroApi, erros } from "@/lib/http";
-import { limitadorLogin } from "@/lib/limitador";
+import { limitadorEmailLogin, limitadorLogin } from "@/lib/limitador";
 import { z } from "@/lib/validacao";
 
 /** Senha: mínimo 8 caracteres; máximo 72 bytes (limite do bcrypt). */
@@ -52,8 +52,18 @@ export interface ResultadoLogin {
  */
 export async function login(dados: z.infer<typeof esquemaLogin>, ip: string | null): Promise<ResultadoLogin> {
   const chaveLimite = `${ip ?? "desconhecido"}|${dados.email}`;
-  const espera = limitadorLogin.segundosBloqueado(chaveLimite);
+  const espera = Math.max(
+    limitadorLogin.segundosBloqueado(chaveLimite),
+    limitadorEmailLogin.segundosBloqueado(dados.email),
+  );
   if (espera > 0) {
+    registrarAuditoria({
+      acao: "LOGIN_BLOQUEADO",
+      descricao: `Tentativa de login bloqueada por limite de tentativas para ${dados.email}`,
+      idUsuario: null,
+      detalhes: { email: dados.email, motivo: "MUITAS_TENTATIVAS" },
+      ip,
+    });
     throw erros.muitasTentativas(`Muitas tentativas de login. Tente novamente em ${Math.ceil(espera / 60)} minuto(s).`);
   }
 
@@ -63,6 +73,7 @@ export async function login(dados: z.infer<typeof esquemaLogin>, ip: string | nu
 
   if (!usuario || !senhaConfere) {
     limitadorLogin.registrarFalha(chaveLimite);
+    limitadorEmailLogin.registrarFalha(dados.email);
     registrarAuditoria({
       acao: "LOGIN_FALHA",
       descricao: `Tentativa de login malsucedida para ${dados.email}`,
@@ -88,6 +99,7 @@ export async function login(dados: z.infer<typeof esquemaLogin>, ip: string | nu
   }
 
   limitadorLogin.limpar(chaveLimite);
+  limitadorEmailLogin.limpar(dados.email);
   const sessao = paraSessao(usuario);
   const { token, expiraEm } = await assinarToken(sessao);
   const abrigo = sessao.idAbrigo

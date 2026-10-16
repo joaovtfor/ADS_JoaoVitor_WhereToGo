@@ -378,7 +378,7 @@ export async function listarMovimentacoes(
     AND ($2::int IS NULL OR m.id_item = $2)
     AND ($3::text IS NULL OR m.tipo_movimentacao = $3)
     AND ($4::timestamptz IS NULL OR m.data_hora >= $4)
-    AND ($5::timestamptz IS NULL OR m.data_hora < $5)`;
+    AND ($5::text IS NULL OR m.data_hora < CASE WHEN length($5) = 10 THEN ($5::date + 1)::timestamptz ELSE $5::timestamptz END)`;
   const parametros = [idAbrigo, filtros.idItem ?? null, filtros.tipo ?? null, filtros.de ?? null, filtros.ate ?? null];
 
   const [itens, total] = await Promise.all([

@@ -2,7 +2,7 @@ import { exigirPermissao, type Contexto } from "@/lib/auth/rbac";
 import { auditar } from "@/lib/auditoria";
 import { consultar, consultarUm } from "@/lib/db";
 import { erros } from "@/lib/http";
-import { montarAtualizacao } from "@/lib/sql";
+import { escaparIlike, montarAtualizacao } from "@/lib/sql";
 import { booleanoQuery, esquemaId, textoObrigatorio, z } from "@/lib/validacao";
 
 /** "Cama e Banho" -> "cama-e-banho" */
@@ -109,6 +109,7 @@ export async function atualizarCategoria(ctx: Contexto, id: number, dados: z.inf
 
 export async function listarItens(ctx: Contexto, filtros: z.infer<typeof esquemaFiltroItens>) {
   exigirPermissao(ctx.usuario, "catalogo:ver");
+  const termo = filtros.busca ? escaparIlike(filtros.busca) : null;
   return consultar(
     `SELECT ${COLUNAS_ITEM}
        FROM item i JOIN categoria_item c ON c.id = i.id_categoria
@@ -116,7 +117,7 @@ export async function listarItens(ctx: Contexto, filtros: z.infer<typeof esquema
         AND ($2::boolean IS NULL OR i.ativo = $2)
         AND ($3::text IS NULL OR i.nome_micro ILIKE '%' || $3 || '%')
       ORDER BY c.nome_macro, i.nome_micro`,
-    [filtros.categoria || null, filtros.ativo ?? null, filtros.busca || null],
+    [filtros.categoria || null, filtros.ativo ?? null, termo],
   );
 }
 

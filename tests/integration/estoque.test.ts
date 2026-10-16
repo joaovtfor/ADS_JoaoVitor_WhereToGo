@@ -39,17 +39,18 @@ describe("RF02 - Fast-CRUD de inventário", () => {
     expect(estoque.find((e) => e.idItem === item)?.quantidade).toBe(2);
   });
 
-  it("RBAC: voluntário só altera o próprio abrigo e ADMIN não movimenta estoque", async () => {
+  it("RBAC: voluntário só altera o próprio abrigo e ADMIN pode movimentar qualquer abrigo", async () => {
     const { abrigo, admin } = await criarCenario();
     const outroAbrigo = await criarAbrigo();
     const voluntarioDeOutro = contexto(await criarUsuario("VOLUNTARIO", outroAbrigo.id));
     const item = await idItem("Sabonete");
 
     expect((await capturarErro(movimentarEstoque(voluntarioDeOutro, abrigo.id, item, { quantidade: 1 }))).status).toBe(403);
-    expect((await capturarErro(movimentarEstoque(admin, abrigo.id, item, { quantidade: 1 }))).status).toBe(403);
+    const movAdmin = await movimentarEstoque(admin, abrigo.id, item, { quantidade: 2 });
+    expect(movAdmin.quantidadeAtual).toBe(2);
   });
 
-  it("AJUSTE por contagem física é exclusivo do coordenador e calcula a diferença", async () => {
+  it("AJUSTE por contagem física é exclusivo de coordenador/admin e calcula a diferença", async () => {
     const { abrigo, coordenador, voluntario } = await criarCenario();
     const item = await idItem("Colchão");
     await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: 10 });
@@ -112,6 +113,19 @@ describe("RF03 - Status de necessidade (URGENTE / BLOQUEADO)", () => {
     const { abrigo, admin } = await criarCenario();
     const resultado = await classificarItem(admin, abrigo.id, await idItem("Cobertor"), { statusNecessidade: "BLOQUEADO" });
     expect(resultado.statusNecessidade).toBe("BLOQUEADO");
+  });
+
+  it("promove automaticamente status NORMAL para URGENTE quando saldo cai abaixo de quantidadeMinima", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario();
+    const item = await idItem("Fralda Infantil");
+
+    await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: 10 });
+    await classificarItem(coordenador, abrigo.id, item, { statusNecessidade: "NORMAL", quantidadeMinima: 5 });
+
+    // Saída que derruba saldo para 4 (< 5): promove automaticamente de NORMAL para URGENTE.
+    await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: -6 });
+    const aposQueda = (await listarEstoque(voluntario, abrigo.id, {})).find((e) => e.idItem === item);
+    expect(aposQueda).toMatchObject({ quantidade: 4, quantidadeMinima: 5, statusNecessidade: "URGENTE", critico: true });
   });
 });
 

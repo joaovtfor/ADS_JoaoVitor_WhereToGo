@@ -64,6 +64,7 @@ function ehErroPostgres(erro: unknown): erro is ErroPostgres {
 const MENSAGENS_UNICIDADE: Record<string, [codigo: string, mensagem: string]> = {
   usuario_email_uk: ["EMAIL_EM_USO", "Já existe um usuário com este e-mail."],
   abrigado_cpf_uk: ["CPF_JA_CADASTRADO", "Já existe um abrigado com este CPF."],
+  abrigado_cpf_presente_uk: ["ABRIGADO_JA_PRESENTE", "Esta pessoa (CPF) já está registrada como presente em um abrigo."],
   item_nome_uk: ["ITEM_DUPLICADO", "Já existe um item com este nome."],
   categoria_item_nome_uk: ["CATEGORIA_DUPLICADA", "Já existe uma categoria com este nome."],
   categoria_item_slug_uk: ["CATEGORIA_DUPLICADA", "Já existe uma categoria com este slug."],
@@ -85,6 +86,7 @@ const MENSAGENS_CHECK: Record<string, [status: number, codigo: string, mensagem:
     "Quantidade em estoque insuficiente: o estoque não pode ficar negativo.",
   ],
   abrigo_lotacao_ck: [409, "LOTACAO_INVALIDA", "A lotação do abrigo não pode ficar negativa."],
+  abrigo_nao_triados_ck: [409, "NAO_TRIADOS_INVALIDO", "O contador de acolhidos não triados não pode ficar negativo."],
 };
 
 export function traduzirErroBanco(erro: unknown): ErroApi | null {
@@ -171,6 +173,10 @@ export function validar<S extends z.ZodType>(schema: S, dados: unknown): z.infer
 }
 
 export async function lerCorpo<S extends z.ZodType>(req: Request, schema: S): Promise<z.infer<S>> {
+  const contentType = req.headers.get("content-type");
+  if (contentType && !contentType.toLowerCase().includes("application/json")) {
+    throw erros.requisicaoInvalida("Cabeçalho Content-Type deve ser application/json.");
+  }
   let json: unknown;
   try {
     json = await req.json();

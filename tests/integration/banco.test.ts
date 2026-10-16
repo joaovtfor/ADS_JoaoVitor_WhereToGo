@@ -92,7 +92,7 @@ describe("Banco de dados - regras de integridade", () => {
     }
   });
 
-  it("mantém a lotação do abrigo a partir dos abrigados PRESENTES", async () => {
+  it("mantém a lotação do abrigo a partir dos abrigados PRESENTES e acolhidos_nao_triados", async () => {
     const abrigo = await criarAbrigo();
     const lotacao = async () =>
       (await consultarUm<{ lotacao: number }>("SELECT lotacao_atual AS lotacao FROM abrigo WHERE id = $1", [abrigo.id]))!.lotacao;
@@ -104,8 +104,11 @@ describe("Banco de dados - regras de integridade", () => {
     await consultar("INSERT INTO abrigado (id_abrigo_atual, nome_completo) VALUES ($1, 'Pessoa B')", [abrigo.id]);
     expect(await lotacao()).toBe(2);
 
+    await consultar("UPDATE abrigo SET acolhidos_nao_triados = 3 WHERE id = $1", [abrigo.id]);
+    expect(await lotacao()).toBe(5);
+
     await consultar("UPDATE abrigado SET status_acolhimento = 'DESLIGADO', data_saida = now() WHERE id = $1", [id]);
-    expect(await lotacao()).toBe(1);
+    expect(await lotacao()).toBe(4);
   });
 
   it("transferência move o abrigado e atualiza a lotação de origem e destino", async () => {

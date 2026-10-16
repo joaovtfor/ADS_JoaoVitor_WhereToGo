@@ -52,8 +52,10 @@ describe("RBAC (RNF05)", () => {
     expect(pode(voluntario, "auditoria:ver")).toBe(false);
   });
 
-  it("ADMIN não altera estoque (RN: apenas quem pertence ao abrigo)", () => {
-    expect(pode(usuario("ADMIN"), "estoque:movimentar")).toBe(false);
+  it("ADMIN possui permissão total sobre estoque (movimentar, ajustar, transferir e classificar)", () => {
+    expect(pode(usuario("ADMIN"), "estoque:movimentar")).toBe(true);
+    expect(pode(usuario("ADMIN"), "estoque:ajustar")).toBe(true);
+    expect(pode(usuario("ADMIN"), "estoque:transferir")).toBe(true);
     expect(pode(usuario("ADMIN"), "estoque:classificar")).toBe(true);
   });
 

@@ -27,7 +27,7 @@ export async function listarLogs(ctx: Contexto, filtros: z.infer<typeof esquemaF
     AND ($2::int IS NULL OR l.id_usuario = $2)
     AND ($3::text IS NULL OR l.acao = $3)
     AND ($4::timestamptz IS NULL OR l.data_hora >= $4)
-    AND ($5::timestamptz IS NULL OR l.data_hora < $5)`;
+    AND ($5::text IS NULL OR l.data_hora < CASE WHEN length($5) = 10 THEN ($5::date + 1)::timestamptz ELSE $5::timestamptz END)`;
   const parametros = [idAbrigo, filtros.idUsuario ?? null, filtros.acao ?? null, filtros.de ?? null, filtros.ate ?? null];
 
   const [linhas, total] = await Promise.all([

@@ -3,6 +3,7 @@ import { gerarHashSenha } from "@/lib/auth/senha";
 import { auditar } from "@/lib/auditoria";
 import { comTransacao, consultar, consultarUm, type Executor } from "@/lib/db";
 import { erros } from "@/lib/http";
+import { escaparIlike } from "@/lib/sql";
 import { booleanoQuery, esquemaId, montarPagina, offset, textoObrigatorio, z, type Paginacao } from "@/lib/validacao";
 import { esquemaSenha } from "../auth/auth.service";
 
@@ -77,12 +78,13 @@ function exigirGestaoSobre(ctx: Contexto, alvo: Pick<Usuario, "papel" | "idAbrig
 export async function listarUsuarios(ctx: Contexto, filtros: z.infer<typeof esquemaFiltroUsuarios>, paginacao: Paginacao) {
   exigirPermissao(ctx.usuario, "usuario:ver");
   const idAbrigo = ctx.usuario.papel === "ADMIN" ? (filtros.idAbrigo ?? null) : ctx.usuario.idAbrigo;
+  const termo = filtros.busca ? escaparIlike(filtros.busca) : null;
 
   const where = `($1::int IS NULL OR u.id_abrigo = $1)
     AND ($2::text IS NULL OR p.nome = $2)
     AND ($3::boolean IS NULL OR u.ativo = $3)
     AND ($4::text IS NULL OR u.nome ILIKE '%' || $4 || '%' OR u.email ILIKE '%' || $4 || '%')`;
-  const parametros = [idAbrigo, filtros.papel ?? null, filtros.ativo ?? null, filtros.busca || null];
+  const parametros = [idAbrigo, filtros.papel ?? null, filtros.ativo ?? null, termo];
 
   const [itens, total] = await Promise.all([
     consultar<Usuario>(

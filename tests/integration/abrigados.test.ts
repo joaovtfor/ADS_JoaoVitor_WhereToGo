@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Contexto } from "@/lib/auth/rbac";
 import { validar } from "@/lib/http";
-import { obterAbrigo } from "@/modules/abrigos/abrigos.service";
+import { atualizarAbrigo, obterAbrigo, obterDashboard } from "@/modules/abrigos/abrigos.service";
 import {
   desligarAbrigado,
   esquemaRegistrarAbrigado,
@@ -39,7 +39,7 @@ describe("RF12 - Abrigados (acolhimento e transferências)", () => {
     expect(lotado).toMatchObject({ status: 409, codigo: "ABRIGO_LOTADO" });
   });
 
-  it("não aceita a mesma pessoa (CPF) presente duas vezes e reaproveita o cadastro na reentrada", async () => {
+  it("não aceita a mesma pessoa (CPF) presente duas vezes e preserva histórico na reentrada", async () => {
     const { abrigo, voluntario, coordenador } = await criarCenario();
     const { abrigado } = await registrarEntrada(voluntario, abrigo.id, { nomeCompleto: "Pessoa CPF", cpf: CPF_A });
     expect(abrigado.cpf).toBe("52998224725");
@@ -49,7 +49,31 @@ describe("RF12 - Abrigados (acolhimento e transferências)", () => {
 
     await desligarAbrigado(coordenador, abrigado.id, { motivo: "Retornou para casa" });
     const volta = await registrarEntrada(voluntario, abrigo.id, { nomeCompleto: "Pessoa CPF", cpf: CPF_A });
-    expect(volta).toMatchObject({ reentrada: true, abrigado: { id: abrigado.id, statusAcolhimento: "PRESENTE", dataSaida: null } });
+    expect(volta.reentrada).toBe(true);
+    expect(volta.abrigado.id).not.toBe(abrigado.id);
+    expect(volta.abrigado).toMatchObject({ statusAcolhimento: "PRESENTE", dataSaida: null });
+
+    const todos = await listarAbrigados(coordenador, abrigo.id, { status: "TODOS" }, { pagina: 1, tamanho: 10 });
+    expect(todos.itens.filter((a) => a.cpf === "52998224725")).toHaveLength(2);
+  });
+
+  it("permite ajuste rápido de acolhidos não triados e conversão em check-in nominal", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario({ capacidade: 5 });
+
+    const atualizado = await atualizarAbrigo(coordenador, abrigo.id, { acolhidosNaoTriados: 5 });
+    expect(atualizado).toMatchObject({ acolhidosNaoTriados: 5, lotacaoAtual: 5 });
+
+    // Sem descontar da triagem, o abrigo já está com 5/5 ocupados.
+    const semDesconto = await capturarErro(registrarEntrada(voluntario, abrigo.id, { nomeCompleto: "Nominal Extra" }));
+    expect(semDesconto.codigo).toBe("ABRIGO_LOTADO");
+
+    // Com descontarDaTriagem: true, converte 1 não triado em 1 nominal mantendo lotação 5/5.
+    await registrarEntrada(voluntario, abrigo.id, { nomeCompleto: "Nominal Triado", descontarDaTriagem: true });
+    const aposTriagem = await obterAbrigo(coordenador, abrigo.id);
+    expect(aposTriagem).toMatchObject({ acolhidosNaoTriados: 4, lotacaoAtual: 5 });
+
+    const dash = await obterDashboard(coordenador, abrigo.id);
+    expect(dash.acolhidos).toMatchObject({ presentes: 1, naoTriados: 4 });
   });
 
   it("desligamento libera a vaga e só pode ser feito por coordenador/admin", async () => {

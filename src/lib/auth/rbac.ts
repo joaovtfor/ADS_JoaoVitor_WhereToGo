@@ -36,9 +36,9 @@ export const PERMISSOES = {
 
   // Estoque (RF02 / RF03)
   "estoque:ver": TODOS,
-  "estoque:movimentar": ["COORDENADOR", "VOLUNTARIO"], // RN: só quem é do abrigo altera o estoque
-  "estoque:ajustar": ["COORDENADOR"], // AJUSTE de inventário físico
-  "estoque:transferir": ["COORDENADOR"],
+  "estoque:movimentar": TODOS,
+  "estoque:ajustar": ["ADMIN", "COORDENADOR"], // AJUSTE de inventário físico
+  "estoque:transferir": ["ADMIN", "COORDENADOR"],
   "estoque:classificar": ["ADMIN", "COORDENADOR"], // status URGENTE/NORMAL/BLOQUEADO e estoque mínimo
   "estoque:historico": ["ADMIN", "COORDENADOR"],
 

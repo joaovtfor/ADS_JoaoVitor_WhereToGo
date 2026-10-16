@@ -38,10 +38,10 @@ Listagens paginadas (`?pagina=1&tamanho=50`, máx. 200):
 |---|:---:|:---:|:---:|
 | Ver abrigo / estoque / ocorrências / abrigados | todos | próprio | próprio |
 | Cadastrar abrigo; editar nome, endereço, localização, **PIX**, ativo | ✅ | ❌ | ❌ |
-| Editar telefone e capacidade do abrigo | ✅ | próprio | ❌ |
+| Editar telefone, capacidade e acolhidos não triados do abrigo | ✅ | próprio | ❌ |
 | Dashboard de triagem (RF04) | ✅ | próprio | ❌ |
-| Movimentar estoque +/- (RF02) | ❌ ¹ | próprio | próprio |
-| Ajuste de inventário (AJUSTE) e transferência de itens | ❌ | próprio | ❌ |
+| Movimentar estoque +/- (RF02) | ✅ | próprio | próprio |
+| Ajuste de inventário (AJUSTE) e transferência de itens | ✅ | próprio | ❌ |
 | Status URGENTE/NORMAL/BLOQUEADO e estoque mínimo (RF03) | ✅ | próprio | ❌ |
 | Histórico de movimentações | ✅ | próprio | ❌ |
 | Registrar/resolver ocorrência de infraestrutura (RF05) | ✅ | próprio | ❌ |
@@ -50,8 +50,6 @@ Listagens paginadas (`?pagina=1&tamanho=50`, máx. 200):
 | Gerenciar catálogo (categorias/itens) | ✅ | ❌ | ❌ |
 | Gerenciar usuários | todos | voluntários do próprio abrigo | ❌ |
 | Consultar auditoria (RF13) | todos | próprio | ❌ |
-
-¹ HU02 RN1: apenas Voluntário ou Coordenador **do abrigo** alteram o estoque.
 
 ## 3. Endpoints
 

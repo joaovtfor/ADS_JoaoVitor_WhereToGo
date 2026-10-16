@@ -234,7 +234,7 @@ export async function executarSeed({ connectionString, senha, log = console.log 
         await client.query(
           `INSERT INTO abrigado (id_abrigo_atual, nome_completo, cpf, data_nascimento, data_entrada)
            VALUES ($1, $2, $3, $4, now() - (random() * interval '72 hours'))
-           ON CONFLICT (cpf) DO NOTHING`,
+           ON CONFLICT (cpf) WHERE status_acolhimento = 'PRESENTE' AND cpf IS NOT NULL DO NOTHING`,
           [idAbrigo, nome, baseCpf ? gerarCpf(baseCpf) : null, nascimento],
         );
       }

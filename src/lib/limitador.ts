@@ -23,6 +23,7 @@ export class LimitadorTentativas {
   }
 
   registrarFalha(chave: string, agora = Date.now()): void {
+    if (this.registros.size >= 5000) this.podarExpirados(agora);
     const registro = this.registros.get(chave);
     if (!registro || registro.expiraEm <= agora) {
       this.registros.set(chave, { falhas: 1, expiraEm: agora + this.janelaMs });
@@ -34,7 +35,17 @@ export class LimitadorTentativas {
   limpar(chave: string): void {
     this.registros.delete(chave);
   }
+
+  private podarExpirados(agora: number): void {
+    for (const [k, v] of this.registros) {
+      if (v.expiraEm <= agora) this.registros.delete(k);
+    }
+  }
 }
 
 /** Login: no máximo 10 falhas por (IP + e-mail) a cada 15 minutos. */
 export const limitadorLogin = new LimitadorTentativas(10, 15 * 60 * 1000);
+
+/** Proteção complementar por conta (e-mail) contra rotação/spoofing de X-Forwarded-For. */
+export const limitadorEmailLogin = new LimitadorTentativas(25, 15 * 60 * 1000);
+

@@ -2,7 +2,7 @@
 
 Plataforma de gestão de crise para abrigos emergenciais (UPF - ADS): mapa público de abrigos com vagas, necessidades e alertas, e painel interno com controle de acesso por papel (RBAC), inventário Fast-CRUD e auditoria imutável.
 
-**Estado atual:** Semanas 1 e 2 concluídas (infraestrutura, banco PostgreSQL/PostGIS e backend completo). As telas começam na Semana 3. Documentação em [`.specs/`](.specs).
+**Estado atual:** Semanas 1, 2 e 3 concluídas (infraestrutura, banco PostgreSQL/PostGIS, backend completo e Frontend Admin — Login segmentado, Dashboard de Triagem, Reporte de Infraestrutura, Gestão de Acolhidos, Inventário e Administração Geral). Documentação em [`.specs/`](.specs).
 
 ## Stack
 Next.js 16 (Route Handlers) · Node 22 · TypeScript · PostgreSQL 16 + PostGIS 3.4 · `pg` + migrations SQL · Zod · JWT (`jose`) · bcrypt · Vitest · Docker Compose

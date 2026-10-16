@@ -109,23 +109,39 @@ CREATE OR REPLACE FUNCTION fn_aplicar_movimentacao_estoque()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_saldo         INTEGER;
-    v_status_normal INTEGER;
+    v_saldo          INTEGER;
+    v_status_normal  INTEGER;
+    v_status_urgente INTEGER;
 BEGIN
+    SELECT id INTO STRICT v_status_normal  FROM status_necessidade WHERE codigo = 'NORMAL';
+    SELECT id INTO STRICT v_status_urgente FROM status_necessidade WHERE codigo = 'URGENTE';
+
     UPDATE estoque_abrigo
-       SET quantidade = quantidade + NEW.quantidade
+       SET quantidade = quantidade + NEW.quantidade,
+           -- Promove automaticamente de NORMAL para URGENTE quando o saldo cai abaixo do mínimo
+           -- (respeitando itens marcados como BLOQUEADO).
+           id_status_necessidade = CASE
+               WHEN id_status_necessidade = v_status_normal AND (quantidade + NEW.quantidade) < quantidade_minima
+                   THEN v_status_urgente
+               ELSE id_status_necessidade
+           END
      WHERE id_abrigo = NEW.id_abrigo
        AND id_item = NEW.id_item
     RETURNING quantidade INTO v_saldo;
 
     IF NOT FOUND THEN
         -- Primeira movimentação do item neste abrigo: cria o registro de estoque.
-        SELECT id INTO STRICT v_status_normal FROM status_necessidade WHERE codigo = 'NORMAL';
-
         INSERT INTO estoque_abrigo (id_abrigo, id_item, id_status_necessidade, quantidade)
         VALUES (NEW.id_abrigo, NEW.id_item, v_status_normal, NEW.quantidade)
         ON CONFLICT (id_abrigo, id_item)
-            DO UPDATE SET quantidade = estoque_abrigo.quantidade + EXCLUDED.quantidade
+            DO UPDATE SET
+                quantidade = estoque_abrigo.quantidade + EXCLUDED.quantidade,
+                id_status_necessidade = CASE
+                    WHEN estoque_abrigo.id_status_necessidade = v_status_normal
+                         AND (estoque_abrigo.quantidade + EXCLUDED.quantidade) < estoque_abrigo.quantidade_minima
+                        THEN v_status_urgente
+                    ELSE estoque_abrigo.id_status_necessidade
+                END
         RETURNING quantidade INTO v_saldo;
     END IF;
 
@@ -139,9 +155,26 @@ CREATE TRIGGER trg_movimentacao_estoque_aplicar
     FOR EACH ROW EXECUTE FUNCTION fn_aplicar_movimentacao_estoque();
 
 -- -----------------------------------------------------------------------------
--- Lotação: ABRIGO.lotacao_atual = nº de ABRIGADOs com status PRESENTE.
+-- Lotação: ABRIGO.lotacao_atual = nº de ABRIGADOs PRESENTES + acolhidos_nao_triados.
 -- Incrementos/decrementos atômicos (seguros sob concorrência).
 -- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_sincronizar_nao_triados_abrigo()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        NEW.lotacao_atual := NEW.acolhidos_nao_triados;
+    ELSIF NEW.acolhidos_nao_triados <> OLD.acolhidos_nao_triados THEN
+        NEW.lotacao_atual := OLD.lotacao_atual + (NEW.acolhidos_nao_triados - OLD.acolhidos_nao_triados);
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_abrigo_nao_triados
+    BEFORE INSERT OR UPDATE OF acolhidos_nao_triados ON abrigo
+    FOR EACH ROW EXECUTE FUNCTION fn_sincronizar_nao_triados_abrigo();
+
 CREATE OR REPLACE FUNCTION fn_atualizar_lotacao_abrigo()
 RETURNS trigger
 LANGUAGE plpgsql AS $$

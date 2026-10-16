@@ -41,22 +41,25 @@ CREATE TABLE abrigo (
                               ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
                           ) STORED,
     capacidade_maxima     INTEGER          NOT NULL,
-    -- Cache mantido por trigger a partir de ABRIGADO (status PRESENTE).
+    -- Pessoas acolhidas fisicamente no abrigo aguardando cadastro nominal (triagem em massa).
+    acolhidos_nao_triados INTEGER          NOT NULL DEFAULT 0,
+    -- Cache mantido por trigger: nº de ABRIGADOs (status PRESENTE) + acolhidos_nao_triados.
     lotacao_atual         INTEGER          NOT NULL DEFAULT 0,
     -- Resumo mantido por trigger a partir de OCORRENCIA_INFRAESTRUTURA ativas.
     status_infraestrutura VARCHAR(10)      NOT NULL DEFAULT 'NORMAL',
     ativo                 BOOLEAN          NOT NULL DEFAULT TRUE,
     criado_em             TIMESTAMPTZ      NOT NULL DEFAULT now(),
     atualizado_em         TIMESTAMPTZ      NOT NULL DEFAULT now(),
-    CONSTRAINT abrigo_nome_ck       CHECK (length(btrim(nome)) > 0),
-    CONSTRAINT abrigo_endereco_ck   CHECK (length(btrim(endereco)) > 0),
-    CONSTRAINT abrigo_latitude_ck   CHECK (latitude BETWEEN -90 AND 90),
-    CONSTRAINT abrigo_longitude_ck  CHECK (longitude BETWEEN -180 AND 180),
-    CONSTRAINT abrigo_capacidade_ck CHECK (capacidade_maxima > 0),
-    CONSTRAINT abrigo_lotacao_ck    CHECK (lotacao_atual >= 0),
+    CONSTRAINT abrigo_nome_ck        CHECK (length(btrim(nome)) > 0),
+    CONSTRAINT abrigo_endereco_ck    CHECK (length(btrim(endereco)) > 0),
+    CONSTRAINT abrigo_latitude_ck    CHECK (latitude BETWEEN -90 AND 90),
+    CONSTRAINT abrigo_longitude_ck   CHECK (longitude BETWEEN -180 AND 180),
+    CONSTRAINT abrigo_capacidade_ck  CHECK (capacidade_maxima > 0),
+    CONSTRAINT abrigo_nao_triados_ck CHECK (acolhidos_nao_triados >= 0),
+    CONSTRAINT abrigo_lotacao_ck     CHECK (lotacao_atual >= 0),
     CONSTRAINT abrigo_status_infraestrutura_ck
         CHECK (status_infraestrutura IN ('NORMAL', 'ALERTA', 'CRITICO')),
-    CONSTRAINT abrigo_pix_ck        CHECK ((chave_pix IS NULL) = (titular_pix IS NULL))
+    CONSTRAINT abrigo_pix_ck         CHECK ((chave_pix IS NULL) = (titular_pix IS NULL))
 );
 
 CREATE INDEX abrigo_localizacao_gix ON abrigo USING GIST (localizacao);
@@ -210,7 +213,6 @@ CREATE TABLE abrigado (
     criado_em          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     atualizado_em      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT abrigado_abrigo_fk FOREIGN KEY (id_abrigo_atual) REFERENCES abrigo (id),
-    CONSTRAINT abrigado_cpf_uk    UNIQUE (cpf),
     CONSTRAINT abrigado_cpf_ck    CHECK (cpf ~ '^[0-9]{11}$'),
     CONSTRAINT abrigado_nome_ck   CHECK (length(btrim(nome_completo)) > 0),
     CONSTRAINT abrigado_status_ck CHECK (status_acolhimento IN ('PRESENTE', 'DESLIGADO')),
@@ -220,6 +222,12 @@ CREATE TABLE abrigado (
     )
 );
 
+-- Uma mesma pessoa (CPF) não pode estar PRESENTE duas vezes simultaneamente, mas
+-- pode ter múltiplas estadias ao longo do tempo (preservando o histórico).
+CREATE UNIQUE INDEX abrigado_cpf_presente_uk
+    ON abrigado (cpf)
+    WHERE status_acolhimento = 'PRESENTE' AND cpf IS NOT NULL;
+CREATE INDEX abrigado_cpf_ix ON abrigado (cpf) WHERE cpf IS NOT NULL;
 CREATE INDEX abrigado_abrigo_status_ix ON abrigado (id_abrigo_atual, status_acolhimento);
 
 -- Histórico de transferências entre abrigos. Append-only.

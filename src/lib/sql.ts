@@ -21,3 +21,9 @@ export function montarAtualizacao(
 
   return { sets, valores };
 }
+
+/** Escapa curingas (%, _, \) para buscas literais com LIKE/ILIKE. */
+export function escaparIlike(termo: string): string {
+  return termo.replace(/[\\%_]/g, "\\$&");
+}
+

@@ -216,7 +216,8 @@ erDiagram
 | latitude / longitude | DOUBLE PRECISION | -90..90 / -180..180 |
 | localizacao | GEOGRAPHY(POINT,4326) | gerada (STORED) de lat/lng; índice GiST `abrigo_localizacao_gix` |
 | capacidade_maxima | INTEGER | > 0 |
-| lotacao_atual | INTEGER | ≥ 0; **trigger** (abrigados PRESENTES) |
+| lotacao_atual | INTEGER | ≥ 0; **trigger** (abrigados PRESENTES + `acolhidos_nao_triados`) |
+| acolhidos_nao_triados | INTEGER | ≥ 0; contador de acolhidos ainda sem check-in nominal (ajuste rápido pelo coordenador/admin) |
 | status_infraestrutura | VARCHAR(10) | NORMAL / ALERTA / CRITICO; **trigger** (ocorrências ativas) |
 | ativo | BOOLEAN | default TRUE; inativo some do mapa e bloqueia login da equipe do abrigo |
 | criado_em / atualizado_em | TIMESTAMPTZ | `atualizado_em` por trigger |
@@ -241,7 +242,7 @@ erDiagram
 | item.ativo | BOOLEAN | item inativo não recebe entradas nem aparece no mapa |
 | status_necessidade.codigo | VARCHAR(20) | UNIQUE: URGENTE (1), NORMAL (2), BLOQUEADO (3) |
 | estoque_abrigo.quantidade | INTEGER | ≥ 0; só muda via movimentação (trigger) |
-| estoque_abrigo.quantidade_minima | INTEGER | ≥ 0; abaixo dela o item é "crítico" no dashboard |
+| estoque_abrigo.quantidade_minima | INTEGER | ≥ 0; quando uma movimentação reduz `quantidade < quantidade_minima`, o status `NORMAL` é promovido automaticamente para `URGENTE` |
 
 ### 3.4. `movimentacao_estoque` (append-only)
 | Coluna | Tipo | Regras |
@@ -254,7 +255,7 @@ erDiagram
 ### 3.5. `abrigado` / `transferencia_abrigado`
 | Coluna | Tipo | Regras |
 |---|---|---|
-| abrigado.cpf | VARCHAR(11) | UNIQUE, somente dígitos; validação dos dígitos verificadores na API |
+| abrigado.cpf | VARCHAR(11) | UNIQUE parcial (`WHERE status_acolhimento = 'PRESENTE'`), preservando o histórico de estadias anteriores (`DESLIGADO`); validação dos dígitos verificadores na API |
 | abrigado.status_acolhimento | VARCHAR(15) | PRESENTE / DESLIGADO; `data_saida` preenchida **se e somente se** DESLIGADO |
 | transferencia_abrigado.motivo | VARCHAR(500) | obrigatório |
 | transferencia_abrigado (origem/destino) | INTEGER | origem ≠ destino; a origem deve ser o abrigo atual (trigger, erro `WTG03`) |
@@ -285,8 +286,9 @@ erDiagram
 | `fn_definir_atualizado_em` | abrigo, usuario, abrigado, estoque_abrigo | mantém `atualizado_em` |
 | `fn_bloquear_alteracao_imutavel` | log_auditoria, movimentacao_estoque, transferencia_abrigado | bloqueia UPDATE/DELETE/TRUNCATE (`WTG01`) |
 | `fn_validar_vinculo_usuario` | usuario | ADMIN sem abrigo; demais com abrigo (`WTG02`) |
-| `fn_aplicar_movimentacao_estoque` | movimentacao_estoque | aplica o delta no saldo (cria o registro de estoque se preciso) e grava `quantidade_resultante` |
+| `fn_aplicar_movimentacao_estoque` | movimentacao_estoque | aplica o delta no saldo, promove `NORMAL -> URGENTE` se `quantidade < quantidade_minima` e grava `quantidade_resultante` |
 | `fn_atualizar_lotacao_abrigo` | abrigado | incrementa/decrementa `abrigo.lotacao_atual` (entrada, saída, transferência) |
+| `fn_sincronizar_nao_triados_abrigo` | abrigo | atualiza `abrigo.lotacao_atual` quando `acolhidos_nao_triados` é ajustado |
 | `fn_processar_transferencia_abrigado` | transferencia_abrigado | valida origem/status (`WTG03`) e move o abrigado para o destino |
 | `fn_atualizar_status_infraestrutura` | ocorrencia_infraestrutura | recalcula `abrigo.status_infraestrutura` (pior gravidade ativa) |
 

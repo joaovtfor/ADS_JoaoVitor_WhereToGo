@@ -4,7 +4,7 @@ import { auditar } from "@/lib/auditoria";
 import { cpfValido, normalizarCpf } from "@/lib/cpf";
 import { comTransacao, consultar, consultarUm, type Executor } from "@/lib/db";
 import { erros } from "@/lib/http";
-import { montarAtualizacao } from "@/lib/sql";
+import { escaparIlike, montarAtualizacao } from "@/lib/sql";
 import { esquemaId, montarPagina, offset, textoObrigatorio, textoOpcional, z, type Paginacao } from "@/lib/validacao";
 import type { StatusAcolhimento } from "../dominio";
 
@@ -23,13 +23,19 @@ const esquemaDataNascimento = z.iso
   .date("Data de nascimento inválida (use AAAA-MM-DD).")
   .refine((d) => d <= new Date().toISOString().slice(0, 10), "A data de nascimento não pode estar no futuro.");
 
-export const esquemaRegistrarAbrigado = z.object({
+const camposDadosAbrigado = {
   nomeCompleto: textoObrigatorio(150),
   cpf: esquemaCpf.nullish(),
   dataNascimento: esquemaDataNascimento.nullish(),
+};
+
+export const esquemaRegistrarAbrigado = z.object({
+  ...camposDadosAbrigado,
+  descontarDaTriagem: z.boolean().optional(),
 });
 
-export const esquemaAtualizarAbrigado = esquemaRegistrarAbrigado
+export const esquemaAtualizarAbrigado = z
+  .object(camposDadosAbrigado)
   .partial()
   .refine((d) => Object.values(d).some((v) => v !== undefined), "Informe ao menos um campo para atualizar.");
 
@@ -91,19 +97,23 @@ interface AbrigoParaEntrada {
   ativo: boolean;
   capacidadeMaxima: number;
   lotacaoAtual: number;
+  acolhidosNaoTriados: number;
 }
 
 /** Bloqueia o abrigo (FOR UPDATE) e valida se ele pode receber mais uma pessoa. */
-async function exigirVaga(idAbrigo: number, client: PoolClient): Promise<AbrigoParaEntrada> {
+async function exigirVaga(idAbrigo: number, client: PoolClient, descontarDaTriagem = false): Promise<AbrigoParaEntrada> {
   const abrigo = await consultarUm<AbrigoParaEntrada>(
-    `SELECT id, nome, ativo, capacidade_maxima AS "capacidadeMaxima", lotacao_atual AS "lotacaoAtual"
+    `SELECT id, nome, ativo, capacidade_maxima AS "capacidadeMaxima", lotacao_atual AS "lotacaoAtual",
+            acolhidos_nao_triados AS "acolhidosNaoTriados"
        FROM abrigo WHERE id = $1 FOR UPDATE`,
     [idAbrigo],
     client,
   );
   if (!abrigo) throw erros.naoEncontrado("Abrigo");
   if (!abrigo.ativo) throw erros.conflito("ABRIGO_INATIVO", `O abrigo "${abrigo.nome}" está desativado.`);
-  if (abrigo.lotacaoAtual >= abrigo.capacidadeMaxima) {
+
+  const substituindoTriagem = descontarDaTriagem && abrigo.acolhidosNaoTriados > 0;
+  if (!substituindoTriagem && abrigo.lotacaoAtual >= abrigo.capacidadeMaxima) {
     throw erros.conflito("ABRIGO_LOTADO", `O abrigo "${abrigo.nome}" está lotado (${abrigo.lotacaoAtual}/${abrigo.capacidadeMaxima}).`, {
       capacidadeMaxima: abrigo.capacidadeMaxima,
       lotacaoAtual: abrigo.lotacaoAtual,
@@ -125,10 +135,11 @@ export async function listarAbrigados(
   exigirPermissao(ctx.usuario, "abrigado:ver", idAbrigo);
 
   const cpfBusca = filtros.busca ? normalizarCpf(filtros.busca) : "";
+  const termo = filtros.busca ? escaparIlike(filtros.busca) : null;
   const where = `ab.id_abrigo_atual = $1
     AND ($2::text = 'TODOS' OR ab.status_acolhimento = $2)
     AND ($3::text IS NULL OR ab.nome_completo ILIKE '%' || $3 || '%' OR ($4::text <> '' AND ab.cpf LIKE $4 || '%'))`;
-  const parametros = [idAbrigo, filtros.status, filtros.busca || null, cpfBusca];
+  const parametros = [idAbrigo, filtros.status, termo, cpfBusca];
 
   const [itens, total] = await Promise.all([
     consultar<Abrigado>(
@@ -146,35 +157,38 @@ export function obterAbrigado(ctx: Contexto, id: number): Promise<Abrigado> {
 }
 
 /**
- * Check-in no abrigo. Se o CPF já pertence a alguém DESLIGADO, o cadastro é
- * reaproveitado (reentrada); se a pessoa já está PRESENTE em algum abrigo, a
- * entrada é recusada. Abrigo lotado ou desativado não recebe novas pessoas.
+ * Check-in no abrigo. Se o CPF já pertence a alguém DESLIGADO, a entrada cria
+ * um novo registro preservando o histórico de estadias anteriores (`reentrada: true`);
+ * se a pessoa já está PRESENTE em algum abrigo, a entrada é recusada.
+ * Quando `descontarDaTriagem: true` e o abrigo possui `acolhidosNaoTriados > 0`,
+ * converte 1 acolhido não triado em check-in nominal sem aumentar a lotação total.
  */
 export async function registrarEntrada(ctx: Contexto, idAbrigo: number, dados: z.infer<typeof esquemaRegistrarAbrigado>) {
   exigirPermissao(ctx.usuario, "abrigado:registrar", idAbrigo);
 
   const { abrigado, reentrada, abrigo } = await comTransacao(async (client) => {
-    const abrigo = await exigirVaga(idAbrigo, client);
+    const abrigo = await exigirVaga(idAbrigo, client, dados.descontarDaTriagem);
+    let reentrada = false;
 
     if (dados.cpf) {
-      const existente = await consultarUm<{ id: number; status: StatusAcolhimento }>(
-        `SELECT id, status_acolhimento AS status FROM abrigado WHERE cpf = $1 FOR UPDATE`,
+      const presentes = await consultar<{ id: number }>(
+        `SELECT id FROM abrigado WHERE cpf = $1 AND status_acolhimento = 'PRESENTE' FOR UPDATE`,
         [dados.cpf],
         client,
       );
-      if (existente?.status === "PRESENTE") {
+      if (presentes.length > 0) {
         throw erros.conflito("ABRIGADO_JA_PRESENTE", "Esta pessoa (CPF) já está registrada como presente em um abrigo.");
       }
-      if (existente) {
-        await client.query(
-          `UPDATE abrigado
-              SET id_abrigo_atual = $2, status_acolhimento = 'PRESENTE', data_entrada = now(), data_saida = NULL,
-                  nome_completo = $3, data_nascimento = COALESCE($4, data_nascimento)
-            WHERE id = $1`,
-          [existente.id, idAbrigo, dados.nomeCompleto, dados.dataNascimento ?? null],
-        );
-        return { abrigado: (await buscarAbrigado(existente.id, client))!, reentrada: true, abrigo };
-      }
+      const anterior = await consultarUm<{ id: number }>(
+        `SELECT id FROM abrigado WHERE cpf = $1 AND status_acolhimento = 'DESLIGADO' LIMIT 1`,
+        [dados.cpf],
+        client,
+      );
+      reentrada = Boolean(anterior);
+    }
+
+    if (dados.descontarDaTriagem && abrigo.acolhidosNaoTriados > 0) {
+      await client.query(`UPDATE abrigo SET acolhidos_nao_triados = acolhidos_nao_triados - 1 WHERE id = $1`, [idAbrigo]);
     }
 
     const novo = await consultarUm<{ id: number }>(
@@ -182,7 +196,7 @@ export async function registrarEntrada(ctx: Contexto, idAbrigo: number, dados: z
       [idAbrigo, dados.nomeCompleto, dados.cpf ?? null, dados.dataNascimento ?? null],
       client,
     );
-    return { abrigado: (await buscarAbrigado(novo!.id, client))!, reentrada: false, abrigo };
+    return { abrigado: (await buscarAbrigado(novo!.id, client))!, reentrada, abrigo };
   });
 
   auditar(ctx, {
@@ -198,9 +212,14 @@ const COLUNAS_EDITAVEIS = { nomeCompleto: "nome_completo", cpf: "cpf", dataNasci
 
 export async function atualizarAbrigado(ctx: Contexto, id: number, dados: z.infer<typeof esquemaAtualizarAbrigado>) {
   const atual = await obterComPermissao(ctx, id, "abrigado:editar");
-  const { sets, valores } = montarAtualizacao(dados, COLUNAS_EDITAVEIS, 2);
-  await consultar(`UPDATE abrigado SET ${sets.join(", ")} WHERE id = $1`, [id, ...valores]);
-  const atualizado = (await buscarAbrigado(id))!;
+  const atualizado = await comTransacao(async (client) => {
+    const travado = await buscarAbrigado(id, client, true);
+    if (!travado) throw erros.naoEncontrado("Abrigado");
+    exigirPermissao(ctx.usuario, "abrigado:editar", travado.idAbrigoAtual);
+    const { sets, valores } = montarAtualizacao(dados, COLUNAS_EDITAVEIS, 2);
+    await client.query(`UPDATE abrigado SET ${sets.join(", ")} WHERE id = $1`, [id, ...valores]);
+    return (await buscarAbrigado(id, client))!;
+  });
 
   auditar(ctx, {
     acao: "ABRIGADO_ATUALIZADO",
