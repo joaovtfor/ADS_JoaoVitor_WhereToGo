@@ -164,14 +164,36 @@ describe.skipIf(!BASE)("API HTTP (e2e)", () => {
       expect(jsonQuebrado.status).toBe(400);
     });
 
-    it("voluntário não altera status de necessidade (RF03)", async () => {
+    it("voluntário não altera status de necessidade (RF03), mas registra PERDA e ADMIN opera estoque", async () => {
       const { status } = await api(`/api/abrigos/${voluntario.idAbrigo}/estoque/${idAgua}`, {
         method: "PATCH",
         token: voluntario.token,
         json: { statusNecessidade: "BLOQUEADO" },
       });
       expect(status).toBe(403);
+
+      const caminho = `/api/abrigos/${voluntario.idAbrigo}/estoque/${idAgua}/movimentacoes`;
+      const entradaAdmin = await api(caminho, {
+        method: "POST",
+        token: admin.token,
+        json: { quantidade: 5, observacao: "Reforço via ADMIN" },
+      });
+      expect(entradaAdmin.status).toBe(201);
+
+      const perdaVol = await api(caminho, {
+        method: "POST",
+        token: voluntario.token,
+        json: { quantidade: -1, tipo: "PERDA", observacao: "Embalagem rompida" },
+      });
+      expect(perdaVol.status).toBe(201);
+      expect(perdaVol.corpo.dados.movimentacao.tipo).toBe("PERDA");
     });
+  });
+
+  it("proxy de borda redireciona /admin/inventario sem sessão para /login", async () => {
+    const res = await fetch(`${BASE}/admin/inventario`, { redirect: "manual" });
+    expect([307, 308]).toContain(res.status);
+    expect(res.headers.get("location")).toContain("/login");
   });
 
   it("logout remove o cookie de sessão", async () => {
@@ -180,3 +202,4 @@ describe.skipIf(!BASE)("API HTTP (e2e)", () => {
     expect(headers.get("set-cookie")).toMatch(/wtg_sessao=;/);
   });
 });
+

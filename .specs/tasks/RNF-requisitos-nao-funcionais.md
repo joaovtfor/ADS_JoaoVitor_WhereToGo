@@ -44,6 +44,8 @@ Conforme definido na Seção 1.3.2 do Documento de Visão do Produto:
 - **Critérios de Verificação**:
   - Alvos de toque grandes (mínimo de 48x48px no mobile).
   - Atualização com feedback tátil/visual imediato sem refresh de página.
+- **Implementação (Semanas 3-4)**:
+  - `src/app/admin/inventario/page.tsx`: botões de toque `>= 48px` (`min-h-12`), atualização otimista instantânea com fila sequencial por item (`filasPorItemRef`), feedback tátil (`navigator.vibrate`), modal de Lote Rápido sem teclado virtual (`+10/+20/+50/+100`) e faixa de "Últimos Toques" com estorno em 1 toque (`↩ Desfazer`).
 
 ---
 
@@ -53,4 +55,4 @@ Conforme definido na Seção 1.3.2 do Documento de Visão do Produto:
 - **Critérios de Verificação**:
   - Validação de papel (`ADMIN`, `COORDENADOR`, `VOLUNTARIO`) em middlewares de rota e handlers de API.
   - Voluntário não tem acesso a dashboards de triagem, edição de dados do abrigo ou exclusões.
-- **Implementação**: matriz única de permissões em `src/lib/auth/rbac.ts` (`PERMISSOES`), verificada nos services junto com o escopo do abrigo do usuário (COORDENADOR/VOLUNTARIO só acessam o próprio abrigo). Matriz documentada em `.specs/context/06-api.md`. O usuário é revalidado no banco a cada requisição.
+- **Implementação**: matriz única de permissões em `src/lib/auth/rbac.ts` (`PERMISSOES`), verificada nos services junto com o escopo do abrigo do usuário (COORDENADOR/VOLUNTARIO só acessam o próprio abrigo), e proteção de rotas na borda via `src/proxy.ts` (Next.js 16 Proxy). Matriz documentada em `.specs/context/06-api.md`. O usuário é revalidado no banco a cada requisição.

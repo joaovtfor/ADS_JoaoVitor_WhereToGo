@@ -7,7 +7,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: RF01
-- **Status**: ✅ Concluído (API na Semana 2 · Interface touch Fast-CRUD na Semana 3)
+- **Status**: ✅ Concluído (API na Semana 2 · Interface touch Fast-CRUD nas Semanas 3-4)
 
 ---
 

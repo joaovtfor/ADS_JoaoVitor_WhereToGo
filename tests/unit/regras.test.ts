@@ -1,7 +1,9 @@
+import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { assinarToken, verificarToken } from "@/lib/auth/jwt";
 import { exigirPermissao, pode, PERMISSOES, type Papel, type UsuarioSessao } from "@/lib/auth/rbac";
 import { motivoBloqueio } from "@/lib/auth/acesso";
+import { COOKIE_SESSAO } from "@/lib/auth/sessao";
 import { cpfValido, normalizarCpf } from "@/lib/cpf";
 import { ErroApi, traduzirErroBanco, validar } from "@/lib/http";
 import { LimitadorTentativas } from "@/lib/limitador";
@@ -9,6 +11,7 @@ import { montarAtualizacao } from "@/lib/sql";
 import { linksNavegacao, resumirOcupacao } from "@/modules/abrigos/ocupacao";
 import { gerarSlug } from "@/modules/catalogo/catalogo.service";
 import { esquemaMovimentacao } from "@/modules/estoque/estoque.service";
+import { proxy } from "@/proxy";
 
 const usuario = (papel: Papel, idAbrigo: number | null = 1): UsuarioSessao => ({
   id: 1,
@@ -76,6 +79,45 @@ describe("RBAC (RNF05)", () => {
     expect(motivoBloqueio({ ...base, papel: "COORDENADOR", idAbrigo: null, abrigoAtivo: null })).toBe("SEM_VINCULO_ABRIGO");
     expect(motivoBloqueio({ ...base, papel: "COORDENADOR", abrigoAtivo: false })).toBe("ABRIGO_INATIVO");
     expect(motivoBloqueio({ ativo: true, papel: "ADMIN", idAbrigo: null, abrigoAtivo: null })).toBeNull();
+  });
+});
+
+describe("Proxy de borda Next.js 16 (RF01 / RNF05)", () => {
+  it("redireciona para /login sem cookie ou com token inválido", async () => {
+    const semCookie = await proxy(new NextRequest("http://localhost:3000/admin/inventario"));
+    expect(semCookie.headers.get("location")).toBe("http://localhost:3000/login");
+
+    const reqInvalido = new NextRequest("http://localhost:3000/admin/dashboard", {
+      headers: { cookie: `${COOKIE_SESSAO}=token-invalido` },
+    });
+    const resInvalido = await proxy(reqInvalido);
+    expect(resInvalido.headers.get("location")).toBe("http://localhost:3000/login");
+  });
+
+  it("redireciona /admin para a rota inicial do papel e isola VOLUNTARIO no Fast-CRUD", async () => {
+    const { token: tokenVol } = await assinarToken(usuario("VOLUNTARIO", 1));
+    const { token: tokenCoord } = await assinarToken(usuario("COORDENADOR", 1));
+
+    const raizCoord = await proxy(
+      new NextRequest("http://localhost:3000/admin", {
+        headers: { cookie: `${COOKIE_SESSAO}=${tokenCoord}` },
+      }),
+    );
+    expect(raizCoord.headers.get("location")).toBe("http://localhost:3000/admin/dashboard");
+
+    const volNoDashboard = await proxy(
+      new NextRequest("http://localhost:3000/admin/dashboard", {
+        headers: { cookie: `${COOKIE_SESSAO}=${tokenVol}` },
+      }),
+    );
+    expect(volNoDashboard.headers.get("location")).toBe("http://localhost:3000/admin/inventario");
+
+    const volNoInventario = await proxy(
+      new NextRequest("http://localhost:3000/admin/inventario", {
+        headers: { cookie: `${COOKIE_SESSAO}=${tokenVol}` },
+      }),
+    );
+    expect(volNoInventario.headers.get("location")).toBeNull();
   });
 });
 
@@ -148,3 +190,4 @@ describe("Utilitários", () => {
     expect(traduzirErroBanco(new Error("qualquer"))).toBeNull();
   });
 });
+

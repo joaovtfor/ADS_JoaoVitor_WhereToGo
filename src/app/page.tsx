@@ -25,7 +25,7 @@ export default function Home() {
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-6 py-12">
         <div className="space-y-3">
           <span className="inline-block rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-300">
-            Marco Concluído: Semanas 1, 2 e 3 (Infra + Backend + Painel Administrativo)
+            Marco Concluído: Semanas 1 a 4 (Infra + Backend + Painel Admin & Fast-CRUD Touch)
           </span>
           <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
             Coordenação em Tempo Real para Abrigos de Emergência
