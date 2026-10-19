@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
-import { useAdmin } from "../contexto-admin";
+import { ToastFlutuante, useAdmin } from "../contexto-admin";
 
 interface Abrigado {
   id: number;
@@ -32,6 +32,12 @@ interface TransferenciaHistorico {
   usuario: string;
 }
 
+const MOTIVOS_SAIDA_RAPIDOS = [
+  "Retorno para residência",
+  "Acolhido por familiares",
+  "Encaminhamento hospitalar / social",
+];
+
 function formatarCpf(cpf: string | null): string {
   if (!cpf || cpf.length !== 11) return cpf ?? "Sem documento";
   return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
@@ -40,10 +46,12 @@ function formatarCpf(cpf: string | null): string {
 export default function PaginaAbrigados() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, abrigos, recarregarAbrigos } = useAdmin();
   const podeGerenciar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
+  const somenteLeitura = abrigoAtivo ? !abrigoAtivo.ativo : false;
 
   const [dados, setDados] = useState<PaginaAbrigados | null>(null);
   const [statusFiltro, setStatusFiltro] = useState<"PRESENTE" | "DESLIGADO" | "TODOS">("PRESENTE");
-  const [busca, setBusca] = useState("");
+  const [buscaInput, setBuscaInput] = useState("");
+  const [buscaDebounced, setBuscaDebounced] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -54,6 +62,10 @@ export default function PaginaAbrigados() {
   const [cpf, setCpf] = useState("");
   const [dataNascimento, setDataNascimento] = useState("");
   const [descontarDaTriagem, setDescontarDaTriagem] = useState(true);
+
+  // Modal de Confirmação de Saída (prevenção de toque acidental)
+  const [alvoSaida, setAlvoSaida] = useState<Abrigado | null>(null);
+  const [motivoSaida, setMotivoSaida] = useState(MOTIVOS_SAIDA_RAPIDOS[0]);
 
   // Modal de Transferência / Histórico
   const [alvoTransferencia, setAlvoTransferencia] = useState<Abrigado | null>(null);
@@ -69,11 +81,19 @@ export default function PaginaAbrigados() {
   const [cpfEdicao, setCpfEdicao] = useState("");
   const [nascimentoEdicao, setNascimentoEdicao] = useState("");
 
+  // Debounce de 300ms na busca textual para preservar banda 3G (RNF01)
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setBuscaDebounced(buscaInput.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [buscaInput]);
+
   const carregar = useCallback(async () => {
     if (!idAbrigoAtivo) return;
     try {
       const params = new URLSearchParams({ status: statusFiltro, tamanho: "100" });
-      if (busca.trim()) params.set("busca", busca.trim());
+      if (buscaDebounced) params.set("busca", buscaDebounced);
       const res = await api<PaginaAbrigados>(`/api/abrigos/${idAbrigoAtivo}/abrigados?${params.toString()}`);
       setDados(res);
       setErro(null);
@@ -82,7 +102,7 @@ export default function PaginaAbrigados() {
     } finally {
       setCarregando(false);
     }
-  }, [idAbrigoAtivo, statusFiltro, busca]);
+  }, [idAbrigoAtivo, statusFiltro, buscaDebounced]);
 
   useEffect(() => {
     void Promise.resolve().then(carregar);
@@ -90,10 +110,9 @@ export default function PaginaAbrigados() {
 
   async function registrarCheckin(e: FormEvent) {
     e.preventDefault();
-    if (!idAbrigoAtivo) return;
+    if (!idAbrigoAtivo || somenteLeitura) return;
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
       const res = await api<{ abrigado: Abrigado; reentrada: boolean }>(
         `/api/abrigos/${idAbrigoAtivo}/abrigados`,
@@ -113,7 +132,7 @@ export default function PaginaAbrigados() {
       await Promise.all([carregar(), recarregarAbrigos()]);
       setAviso(
         res.reentrada
-          ? `Reentrada registrada para ${res.abrigado.nomeCompleto} (histórico anterior preservado).`
+          ? `Reentrada registrada para ${res.abrigado.nomeCompleto}.`
           : `Check-in de ${res.abrigado.nomeCompleto} concluído.`,
       );
     } catch (err) {
@@ -123,17 +142,20 @@ export default function PaginaAbrigados() {
     }
   }
 
-  async function desligar(abrigado: Abrigado) {
+  async function confirmarSaida(e: FormEvent) {
+    e.preventDefault();
+    if (!alvoSaida || somenteLeitura) return;
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
-      await api(`/api/abrigados/${abrigado.id}/desligamento`, {
+      await api(`/api/abrigados/${alvoSaida.id}/desligamento`, {
         method: "POST",
-        body: JSON.stringify({ motivo: "Saída registrada no painel" }),
+        body: JSON.stringify({ motivo: motivoSaida.trim() || "Saída registrada no painel" }),
       });
+      const nome = alvoSaida.nomeCompleto;
+      setAlvoSaida(null);
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`Saída de ${abrigado.nomeCompleto} registrada e vaga liberada.`);
+      setAviso(`Saída de ${nome} registrada e vaga liberada.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -143,10 +165,9 @@ export default function PaginaAbrigados() {
 
   async function confirmarTransferencia(e: FormEvent) {
     e.preventDefault();
-    if (!alvoTransferencia || !idAbrigoDestino) return;
+    if (!alvoTransferencia || !idAbrigoDestino || somenteLeitura) return;
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
       await api(`/api/abrigados/${alvoTransferencia.id}/transferencias`, {
         method: "POST",
@@ -155,11 +176,12 @@ export default function PaginaAbrigados() {
           motivo: motivoTransferencia,
         }),
       });
+      const nome = alvoTransferencia.nomeCompleto;
       setAlvoTransferencia(null);
       setMotivoTransferencia("");
       setIdAbrigoDestino("");
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`${alvoTransferencia.nomeCompleto} transferido(a) com sucesso.`);
+      setAviso(`${nome} transferido(a) com sucesso.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -179,7 +201,7 @@ export default function PaginaAbrigados() {
 
   async function salvarEdicao(e: FormEvent) {
     e.preventDefault();
-    if (!alvoEdicao) return;
+    if (!alvoEdicao || somenteLeitura) return;
     setEnviando(true);
     setErro(null);
     try {
@@ -215,34 +237,32 @@ export default function PaginaAbrigados() {
 
   return (
     <div className="space-y-6">
+      <ToastFlutuante
+        erro={erro}
+        aviso={aviso}
+        aoFecharErro={() => setErro(null)}
+        aoFecharAviso={() => setAviso(null)}
+      />
+
       <div>
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-          RF12 • Recepção, Check-in Nominal e Transferências entre Abrigos
+          Acolhidos e Portaria
         </span>
-        <h1 className="text-2xl sm:text-3xl font-bold text-white">
-          Acolhidos e Vagas — {abrigoAtivo?.nome}
+        <h1 className="text-xl sm:text-2xl font-bold text-white">
+          {abrigoAtivo?.nome}
         </h1>
         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-          Registre entradas nominais (com ou sem documentos), dê baixa em saídas e realize transferências rastreáveis.
+          Registre entradas na recepção (com ou sem documentos), confirme saídas e realize transferências entre abrigos.
         </p>
       </div>
-
-      {erro && (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/60 px-4 py-3 text-sm text-red-200">{erro}</div>
-      )}
-      {aviso && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">
-          {aviso}
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Formulário de Check-in */}
         <section className="lg:col-span-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4 h-fit">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white">Check-in de Acolhido</h2>
+            <h2 className="text-base sm:text-lg font-bold text-white">Check-in de Acolhido</h2>
             {abrigoAtivo && (
-              <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-emerald-300">
+              <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-emerald-300 tabular-nums">
                 {abrigoAtivo.ocupacao.vagasDisponiveis} vagas livres
               </span>
             )}
@@ -254,23 +274,25 @@ export default function PaginaAbrigados() {
               <input
                 type="text"
                 required
+                disabled={somenteLeitura}
                 value={nomeCompleto}
                 onChange={(e) => setNomeCompleto(e.target.value)}
                 placeholder="Ex.: Maria Aparecida dos Santos"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-base sm:text-sm text-white disabled:opacity-50"
               />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
-                CPF (opcional • somente números ou formatado)
+                CPF (opcional)
               </label>
               <input
                 type="text"
+                disabled={somenteLeitura}
                 value={cpf}
                 onChange={(e) => setCpf(e.target.value)}
                 placeholder="000.000.000-00"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-base sm:text-sm text-white tabular-nums disabled:opacity-50"
               />
             </div>
 
@@ -278,9 +300,10 @@ export default function PaginaAbrigados() {
               <label className="block text-xs font-medium text-slate-300 mb-1">Data de Nascimento (opcional)</label>
               <input
                 type="date"
+                disabled={somenteLeitura}
                 value={dataNascimento}
                 onChange={(e) => setDataNascimento(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-base sm:text-sm text-white disabled:opacity-50"
               />
             </div>
 
@@ -288,20 +311,21 @@ export default function PaginaAbrigados() {
               <label className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-950/30 p-3 cursor-pointer">
                 <input
                   type="checkbox"
+                  disabled={somenteLeitura}
                   checked={descontarDaTriagem}
                   onChange={(e) => setDescontarDaTriagem(e.target.checked)}
                   className="mt-0.5 h-4 w-4 accent-amber-500"
                 />
                 <span className="text-xs text-amber-200">
-                  <strong>Converter da fila não triada</strong> ({abrigoAtivo?.acolhidosNaoTriados} aguardando):
-                  mantém a lotação total atual sem consumir uma nova vaga.
+                  <strong>Converter da fila de espera</strong> ({abrigoAtivo?.acolhidosNaoTriados} aguardando):
+                  mantém a lotação total sem consumir uma nova vaga.
                 </span>
               </label>
             )}
 
             <button
               type="submit"
-              disabled={enviando}
+              disabled={somenteLeitura || enviando}
               className="w-full min-h-12 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
             >
               {enviando ? "Registrando..." : "Confirmar Check-in"}
@@ -312,13 +336,25 @@ export default function PaginaAbrigados() {
         {/* Lista de Acolhidos */}
         <section className="lg:col-span-8 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <input
-              type="search"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome ou CPF..."
-              className="flex-1 min-w-[220px] rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-sm text-white"
-            />
+            <div className="relative flex-1 min-w-[220px]">
+              <input
+                type="search"
+                value={buscaInput}
+                onChange={(e) => setBuscaInput(e.target.value)}
+                placeholder="Buscar por nome ou CPF..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-base sm:text-sm text-white"
+              />
+              {buscaInput && (
+                <button
+                  type="button"
+                  onClick={() => setBuscaInput("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg bg-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
             <div className="inline-flex rounded-xl border border-slate-800 bg-slate-950 p-1">
               {(["PRESENTE", "DESLIGADO", "TODOS"] as const).map((st) => (
                 <button
@@ -329,7 +365,7 @@ export default function PaginaAbrigados() {
                     statusFiltro === st ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  {st === "PRESENTE" ? "Presentes" : st === "DESLIGADO" ? "Desligados" : "Todos"}
+                  {st === "PRESENTE" ? "Presentes" : st === "DESLIGADO" ? "Saídas" : "Todos"}
                 </button>
               ))}
             </div>
@@ -357,12 +393,12 @@ export default function PaginaAbrigados() {
                     <tr key={ab.id}>
                       <td className="py-3 pr-3">
                         <p className="font-semibold text-white">{ab.nomeCompleto}</p>
-                        <p className="text-xs text-slate-400 font-mono">
+                        <p className="text-xs text-slate-400 tabular-nums">
                           CPF: {formatarCpf(ab.cpf)}
                           {ab.dataNascimento ? ` • Nasc.: ${ab.dataNascimento}` : ""}
                         </p>
                       </td>
-                      <td className="py-3 pr-3 text-xs text-slate-300">
+                      <td className="py-3 pr-3 text-xs text-slate-300 tabular-nums">
                         <p>Entrada: {new Date(ab.dataEntrada).toLocaleString("pt-BR")}</p>
                         {ab.dataSaida && (
                           <p className="text-slate-500">Saída: {new Date(ab.dataSaida).toLocaleString("pt-BR")}</p>
@@ -376,7 +412,7 @@ export default function PaginaAbrigados() {
                               : "bg-slate-800 text-slate-400"
                           }`}
                         >
-                          {ab.statusAcolhimento}
+                          {ab.statusAcolhimento === "PRESENTE" ? "PRESENTE" : "SAIU"}
                         </span>
                       </td>
                       <td className="py-3 text-right">
@@ -384,7 +420,7 @@ export default function PaginaAbrigados() {
                           <button
                             type="button"
                             onClick={() => abrirHistorico(ab)}
-                            className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+                            className="min-h-8 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
                           >
                             Histórico
                           </button>
@@ -392,13 +428,14 @@ export default function PaginaAbrigados() {
                             <>
                               <button
                                 type="button"
+                                disabled={somenteLeitura}
                                 onClick={() => {
                                   setAlvoEdicao(ab);
                                   setNomeEdicao(ab.nomeCompleto);
                                   setCpfEdicao(ab.cpf ?? "");
                                   setNascimentoEdicao(ab.dataNascimento ?? "");
                                 }}
-                                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+                                className="min-h-8 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
                               >
                                 Editar
                               </button>
@@ -406,20 +443,24 @@ export default function PaginaAbrigados() {
                                 <>
                                   <button
                                     type="button"
+                                    disabled={somenteLeitura}
                                     onClick={() => {
                                       setAlvoTransferencia(ab);
                                       setIdAbrigoDestino(abrigosDestino[0]?.id ?? "");
                                       setMotivoTransferencia("");
                                     }}
-                                    className="rounded-lg border border-sky-500/40 bg-sky-500/15 px-2.5 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-500/25 cursor-pointer"
+                                    className="min-h-8 rounded-lg border border-sky-500/40 bg-sky-500/15 px-2.5 py-1 text-xs font-semibold text-sky-200 hover:bg-sky-500/25 disabled:opacity-40 cursor-pointer"
                                   >
                                     Transferir
                                   </button>
                                   <button
                                     type="button"
-                                    disabled={enviando}
-                                    onClick={() => desligar(ab)}
-                                    className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/25 cursor-pointer"
+                                    disabled={somenteLeitura || enviando}
+                                    onClick={() => {
+                                      setAlvoSaida(ab);
+                                      setMotivoSaida(MOTIVOS_SAIDA_RAPIDOS[0]);
+                                    }}
+                                    className="min-h-8 rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-500/25 disabled:opacity-40 cursor-pointer"
                                   >
                                     Dar Saída
                                   </button>
@@ -438,6 +479,65 @@ export default function PaginaAbrigados() {
         </section>
       </div>
 
+      {/* Modal de Confirmação de Saída (Evita baixa acidental em 1 toque) */}
+      {alvoSaida && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-4">
+            <h3 className="text-lg font-bold text-white">
+              Confirmar Saída de {alvoSaida.nomeCompleto}
+            </h3>
+            <p className="text-xs text-slate-400">
+              Esta ação encerra o acolhimento atual e libera 1 vaga no abrigo. O histórico permanece salvo.
+            </p>
+            <form onSubmit={confirmarSaida} className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-300">Motivo da saída:</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {MOTIVOS_SAIDA_RAPIDOS.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMotivoSaida(m)}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+                        motivoSaida === m
+                          ? "border-amber-500 bg-amber-500/20 text-amber-200"
+                          : "border-slate-800 bg-slate-950 text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={motivoSaida}
+                  onChange={(e) => setMotivoSaida(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAlvoSaida(null)}
+                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={enviando}
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
+                >
+                  {enviando ? "Confirmando..." : "Confirmar Saída"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Transferência */}
       {alvoTransferencia && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
@@ -446,9 +546,20 @@ export default function PaginaAbrigados() {
               Transferir {alvoTransferencia.nomeCompleto}
             </h3>
             {abrigosDestino.length === 0 ? (
-              <p className="text-sm text-amber-300">
-                Não há outros abrigos ativos com vagas disponíveis no momento.
-              </p>
+              <div className="space-y-3">
+                <p className="text-sm text-amber-300">
+                  Não há outros abrigos ativos com vagas disponíveis no momento.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setAlvoTransferencia(null)}
+                    className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
             ) : (
               <form onSubmit={confirmarTransferencia} className="space-y-3">
                 <div>
@@ -457,7 +568,7 @@ export default function PaginaAbrigados() {
                     required
                     value={idAbrigoDestino}
                     onChange={(e) => setIdAbrigoDestino(Number(e.target.value))}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                   >
                     {abrigosDestino.map((a) => (
                       <option key={a.id} value={a.id}>
@@ -474,21 +585,21 @@ export default function PaginaAbrigados() {
                     value={motivoTransferencia}
                     onChange={(e) => setMotivoTransferencia(e.target.value)}
                     placeholder="Ex.: Reunificação familiar / atendimento médico"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setAlvoTransferencia(null)}
-                    className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300"
+                    className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={enviando}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
                   >
                     Confirmar Transferência
                   </button>
@@ -512,7 +623,7 @@ export default function PaginaAbrigados() {
                   required
                   value={nomeEdicao}
                   onChange={(e) => setNomeEdicao(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
               </div>
               <div>
@@ -521,7 +632,7 @@ export default function PaginaAbrigados() {
                   type="text"
                   value={cpfEdicao}
                   onChange={(e) => setCpfEdicao(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                 />
               </div>
               <div>
@@ -530,21 +641,21 @@ export default function PaginaAbrigados() {
                   type="date"
                   value={nascimentoEdicao}
                   onChange={(e) => setNascimentoEdicao(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setAlvoEdicao(null)}
-                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300"
+                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={enviando}
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
                 >
                   Salvar
                 </button>
@@ -565,7 +676,7 @@ export default function PaginaAbrigados() {
               <button
                 type="button"
                 onClick={() => setHistoricoAberto(null)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="text-slate-400 hover:text-white text-sm cursor-pointer"
               >
                 ✕
               </button>
@@ -580,7 +691,7 @@ export default function PaginaAbrigados() {
                       {t.abrigoOrigem} → {t.abrigoDestino}
                     </p>
                     <p className="text-slate-300">Motivo: {t.motivo}</p>
-                    <p className="text-slate-500">
+                    <p className="text-slate-500 tabular-nums">
                       Autorizado por {t.usuario} em {new Date(t.dataTransferencia).toLocaleString("pt-BR")}
                     </p>
                   </li>

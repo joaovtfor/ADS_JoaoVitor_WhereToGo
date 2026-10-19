@@ -7,6 +7,8 @@ export type AcaoAuditoria =
   | "LOGIN_SUCESSO"
   | "LOGIN_FALHA"
   | "LOGIN_BLOQUEADO"
+  | "LOGIN_GOOGLE_PENDENTE"
+  | "AUTO_CADASTRO_GOOGLE"
   | "LOGOUT"
   | "SENHA_ALTERADA"
   | "ABRIGO_CRIADO"

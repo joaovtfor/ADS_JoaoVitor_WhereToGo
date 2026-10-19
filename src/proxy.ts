@@ -3,6 +3,14 @@ import { verificarToken } from "./lib/auth/jwt";
 import { ROTA_INICIAL_POR_PAPEL } from "./lib/auth/rbac";
 import { COOKIE_SESSAO } from "./lib/auth/sessao";
 
+function redirecionarSemCache(destino: string, req: NextRequest) {
+  const resposta = NextResponse.redirect(new URL(destino, req.url));
+  resposta.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  resposta.headers.set("Pragma", "no-cache");
+  resposta.headers.set("Expires", "0");
+  return resposta;
+}
+
 /**
  * Proxy de borda do Next.js 16 (antigo Middleware) para proteção das rotas `/admin/*` (RF01 / RNF05).
  *
@@ -13,12 +21,12 @@ import { COOKIE_SESSAO } from "./lib/auth/sessao";
 export async function proxy(req: NextRequest) {
   const token = req.cookies.get(COOKIE_SESSAO)?.value;
   if (!token) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    return redirecionarSemCache("/login", req);
   }
 
   const usuario = await verificarToken(token);
   if (!usuario) {
-    const resposta = NextResponse.redirect(new URL("/login", req.url));
+    const resposta = redirecionarSemCache("/login", req);
     resposta.cookies.delete(COOKIE_SESSAO);
     return resposta;
   }
@@ -26,7 +34,7 @@ export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   if (pathname === "/admin" || pathname === "/admin/") {
-    return NextResponse.redirect(new URL(ROTA_INICIAL_POR_PAPEL[usuario.papel], req.url));
+    return redirecionarSemCache(ROTA_INICIAL_POR_PAPEL[usuario.papel], req);
   }
 
   if (
@@ -35,10 +43,12 @@ export async function proxy(req: NextRequest) {
       pathname.startsWith("/admin/ocorrencias") ||
       pathname.startsWith("/admin/geral"))
   ) {
-    return NextResponse.redirect(new URL("/admin/inventario", req.url));
+    return redirecionarSemCache("/admin/inventario", req);
   }
 
-  return NextResponse.next();
+  const resposta = NextResponse.next();
+  resposta.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  return resposta;
 }
 
 export const config = {

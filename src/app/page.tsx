@@ -39,12 +39,14 @@ export default function Home() {
         <div className="flex flex-wrap gap-3">
           <Link
             href="/login"
+            prefetch={false}
             className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-amber-400 transition"
           >
             Entrar no Painel Operacional (/login)
           </Link>
           <Link
             href="/admin/dashboard"
+            prefetch={false}
             className="rounded-xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800 transition"
           >
             Dashboard do Coordenador

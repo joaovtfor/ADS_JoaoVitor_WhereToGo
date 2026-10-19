@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
-import { useAdmin, type AbrigoAdmin, type PapelUsuario } from "../contexto-admin";
+import { ToastFlutuante, useAdmin, type AbrigoAdmin, type PapelUsuario } from "../contexto-admin";
 
 interface UsuarioLista {
   id: number;
@@ -11,8 +11,9 @@ interface UsuarioLista {
   email: string;
   papel: PapelUsuario;
   idAbrigo: number | null;
-  abrigo: string | null;
+  abrigo: string;
   ativo: boolean;
+  possuiGoogle?: boolean;
   criadoEm: string;
 }
 
@@ -59,7 +60,7 @@ type AbaGeral = "abrigos" | "usuarios" | "catalogo" | "auditoria";
 
 export default function PaginaAdminGeral() {
   const router = useRouter();
-  const { usuario, abrigos, recarregarAbrigos, selecionarAbrigo } = useAdmin();
+  const { usuario, abrigoAtivo, abrigos, recarregarAbrigos, selecionarAbrigo } = useAdmin();
   const ehAdmin = usuario.papel === "ADMIN";
 
   const [aba, setAba] = useState<AbaGeral>(ehAdmin ? "abrigos" : "usuarios");
@@ -67,7 +68,11 @@ export default function PaginaAdminGeral() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
-  // --- Estado: Abrigos (RF10) ------------------------------------------------
+  // Confirmação em 2 passos para ações de arquivamento/desativação
+  const [confirmarAbrigoId, setConfirmarAbrigoId] = useState<number | null>(null);
+  const [confirmarUsuarioId, setConfirmarUsuarioId] = useState<number | null>(null);
+
+  // --- Estado: Abrigos -------------------------------------------------------
   const [abrigoEditando, setAbrigoEditando] = useState<AbrigoAdmin | null>(null);
   const [nomeAbrigo, setNomeAbrigo] = useState("");
   const [enderecoAbrigo, setEnderecoAbrigo] = useState("");
@@ -78,7 +83,7 @@ export default function PaginaAdminGeral() {
   const [longitudeAbrigo, setLongitudeAbrigo] = useState("-52.4083");
   const [capacidadeAbrigo, setCapacidadeAbrigo] = useState("100");
 
-  // --- Estado: Usuários (RF11) -----------------------------------------------
+  // --- Estado: Usuários ------------------------------------------------------
   const [usuarios, setUsuarios] = useState<UsuarioLista[]>([]);
   const [usuarioEditando, setUsuarioEditando] = useState<UsuarioLista | null>(null);
   const [nomeUsuario, setNomeUsuario] = useState("");
@@ -87,7 +92,7 @@ export default function PaginaAdminGeral() {
   const [papelNovoUsuario, setPapelNovoUsuario] = useState<PapelUsuario>("VOLUNTARIO");
   const [idAbrigoUsuario, setIdAbrigoUsuario] = useState<number | "">(usuario.idAbrigo ?? (abrigos[0]?.id ?? ""));
 
-  // --- Estado: Catálogo (RF02) -----------------------------------------------
+  // --- Estado: Catálogo ------------------------------------------------------
   const [categorias, setCategorias] = useState<CategoriaCatalogo[]>([]);
   const [itensCatalogo, setItensCatalogo] = useState<ItemCatalogo[]>([]);
   const [nomeCategoria, setNomeCategoria] = useState("");
@@ -95,7 +100,7 @@ export default function PaginaAdminGeral() {
   const [nomeItem, setNomeItem] = useState("");
   const [unidadeItem, setUnidadeItem] = useState("unidade");
 
-  // --- Estado: Auditoria (RF13) ----------------------------------------------
+  // --- Estado: Auditoria -----------------------------------------------------
   const [logs, setLogs] = useState<LogAuditoria[]>([]);
   const [filtroAcao, setFiltroAcao] = useState("");
   const [filtroIdAbrigoAudit, setFiltroIdAbrigoAudit] = useState("");
@@ -140,6 +145,10 @@ export default function PaginaAdminGeral() {
   }, [ehAdmin, filtroAcao, filtroIdAbrigoAudit, filtroDe, filtroAte]);
 
   useEffect(() => {
+    void Promise.resolve().then(() => carregarUsuarios());
+  }, [carregarUsuarios]);
+
+  useEffect(() => {
     void Promise.resolve().then(() => {
       if (aba === "usuarios") return carregarUsuarios();
       if (aba === "catalogo") return carregarCatalogo();
@@ -163,7 +172,6 @@ export default function PaginaAdminGeral() {
     e.preventDefault();
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
       const corpo = {
         nome: nomeAbrigo,
@@ -200,14 +208,14 @@ export default function PaginaAdminGeral() {
   async function alternarAtivoAbrigo(a: AbrigoAdmin) {
     setEnviando(true);
     setErro(null);
-    setAviso(null);
+    setConfirmarAbrigoId(null);
     try {
       await api(`/api/abrigos/${a.id}`, {
         method: "PATCH",
         body: JSON.stringify({ ativo: !a.ativo }),
       });
       await recarregarAbrigos();
-      setAviso(`Abrigo "${a.nome}" ${!a.ativo ? "ativado" : "desativado"}.`);
+      setAviso(`Abrigo "${a.nome}" ${!a.ativo ? "reativado" : "arquivado"}.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -228,7 +236,6 @@ export default function PaginaAdminGeral() {
     e.preventDefault();
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
       const papel = ehAdmin ? papelNovoUsuario : "VOLUNTARIO";
       const idAbrigo =
@@ -248,17 +255,24 @@ export default function PaginaAdminGeral() {
         });
         setAviso(`Usuário "${nomeUsuario}" atualizado.`);
       } else {
+        const corpoPost: Record<string, unknown> = {
+          nome: nomeUsuario,
+          email: emailUsuario,
+          papel,
+          idAbrigo,
+        };
+        if (senhaUsuario.trim()) {
+          corpoPost.senha = senhaUsuario;
+        }
         await api("/api/usuarios", {
           method: "POST",
-          body: JSON.stringify({
-            nome: nomeUsuario,
-            email: emailUsuario,
-            senha: senhaUsuario,
-            papel,
-            idAbrigo,
-          }),
+          body: JSON.stringify(corpoPost),
         });
-        setAviso("Usuário cadastrado com sucesso.");
+        setAviso(
+          senhaUsuario.trim()
+            ? "Usuário cadastrado com sucesso."
+            : "Usuário pré-cadastrado! Ele já pode entrar com 1 toque via Google One Tap.",
+        );
       }
       preencherFormUsuario(null);
       await carregarUsuarios();
@@ -272,12 +286,18 @@ export default function PaginaAdminGeral() {
   async function alternarAtivoUsuario(u: UsuarioLista) {
     setEnviando(true);
     setErro(null);
+    setConfirmarUsuarioId(null);
     try {
       await api(`/api/usuarios/${u.id}`, {
         method: "PATCH",
         body: JSON.stringify({ ativo: !u.ativo }),
       });
       await carregarUsuarios();
+      setAviso(
+        !u.ativo
+          ? `Acesso de "${u.nome}" aprovado e liberado!`
+          : `Conta de "${u.nome}" desativada.`,
+      );
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -337,6 +357,7 @@ export default function PaginaAdminGeral() {
         body: JSON.stringify({ ativo: !item.ativo }),
       });
       await carregarCatalogo();
+      setAviso(`Item "${item.nome}" ${!item.ativo ? "ativado" : "desativado"}.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -346,12 +367,21 @@ export default function PaginaAdminGeral() {
 
   return (
     <div className="space-y-6">
+      <ToastFlutuante
+        erro={erro}
+        aviso={aviso}
+        aoFecharErro={() => setErro(null)}
+        aoFecharAviso={() => setAviso(null)}
+      />
+
       <div>
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-          RF10 • RF11 • RF13 • Governança, Cadastro Oficial, Equipe e Auditoria Imutável
+          {ehAdmin ? "Governança Global da Rede" : "Gestão Local do Abrigo"}
         </span>
-        <h1 className="text-2xl sm:text-3xl font-bold text-white">
-          {ehAdmin ? "Administração Geral da Plataforma" : "Gestão de Voluntários e Auditoria do Abrigo"}
+        <h1 className="text-xl sm:text-2xl font-bold text-white">
+          {ehAdmin
+            ? "Abrigos, Catálogo, Equipe e Auditoria"
+            : `Equipe e Auditoria — ${abrigoAtivo?.nome ?? usuario.abrigo ?? ""}`}
         </h1>
       </div>
 
@@ -361,31 +391,42 @@ export default function PaginaAdminGeral() {
           <button
             type="button"
             onClick={() => setAba("abrigos")}
-            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
+            className={`min-h-10 rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
               aba === "abrigos"
                 ? "bg-amber-500 text-slate-950"
                 : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
             }`}
           >
-            🏠 Abrigos e PIX Oficial ({abrigos.length})
+            🏠 Abrigos e PIX ({abrigos.length})
           </button>
         )}
         <button
           type="button"
           onClick={() => setAba("usuarios")}
-          className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
+          className={`min-h-10 rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer inline-flex items-center gap-2 ${
             aba === "usuarios"
               ? "bg-amber-500 text-slate-950"
               : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
           }`}
         >
-          👥 Equipe e Acessos (RBAC)
+          <span>👥 {ehAdmin ? "Equipe e Acessos" : "Voluntários do Abrigo"}</span>
+          {usuarios.some((u) => !u.ativo && u.possuiGoogle) && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums ${
+                aba === "usuarios"
+                  ? "bg-slate-950 text-amber-300"
+                  : "bg-amber-500 text-slate-950"
+              }`}
+            >
+              {usuarios.filter((u) => !u.ativo && u.possuiGoogle).length} pendente(s)
+            </span>
+          )}
         </button>
         {ehAdmin && (
           <button
             type="button"
             onClick={() => setAba("catalogo")}
-            className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
+            className={`min-h-10 rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
               aba === "catalogo"
                 ? "bg-amber-500 text-slate-950"
                 : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -397,38 +438,29 @@ export default function PaginaAdminGeral() {
         <button
           type="button"
           onClick={() => setAba("auditoria")}
-          className={`rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
+          className={`min-h-10 rounded-xl px-4 py-2 text-xs sm:text-sm font-bold cursor-pointer ${
             aba === "auditoria"
               ? "bg-amber-500 text-slate-950"
               : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
           }`}
         >
-          🛡️ Logs de Auditoria Imutáveis (RNF03)
+          🛡️ Registro de Auditoria
         </button>
       </div>
-
-      {erro && (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/60 px-4 py-3 text-sm text-red-200">{erro}</div>
-      )}
-      {aviso && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">
-          {aviso}
-        </div>
-      )}
 
       {/* ABA 1: ABRIGOS (SOMENTE ADMIN) */}
       {aba === "abrigos" && ehAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <section className="lg:col-span-5 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4 h-fit">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-base sm:text-lg font-bold text-white">
                 {abrigoEditando ? `Editar: ${abrigoEditando.nome}` : "Cadastrar Novo Abrigo"}
               </h2>
               {abrigoEditando && (
                 <button
                   type="button"
                   onClick={() => preencherFormAbrigo(null)}
-                  className="text-xs text-amber-400 hover:underline"
+                  className="text-xs text-amber-400 hover:underline cursor-pointer"
                 >
                   + Novo cadastro
                 </button>
@@ -443,7 +475,7 @@ export default function PaginaAdminGeral() {
                   required
                   value={nomeAbrigo}
                   onChange={(e) => setNomeAbrigo(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
               </div>
               <div>
@@ -453,7 +485,7 @@ export default function PaginaAdminGeral() {
                   required
                   value={enderecoAbrigo}
                   onChange={(e) => setEnderecoAbrigo(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -463,7 +495,7 @@ export default function PaginaAdminGeral() {
                     type="text"
                     value={telefoneAbrigo}
                     onChange={(e) => setTelefoneAbrigo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                   />
                 </div>
                 <div>
@@ -474,7 +506,7 @@ export default function PaginaAdminGeral() {
                     required
                     value={capacidadeAbrigo}
                     onChange={(e) => setCapacidadeAbrigo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                   />
                 </div>
               </div>
@@ -487,7 +519,7 @@ export default function PaginaAdminGeral() {
                     required
                     value={latitudeAbrigo}
                     onChange={(e) => setLatitudeAbrigo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                   />
                 </div>
                 <div>
@@ -498,27 +530,27 @@ export default function PaginaAdminGeral() {
                     required
                     value={longitudeAbrigo}
                     onChange={(e) => setLongitudeAbrigo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                   />
                 </div>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2">
                 <p className="text-xs font-semibold text-amber-300">
-                  PIX Oficial (exclusivo do ADMIN para prevenir desvio de doações)
+                  PIX Oficial (gerenciado exclusivamente pela Administração Geral)
                 </p>
                 <input
                   type="text"
                   value={chavePix}
                   onChange={(e) => setChavePix(e.target.value)}
                   placeholder="Chave PIX (e-mail, CNPJ, telefone)"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-white"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-base sm:text-xs text-white"
                 />
                 <input
                   type="text"
                   value={titularPix}
                   onChange={(e) => setTitularPix(e.target.value)}
                   placeholder="Nome do Titular da Conta PIX"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-white"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-base sm:text-xs text-white"
                 />
               </div>
 
@@ -533,7 +565,7 @@ export default function PaginaAdminGeral() {
           </section>
 
           <section className="lg:col-span-7 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-            <h2 className="text-lg font-bold text-white">Abrigos Cadastrados</h2>
+            <h2 className="text-base sm:text-lg font-bold text-white">Abrigos Cadastrados</h2>
             <div className="space-y-3">
               {abrigos.map((a) => (
                 <div
@@ -548,17 +580,17 @@ export default function PaginaAdminGeral() {
                           a.ativo ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
                         }`}
                       >
-                        {a.ativo ? "ATIVO" : "INATIVO"}
+                        {a.ativo ? "ATIVO" : "ARQUIVADO"}
                       </span>
                     </div>
                     <p className="text-xs text-slate-400">{a.endereco}</p>
-                    <p className="text-xs text-slate-300">
+                    <p className="text-xs text-slate-300 tabular-nums">
                       Ocupação: <strong>{a.ocupacao.lotacaoAtual}/{a.ocupacao.capacidadeMaxima}</strong> • Infra:{" "}
                       <strong>{a.statusInfraestrutura}</strong>
                       {a.chavePix ? ` • PIX: ${a.chavePix}` : " • Sem PIX"}
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => {
@@ -567,7 +599,7 @@ export default function PaginaAdminGeral() {
                       }}
                       className="rounded-lg bg-amber-500/20 border border-amber-500/40 px-2.5 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/30 cursor-pointer"
                     >
-                      Abrir Triagem
+                      Abrir Painel
                     </button>
                     <button
                       type="button"
@@ -576,14 +608,36 @@ export default function PaginaAdminGeral() {
                     >
                       Editar
                     </button>
-                    <button
-                      type="button"
-                      disabled={enviando}
-                      onClick={() => alternarAtivoAbrigo(a)}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
-                    >
-                      {a.ativo ? "Desativar" : "Reativar"}
-                    </button>
+
+                    {a.ativo && confirmarAbrigoId === a.id ? (
+                      <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-950/50 px-2 py-1">
+                        <span className="text-[11px] text-rose-200 font-semibold">Arquivar?</span>
+                        <button
+                          type="button"
+                          disabled={enviando}
+                          onClick={() => alternarAtivoAbrigo(a)}
+                          className="rounded bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-slate-950 cursor-pointer"
+                        >
+                          Sim
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmarAbrigoId(null)}
+                          className="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300 cursor-pointer"
+                        >
+                          Não
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={enviando}
+                        onClick={() => (a.ativo ? setConfirmarAbrigoId(a.id) : alternarAtivoAbrigo(a))}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+                      >
+                        {a.ativo ? "Arquivar" : "Reativar"}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -592,17 +646,17 @@ export default function PaginaAdminGeral() {
         </div>
       )}
 
-      {/* ABA 2: USUÁRIOS / EQUIPE (RF11) */}
+      {/* ABA 2: USUÁRIOS / EQUIPE */}
       {aba === "usuarios" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <section className="lg:col-span-4 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4 h-fit">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-base sm:text-lg font-bold text-white">
                 {usuarioEditando
                   ? `Editar: ${usuarioEditando.nome}`
                   : ehAdmin
                     ? "Cadastrar Usuário"
-                    : "Cadastrar Voluntário do Abrigo"}
+                    : "Cadastrar Voluntário"}
               </h2>
               {usuarioEditando && (
                 <button
@@ -622,7 +676,7 @@ export default function PaginaAdminGeral() {
                   required
                   value={nomeUsuario}
                   onChange={(e) => setNomeUsuario(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
               </div>
               <div>
@@ -633,20 +687,22 @@ export default function PaginaAdminGeral() {
                   disabled={Boolean(usuarioEditando && !ehAdmin)}
                   value={emailUsuario}
                   onChange={(e) => setEmailUsuario(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white disabled:opacity-50"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white disabled:opacity-50"
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
-                  {usuarioEditando ? "Nova Senha (deixe em branco p/ manter)" : "Senha Inicial (mín. 8 car.) *"}
+                  {usuarioEditando
+                    ? "Nova Senha (deixe em branco p/ manter)"
+                    : "Senha Inicial (opcional se usar Google One Tap)"}
                 </label>
                 <input
                   type="password"
                   minLength={8}
-                  required={!usuarioEditando}
                   value={senhaUsuario}
                   onChange={(e) => setSenhaUsuario(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  placeholder={usuarioEditando ? "••••••••" : "Em branco = acesso via Google One Tap"}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white placeholder-slate-500"
                 />
               </div>
 
@@ -657,9 +713,9 @@ export default function PaginaAdminGeral() {
                     <select
                       value={papelNovoUsuario}
                       onChange={(e) => setPapelNovoUsuario(e.target.value as PapelUsuario)}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                     >
-                      <option value="VOLUNTARIO">VOLUNTÁRIO (Inventário e Check-in)</option>
+                      <option value="VOLUNTARIO">VOLUNTÁRIO (Estoque e Check-in)</option>
                       <option value="COORDENADOR">COORDENADOR (Gestão do Abrigo)</option>
                       <option value="ADMIN">ADMIN (Administração Geral)</option>
                     </select>
@@ -672,7 +728,7 @@ export default function PaginaAdminGeral() {
                         required
                         value={idAbrigoUsuario}
                         onChange={(e) => setIdAbrigoUsuario(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                       >
                         {abrigos
                           .filter((a) => a.ativo)
@@ -697,8 +753,57 @@ export default function PaginaAdminGeral() {
             </form>
           </section>
 
-          <section className="lg:col-span-8 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-            <h2 className="text-lg font-bold text-white">Contas Registradas ({usuarios.length})</h2>
+          <section className="lg:col-span-8 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-5">
+            {/* Fila de Aprovação 1-Clique de Auto-Cadastro via Google One Tap */}
+            {usuarios.some((u) => !u.ativo && u.possuiGoogle) && (
+              <div className="rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                      Fila de Aprovação Rápida
+                    </span>
+                    <h3 className="text-sm sm:text-base font-bold text-white">
+                      Solicitações de Acesso via Google One Tap
+                    </h3>
+                  </div>
+                  <span className="rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-black text-slate-950 tabular-nums">
+                    {usuarios.filter((u) => !u.ativo && u.possuiGoogle).length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {usuarios
+                    .filter((u) => !u.ativo && u.possuiGoogle)
+                    .map((u) => (
+                      <div
+                        key={u.id}
+                        className="rounded-xl border border-slate-800 bg-slate-950/90 p-3 flex flex-wrap items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold text-white truncate">{u.nome}</p>
+                            <span className="rounded bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 text-[10px] font-bold text-sky-300">
+                              Google One Tap
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 truncate">
+                            {u.email} • Solicita acesso em <strong className="text-slate-200">{u.abrigo}</strong>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={enviando}
+                          onClick={() => alternarAtivoUsuario(u)}
+                          className="min-h-10 rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 cursor-pointer"
+                        >
+                          ✓ Aprovar Acesso
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            <h2 className="text-base sm:text-lg font-bold text-white">Contas Registradas ({usuarios.length})</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -716,7 +821,14 @@ export default function PaginaAdminGeral() {
                     return (
                       <tr key={u.id}>
                         <td className="py-3 pr-3">
-                          <p className="font-semibold text-white">{u.nome}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-white">{u.nome}</p>
+                            {u.possuiGoogle && (
+                              <span className="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-bold text-sky-300">
+                                Google
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-400">{u.email}</p>
                         </td>
                         <td className="py-3 pr-3">
@@ -728,10 +840,14 @@ export default function PaginaAdminGeral() {
                         <td className="py-3 pr-3">
                           <span
                             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                              u.ativo ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
+                              u.ativo
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : u.possuiGoogle
+                                  ? "bg-amber-500/20 text-amber-300"
+                                  : "bg-rose-500/20 text-rose-300"
                             }`}
                           >
-                            {u.ativo ? "ATIVO" : "INATIVO"}
+                            {u.ativo ? "ATIVO" : u.possuiGoogle ? "PENDENTE" : "INATIVO"}
                           </span>
                         </td>
                         <td className="py-3 text-right">
@@ -745,14 +861,42 @@ export default function PaginaAdminGeral() {
                               >
                                 Editar
                               </button>
-                              <button
-                                type="button"
-                                disabled={enviando}
-                                onClick={() => alternarAtivoUsuario(u)}
-                                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
-                              >
-                                {u.ativo ? "Desativar" : "Ativar"}
-                              </button>
+
+                              {u.ativo && confirmarUsuarioId === u.id ? (
+                                <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-950/50 px-2 py-0.5">
+                                  <span className="text-[11px] text-rose-200 font-semibold">Revogar?</span>
+                                  <button
+                                    type="button"
+                                    disabled={enviando}
+                                    onClick={() => alternarAtivoUsuario(u)}
+                                    className="rounded bg-rose-500 px-1.5 py-0.5 text-[11px] font-bold text-slate-950 cursor-pointer"
+                                  >
+                                    Sim
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmarUsuarioId(null)}
+                                    className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300 cursor-pointer"
+                                  >
+                                    Não
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={enviando}
+                                  onClick={() =>
+                                    u.ativo ? setConfirmarUsuarioId(u.id) : alternarAtivoUsuario(u)
+                                  }
+                                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold cursor-pointer ${
+                                    u.ativo
+                                      ? "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
+                                      : "bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
+                                  }`}
+                                >
+                                  {u.ativo ? "Desativar" : "✓ Aprovar / Ativar"}
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -771,7 +915,7 @@ export default function PaginaAdminGeral() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 space-y-6">
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-3">
-              <h2 className="text-base font-bold text-white">Nova Categoria Macro</h2>
+              <h2 className="text-base font-bold text-white">Nova Categoria</h2>
               <form onSubmit={criarNovaCategoria} className="space-y-3">
                 <input
                   type="text"
@@ -779,12 +923,12 @@ export default function PaginaAdminGeral() {
                   value={nomeCategoria}
                   onChange={(e) => setNomeCategoria(e.target.value)}
                   placeholder="Ex.: Medicamentos Contínuos"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
                 <button
                   type="submit"
                   disabled={enviando}
-                  className="w-full rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950"
+                  className="w-full min-h-10 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 cursor-pointer"
                 >
                   Criar Categoria
                 </button>
@@ -798,7 +942,7 @@ export default function PaginaAdminGeral() {
                   required
                   value={idCategoriaItem}
                   onChange={(e) => setIdCategoriaItem(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 >
                   {categorias.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -812,7 +956,7 @@ export default function PaginaAdminGeral() {
                   value={nomeItem}
                   onChange={(e) => setNomeItem(e.target.value)}
                   placeholder="Nome do item (ex.: Soro Fisiológico 500ml)"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
                 <input
                   type="text"
@@ -820,12 +964,12 @@ export default function PaginaAdminGeral() {
                   value={unidadeItem}
                   onChange={(e) => setUnidadeItem(e.target.value)}
                   placeholder="Unidade (ex.: unidade, pacote, kg)"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
                 <button
                   type="submit"
                   disabled={enviando}
-                  className="w-full rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950"
+                  className="w-full min-h-10 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 cursor-pointer"
                 >
                   Adicionar Item ao Catálogo
                 </button>
@@ -834,7 +978,7 @@ export default function PaginaAdminGeral() {
           </div>
 
           <section className="lg:col-span-8 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-            <h2 className="text-lg font-bold text-white">Itens do Catálogo ({itensCatalogo.length})</h2>
+            <h2 className="text-base sm:text-lg font-bold text-white">Itens do Catálogo ({itensCatalogo.length})</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -873,14 +1017,14 @@ export default function PaginaAdminGeral() {
         </div>
       )}
 
-      {/* ABA 4: AUDITORIA IMUTÁVEL (RF13 / RNF03) */}
+      {/* ABA 4: AUDITORIA */}
       {aba === "auditoria" && (
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold text-white">Trilha de Auditoria Imutável (Append-Only)</h2>
+              <h2 className="text-base sm:text-lg font-bold text-white">Histórico de Auditoria</h2>
               <p className="text-xs text-slate-400">
-                Protegida por triggers no PostgreSQL contra UPDATE, DELETE e TRUNCATE (erro WTG01).
+                Registro permanente de todas as ações operacionais e administrativas realizadas no sistema.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -902,7 +1046,7 @@ export default function PaginaAdminGeral() {
                 </div>
               )}
               <div>
-                <label className="block text-[11px] text-slate-400 mb-0.5">Código da Ação</label>
+                <label className="block text-[11px] text-slate-400 mb-0.5">Tipo de Ação</label>
                 <input
                   type="text"
                   value={filtroAcao}
@@ -953,7 +1097,7 @@ export default function PaginaAdminGeral() {
               <tbody className="divide-y divide-slate-800/70">
                 {logs.map((l) => (
                   <tr key={l.id}>
-                    <td className="py-2.5 pr-3 whitespace-nowrap text-slate-400 font-mono">
+                    <td className="py-2.5 pr-3 whitespace-nowrap text-slate-400 tabular-nums">
                       {new Date(l.dataHora).toLocaleString("pt-BR")}
                     </td>
                     <td className="py-2.5 pr-3">

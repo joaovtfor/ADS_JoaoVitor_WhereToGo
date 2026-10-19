@@ -63,6 +63,7 @@ function ehErroPostgres(erro: unknown): erro is ErroPostgres {
 
 const MENSAGENS_UNICIDADE: Record<string, [codigo: string, mensagem: string]> = {
   usuario_email_uk: ["EMAIL_EM_USO", "Já existe um usuário com este e-mail."],
+  usuario_google_sub_uk: ["GOOGLE_SUB_EM_USO", "Esta conta Google já está vinculada a outro usuário."],
   abrigado_cpf_uk: ["CPF_JA_CADASTRADO", "Já existe um abrigado com este CPF."],
   abrigado_cpf_presente_uk: ["ABRIGADO_JA_PRESENTE", "Esta pessoa (CPF) já está registrada como presente em um abrigo."],
   item_nome_uk: ["ITEM_DUPLICADO", "Já existe um item com este nome."],

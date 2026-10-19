@@ -6,11 +6,12 @@ export interface UsuarioAcesso extends UsuarioSessao {
   ativo: boolean;
   abrigoAtivo: boolean | null;
   senhaHash: string;
+  googleSub: string | null;
 }
 
 const SELECT_USUARIO_ACESSO = `
   SELECT u.id, u.nome, u.email, u.ativo, u.senha_hash AS "senhaHash",
-         u.id_abrigo AS "idAbrigo", p.nome AS papel, a.ativo AS "abrigoAtivo"
+         u.google_sub AS "googleSub", u.id_abrigo AS "idAbrigo", p.nome AS papel, a.ativo AS "abrigoAtivo"
     FROM usuario u
     JOIN papel_usuario p ON p.id = u.id_papel
     LEFT JOIN abrigo a ON a.id = u.id_abrigo`;
@@ -21,6 +22,10 @@ export function buscarUsuarioAcessoPorId(id: number): Promise<UsuarioAcesso | nu
 
 export function buscarUsuarioAcessoPorEmail(email: string): Promise<UsuarioAcesso | null> {
   return consultarUm<UsuarioAcesso>(`${SELECT_USUARIO_ACESSO} WHERE u.email = $1`, [email.trim().toLowerCase()]);
+}
+
+export function buscarUsuarioAcessoPorGoogleSub(googleSub: string): Promise<UsuarioAcesso | null> {
+  return consultarUm<UsuarioAcesso>(`${SELECT_USUARIO_ACESSO} WHERE u.google_sub = $1`, [googleSub.trim()]);
 }
 
 export type MotivoBloqueio = "USUARIO_INATIVO" | "SEM_VINCULO_ABRIGO" | "ABRIGO_INATIVO";

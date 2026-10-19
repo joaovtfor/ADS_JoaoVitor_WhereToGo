@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
-import { useAdmin, type NivelOcupacao, type StatusInfraestrutura } from "../contexto-admin";
+import { ToastFlutuante, useAdmin, type NivelOcupacao, type StatusInfraestrutura } from "../contexto-admin";
 
 interface DadosDashboard {
   abrigo: {
@@ -76,7 +76,13 @@ const ROTULOS_OCORRENCIA: Record<string, string> = {
 const BARRA_OCUPACAO: Record<NivelOcupacao, string> = {
   VERDE: "bg-emerald-500",
   AMARELO: "bg-amber-500",
-  VERMELHO: "bg-red-500",
+  VERMELHO: "bg-rose-500",
+};
+
+const ROTULO_SEMAFORO: Record<NivelOcupacao, string> = {
+  VERDE: "Normal",
+  AMARELO: "Atenção",
+  VERMELHO: "Lotado / Crítico",
 };
 
 export default function PaginaDashboard() {
@@ -114,14 +120,13 @@ export default function PaginaDashboard() {
     const novoValor = Math.max(0, dados.acolhidos.naoTriados + delta);
     setProcessando(true);
     setErro(null);
-    setAviso(null);
     try {
       await api(`/api/abrigos/${idAbrigoAtivo}`, {
         method: "PATCH",
         body: JSON.stringify({ acolhidosNaoTriados: novoValor }),
       });
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`Fila de não triados ajustada para ${novoValor} pessoa(s).`);
+      setAviso(`Fila de triagem ajustada para ${novoValor} pessoa(s).`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -134,7 +139,6 @@ export default function PaginaDashboard() {
     if (!idAbrigoAtivo) return;
     setProcessando(true);
     setErro(null);
-    setAviso(null);
     try {
       await api(`/api/abrigos/${idAbrigoAtivo}`, {
         method: "PATCH",
@@ -163,6 +167,7 @@ export default function PaginaDashboard() {
         body: JSON.stringify({ statusNecessidade }),
       });
       await carregar();
+      setAviso(`Status do item alterado para ${statusNecessidade}.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -177,7 +182,7 @@ export default function PaginaDashboard() {
     try {
       await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${idOcorrencia}/resolucao`, {
         method: "POST",
-        body: JSON.stringify({ observacao: "Resolvido pelo painel de triagem" }),
+        body: JSON.stringify({ observacao: "Resolvido pelo painel de visão geral" }),
       });
       await Promise.all([carregar(), recarregarAbrigos()]);
       setAviso("Ocorrência marcada como resolvida.");
@@ -199,12 +204,12 @@ export default function PaginaDashboard() {
           ativasDoTipo.map((o) =>
             api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${o.id}/resolucao`, {
               method: "POST",
-              body: JSON.stringify({ observacao: "Desativado pelo toggle rápido do painel de triagem" }),
+              body: JSON.stringify({ observacao: "Desativado pelo atalho rápido do painel" }),
             }),
           ),
         );
         await Promise.all([carregar(), recarregarAbrigos()]);
-        setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" resolvido e desativado.`);
+        setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" encerrado.`);
       } catch (err) {
         setErro(mensagemErro(err));
       } finally {
@@ -221,7 +226,7 @@ export default function PaginaDashboard() {
         body: JSON.stringify({ tipo }),
       });
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" ativado no mapa.`);
+      setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" publicado no mapa.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -232,7 +237,7 @@ export default function PaginaDashboard() {
   if (!idAbrigoAtivo) {
     return (
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-slate-400">
-        Selecione um abrigo no topo para visualizar o Dashboard de Triagem.
+        Selecione um abrigo no topo para visualizar a Visão Geral.
       </div>
     );
   }
@@ -243,57 +248,55 @@ export default function PaginaDashboard() {
 
   if (!dados) {
     return (
-      <div className="rounded-2xl border border-red-500/40 bg-red-950/40 p-6 text-red-200">
-        {erro ?? "Não foi possível carregar o dashboard."}
+      <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-6 text-rose-200">
+        {erro ?? "Não foi possível carregar os indicadores do abrigo."}
       </div>
     );
   }
 
   const { ocupacao, acolhidos, estoque, ocorrenciasAtivas, ultimasMovimentacoes } = dados;
+  const somenteLeitura = !dados.abrigo.ativo;
 
   return (
     <div className="space-y-6">
+      <ToastFlutuante
+        erro={erro}
+        aviso={aviso}
+        aoFecharErro={() => setErro(null)}
+        aoFecharAviso={() => setAviso(null)}
+      />
+
       {/* Cabeçalho do Abrigo */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-            RF04 • Dashboard de Triagem e Situação Operacional
+            Visão Geral do Abrigo
           </span>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">{dados.abrigo.nome}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">{dados.abrigo.nome}</h1>
           {abrigoAtivo?.endereco && <p className="text-xs sm:text-sm text-slate-400 mt-0.5">{abrigoAtivo.endereco}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            disabled={somenteLeitura}
             onClick={() => {
               setNovaCapacidade(String(ocupacao.capacidadeMaxima));
               setNovoTelefone(abrigoAtivo?.telefone ?? "");
               setEditandoOperacao((v) => !v);
             }}
-            className="rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 cursor-pointer"
+            className="min-h-10 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
           >
-            ⚙️ Ajustar Capacidade / Contato
+            ⚙️ Capacidade & Contato
           </button>
           <button
             type="button"
             onClick={() => carregar()}
-            className="rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 cursor-pointer"
+            className="min-h-10 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 cursor-pointer"
           >
             ↻ Atualizar
           </button>
         </div>
       </div>
-
-      {erro && (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/60 px-4 py-3 text-sm text-red-200">
-          {erro}
-        </div>
-      )}
-      {aviso && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">
-          {aviso}
-        </div>
-      )}
 
       {/* Formulário inline de capacidade e telefone */}
       {editandoOperacao && (
@@ -309,7 +312,7 @@ export default function PaginaDashboard() {
               required
               value={novaCapacidade}
               onChange={(e) => setNovaCapacidade(e.target.value)}
-              className="w-40 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              className="w-40 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
             />
           </div>
           <div className="flex-1 min-w-[200px]">
@@ -319,21 +322,21 @@ export default function PaginaDashboard() {
               value={novoTelefone}
               onChange={(e) => setNovoTelefone(e.target.value)}
               placeholder="(54) 99999-0000"
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
             />
           </div>
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={processando}
-              className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+              className="min-h-10 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
             >
               Salvar
             </button>
             <button
               type="button"
               onClick={() => setEditandoOperacao(false)}
-              className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300"
+              className="min-h-10 rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
             >
               Cancelar
             </button>
@@ -347,22 +350,22 @@ export default function PaginaDashboard() {
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 flex flex-col justify-between space-y-5">
           <div>
             <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="text-lg font-bold text-white">Ocupação e Triagem de Acolhidos</h2>
+              <h2 className="text-base sm:text-lg font-bold text-white">Ocupação e Recepção</h2>
               <span
-                className={`rounded-full px-3 py-0.5 text-xs font-bold ${
+                className={`rounded-full px-3 py-0.5 text-xs font-bold tabular-nums ${
                   ocupacao.nivel === "VERDE"
                     ? "bg-emerald-500/20 text-emerald-300"
                     : ocupacao.nivel === "AMARELO"
                       ? "bg-amber-500/20 text-amber-300"
-                      : "bg-red-500/20 text-red-300"
+                      : "bg-rose-500/20 text-rose-300"
                 }`}
               >
-                Semáforo {ocupacao.nivel} ({ocupacao.percentual}%)
+                {ROTULO_SEMAFORO[ocupacao.nivel]} • {ocupacao.percentual}%
               </span>
             </div>
 
             {/* Barra de progresso */}
-            <div className="h-4 w-full overflow-hidden rounded-full bg-slate-950 border border-slate-800">
+            <div className="h-3.5 w-full overflow-hidden rounded-full bg-slate-950 border border-slate-800">
               <div
                 className={`h-full transition-all ${BARRA_OCUPACAO[ocupacao.nivel]}`}
                 style={{ width: `${Math.min(100, ocupacao.percentual)}%` }}
@@ -372,37 +375,35 @@ export default function PaginaDashboard() {
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
                 <p className="text-[11px] text-slate-400">Lotação Total</p>
-                <p className="text-xl font-black text-white">
+                <p className="text-xl font-black text-white tabular-nums">
                   {ocupacao.lotacaoAtual}
                   <span className="text-xs font-normal text-slate-400">/{ocupacao.capacidadeMaxima}</span>
                 </p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
                 <p className="text-[11px] text-slate-400">Vagas Livres</p>
-                <p className="text-xl font-black text-emerald-400">{ocupacao.vagasDisponiveis}</p>
+                <p className="text-xl font-black text-emerald-400 tabular-nums">{ocupacao.vagasDisponiveis}</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-[11px] text-slate-400">Nominais (Check-in)</p>
-                <p className="text-xl font-black text-sky-300">{acolhidos.presentes}</p>
+                <p className="text-[11px] text-slate-400">Cadastrados</p>
+                <p className="text-xl font-black text-sky-300 tabular-nums">{acolhidos.presentes}</p>
               </div>
               <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3">
-                <p className="text-[11px] text-amber-300">Fila Não Triada</p>
-                <p className="text-xl font-black text-amber-300">{acolhidos.naoTriados}</p>
+                <p className="text-[11px] text-amber-300">Aguardando Cadastro</p>
+                <p className="text-xl font-black text-amber-300 tabular-nums">{acolhidos.naoTriados}</p>
               </div>
             </div>
           </div>
 
           {/* Controle Rápido de Acolhidos Não Triados */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-bold text-slate-200">
-                  Ajuste Rápido de Chegadas em Massa (Acolhidos Não Triados)
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Atualiza as vagas no mapa imediatamente enquanto o check-in nominal é feito na recepção.
-                </p>
-              </div>
+            <div>
+              <p className="text-xs font-bold text-slate-200">
+                Chegadas em Massa (Reserva Rápida de Vagas)
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Reserva vagas imediatamente no mapa público enquanto as famílias aguardam o check-in nominal.
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {[-5, -1, 1, 5, 10].map((delta) => (
@@ -410,12 +411,13 @@ export default function PaginaDashboard() {
                   key={delta}
                   type="button"
                   disabled={
+                    somenteLeitura ||
                     processando ||
                     (delta < 0 && acolhidos.naoTriados === 0) ||
                     (delta > 0 && ocupacao.vagasDisponiveis < delta)
                   }
                   onClick={() => ajustarNaoTriados(delta)}
-                  className={`min-h-11 flex-1 rounded-xl border px-3 py-2 text-sm font-bold transition cursor-pointer disabled:opacity-40 ${
+                  className={`min-h-12 flex-1 rounded-xl border px-3 py-2 text-sm font-bold tabular-nums transition cursor-pointer disabled:opacity-40 ${
                     delta > 0
                       ? "border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"
                       : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
@@ -426,44 +428,44 @@ export default function PaginaDashboard() {
               ))}
               <Link
                 href="/admin/abrigados"
-                className="min-h-11 inline-flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/40 px-3.5 py-2 text-xs font-bold text-sky-200 hover:bg-sky-500/30"
+                className="min-h-12 inline-flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/40 px-3.5 py-2 text-xs font-bold text-sky-200 hover:bg-sky-500/30"
               >
-                Ir para Check-in Nominal →
+                Fazer Check-in →
               </Link>
             </div>
           </div>
 
           {/* Fluxo das últimas 24h */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-2 border-t border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-2 border-t border-slate-800 tabular-nums">
             <span>Últimas 24h:</span>
-            <span>Entradas diretas: <strong className="text-slate-200">{acolhidos.entradas24h}</strong></span>
+            <span>Entradas: <strong className="text-slate-200">{acolhidos.entradas24h}</strong></span>
             <span>Saídas: <strong className="text-slate-200">{acolhidos.desligados24h}</strong></span>
-            <span>Transf. recebidas: <strong className="text-slate-200">{acolhidos.recebidas24h}</strong></span>
-            <span>Transf. enviadas: <strong className="text-slate-200">{acolhidos.enviadas24h}</strong></span>
+            <span>Recebidos: <strong className="text-slate-200">{acolhidos.recebidas24h}</strong></span>
+            <span>Transferidos: <strong className="text-slate-200">{acolhidos.enviadas24h}</strong></span>
           </div>
         </section>
 
-        {/* Card 2: Status de Infraestrutura e Vias de Acesso (RF05) */}
+        {/* Card 2: Status de Infraestrutura e Vias de Acesso */}
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 flex flex-col justify-between space-y-5">
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-lg font-bold text-white">Infraestrutura e Vias de Acesso (RF05)</h2>
+                <h2 className="text-base sm:text-lg font-bold text-white">Infraestrutura e Vias de Acesso</h2>
                 <p className="text-xs text-slate-400">
-                  Ocorrências ativas exibem alertas imediatos no mapa público (RF09).
+                  Alertas ativos avisam a população no mapa público em tempo real.
                 </p>
               </div>
               <Link
                 href="/admin/ocorrencias"
                 className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-slate-800"
               >
-                Gerenciar Todas →
+                Detalhes →
               </Link>
             </div>
 
             {ocorrenciasAtivas.length === 0 ? (
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-sm text-emerald-200">
-                ✓ Nenhuma ocorrência ativa. Energia, água e vias de acesso operando normalmente.
+                ✓ Energia, água e vias de acesso operando normalmente.
               </div>
             ) : (
               <ul className="space-y-2.5">
@@ -472,7 +474,7 @@ export default function PaginaDashboard() {
                     key={oc.id}
                     className={`rounded-xl border p-3.5 flex flex-wrap items-center justify-between gap-3 ${
                       oc.gravidade === "CRITICO"
-                        ? "border-red-500/40 bg-red-950/30"
+                        ? "border-rose-500/40 bg-rose-950/30"
                         : "border-amber-500/40 bg-amber-950/30"
                     }`}
                   >
@@ -480,7 +482,7 @@ export default function PaginaDashboard() {
                       <div className="flex items-center gap-2">
                         <span
                           className={`rounded px-2 py-0.5 text-[10px] font-black ${
-                            oc.gravidade === "CRITICO" ? "bg-red-500 text-slate-950" : "bg-amber-400 text-slate-950"
+                            oc.gravidade === "CRITICO" ? "bg-rose-500 text-slate-950" : "bg-amber-400 text-slate-950"
                           }`}
                         >
                           {oc.gravidade}
@@ -493,11 +495,11 @@ export default function PaginaDashboard() {
                     </div>
                     <button
                       type="button"
-                      disabled={processando}
+                      disabled={somenteLeitura || processando}
                       onClick={() => resolverOcorrencia(oc.id)}
-                      className="rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/30 cursor-pointer"
+                      className="min-h-9 rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-40 cursor-pointer"
                     >
-                      ✓ Marcar Resolvida
+                      ✓ Resolver
                     </button>
                   </li>
                 ))}
@@ -505,32 +507,32 @@ export default function PaginaDashboard() {
             )}
           </div>
 
-          {/* Toggles Rápidos de Incidentes (RF05: ativar = registrar ocorrência; desativar = resolver) */}
+          {/* Toggles Rápidos de Incidentes */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-2.5">
             <p className="text-xs font-bold text-slate-300">
-              Toggles Rápidos de Incidente (1 clique ativa ou resolve no mapa):
+              Atalhos de Alerta Rápido (toque para ativar ou encerrar):
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { tipo: "SEM_ENERGIA", rotulo: "⚡ Sem Energia" },
                 { tipo: "SEM_AGUA", rotulo: "🚰 Sem Água" },
-                { tipo: "SEM_COMUNICACAO", rotulo: "📡 Sem Internet/Sinal" },
+                { tipo: "SEM_COMUNICACAO", rotulo: "📡 Sem Sinal" },
                 { tipo: "VIA_BLOQUEADA", rotulo: "🚧 Via Bloqueada" },
                 { tipo: "ALAGAMENTO", rotulo: "🌊 Alagamento" },
                 { tipo: "DESLIZAMENTO", rotulo: "⛰️ Deslizamento" },
-                { tipo: "RISCO_ESTRUTURAL", rotulo: "🏚️ Risco Estrutural" },
+                { tipo: "RISCO_ESTRUTURAL", rotulo: "🏚️ Risco Prédio" },
               ].map((alerta) => {
                 const jaAtiva = ocorrenciasAtivas.some((o) => o.tipo === alerta.tipo);
                 return (
                   <button
                     key={alerta.tipo}
                     type="button"
-                    disabled={processando}
+                    disabled={somenteLeitura || processando}
                     aria-pressed={jaAtiva}
                     onClick={() => alternarAlertaRapido(alerta.tipo)}
                     className={`min-h-11 rounded-xl border px-2.5 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
                       jaAtiva
-                        ? "border-red-500 bg-red-500/25 text-red-100 hover:bg-red-500/35"
+                        ? "border-rose-500 bg-rose-500/25 text-rose-100 hover:bg-rose-500/35"
                         : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white"
                     }`}
                   >
@@ -543,38 +545,36 @@ export default function PaginaDashboard() {
         </section>
       </div>
 
-      {/* Grade Inferior: Suprimentos Críticos (RF03/RF04) e Últimas Movimentações */}
+      {/* Grade Inferior: Suprimentos Críticos e Últimas Movimentações */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Suprimentos Críticos */}
         <section className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold text-white">
-                Suprimentos em Nível Crítico ou Urgente (RF03 / RF04)
-              </h2>
+              <h2 className="text-base sm:text-lg font-bold text-white">Suprimentos em Alerta</h2>
               <p className="text-xs text-slate-400">
-                Itens marcados como URGENTE destacam o abrigo para doadores no mapa público (RF08).
+                Itens marcados como urgentes aparecem em destaque para doadores no mapa público.
               </p>
             </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="rounded-lg border border-red-500/40 bg-red-950/50 px-2.5 py-1 font-bold text-red-200">
+            <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
+              <span className="rounded-lg border border-rose-500/40 bg-rose-950/50 px-2.5 py-1 font-bold text-rose-200">
                 Urgentes: {estoque.itensUrgentes}
               </span>
               <span className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 font-bold text-slate-300">
-                Bloqueados (Excesso): {estoque.itensBloqueados}
+                Bloqueados: {estoque.itensBloqueados}
               </span>
               <Link
                 href="/admin/inventario"
                 className="rounded-lg bg-amber-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-amber-400"
               >
-                Abrir Inventário →
+                Ir para Estoque →
               </Link>
             </div>
           </div>
 
           {estoque.itensCriticos.length === 0 ? (
             <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-center text-sm text-slate-400">
-              Nenhum item abaixo do estoque mínimo ou marcado como urgente no momento.
+              ✓ Todos os insumos estão acima do estoque mínimo e sem alertas urgentes.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -583,8 +583,8 @@ export default function PaginaDashboard() {
                   <tr className="border-b border-slate-800 text-xs text-slate-400">
                     <th className="pb-2.5 font-semibold">Item</th>
                     <th className="pb-2.5 font-semibold">Saldo / Mínimo</th>
-                    <th className="pb-2.5 font-semibold">Status no Mapa (RF03)</th>
-                    <th className="pb-2.5 text-right font-semibold">Classificação Rápida</th>
+                    <th className="pb-2.5 font-semibold">Status</th>
+                    <th className="pb-2.5 text-right font-semibold">Alterar Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/70">
@@ -594,8 +594,8 @@ export default function PaginaDashboard() {
                         <p className="font-semibold text-white">{item.nome}</p>
                         <p className="text-xs text-slate-400">{item.unidadeMedida}</p>
                       </td>
-                      <td className="py-3 pr-3 font-mono">
-                        <span className={item.quantidade < item.quantidadeMinima ? "text-red-400 font-bold" : "text-white"}>
+                      <td className="py-3 pr-3 tabular-nums">
+                        <span className={item.quantidade < item.quantidadeMinima ? "text-rose-400 font-bold" : "text-white"}>
                           {item.quantidade}
                         </span>
                         <span className="text-slate-500"> / mín. {item.quantidadeMinima}</span>
@@ -604,7 +604,7 @@ export default function PaginaDashboard() {
                         <span
                           className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
                             item.statusNecessidade === "URGENTE"
-                              ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
                               : item.statusNecessidade === "BLOQUEADO"
                                 ? "bg-slate-700 text-slate-300"
                                 : "bg-amber-500/20 text-amber-300"
@@ -619,9 +619,9 @@ export default function PaginaDashboard() {
                             <button
                               key={st}
                               type="button"
-                              disabled={processando || item.statusNecessidade === st}
+                              disabled={somenteLeitura || processando || item.statusNecessidade === st}
                               onClick={() => alterarStatusItem(item.idItem, st)}
-                              className={`rounded-lg px-2 py-1 text-[11px] font-bold transition cursor-pointer ${
+                              className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-40 ${
                                 item.statusNecessidade === st
                                   ? "bg-amber-500 text-slate-950"
                                   : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
@@ -642,7 +642,7 @@ export default function PaginaDashboard() {
 
         {/* Últimas Movimentações */}
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-          <h2 className="text-lg font-bold text-white">Últimas Movimentações</h2>
+          <h2 className="text-base sm:text-lg font-bold text-white">Últimas Movimentações</h2>
           {ultimasMovimentacoes.length === 0 ? (
             <p className="text-sm text-slate-400">Nenhuma movimentação registrada neste abrigo.</p>
           ) : (
@@ -658,9 +658,9 @@ export default function PaginaDashboard() {
                       {m.usuario} • {m.tipo}
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 tabular-nums">
                     <span
-                      className={`font-mono text-sm font-bold ${
+                      className={`text-sm font-bold ${
                         m.quantidade > 0 ? "text-emerald-400" : "text-amber-400"
                       }`}
                     >

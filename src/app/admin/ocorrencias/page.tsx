@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
-import { useAdmin } from "../contexto-admin";
+import { ToastFlutuante, useAdmin } from "../contexto-admin";
 
 interface Ocorrencia {
   id: number;
@@ -32,6 +32,7 @@ const TIPOS_OCORRENCIA = [
 export default function PaginaOcorrencias() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, recarregarAbrigos } = useAdmin();
   const podeGerenciar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
+  const somenteLeitura = abrigoAtivo ? !abrigoAtivo.ativo : false;
 
   const [ocorrencias, setOcorrencias] = useState<Ocorrencia[]>([]);
   const [somenteAtivas, setSomenteAtivas] = useState(true);
@@ -95,10 +96,9 @@ export default function PaginaOcorrencias() {
 
   async function registrar(e: FormEvent) {
     e.preventDefault();
-    if (!idAbrigoAtivo) return;
+    if (!idAbrigoAtivo || somenteLeitura) return;
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
       const corpo: Record<string, unknown> = {
         tipo,
@@ -118,7 +118,7 @@ export default function PaginaOcorrencias() {
       setLatitude("");
       setLongitude("");
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso("Ocorrência registrada e publicada nos alertas do mapa.");
+      setAviso("Alerta de infraestrutura publicado no mapa.");
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -127,17 +127,16 @@ export default function PaginaOcorrencias() {
   }
 
   async function resolver(idOcorrencia: number) {
-    if (!idAbrigoAtivo) return;
+    if (!idAbrigoAtivo || somenteLeitura) return;
     setEnviando(true);
     setErro(null);
-    setAviso(null);
     try {
       await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${idOcorrencia}/resolucao`, {
         method: "POST",
         body: JSON.stringify({ observacao: observacaoResolucao[idOcorrencia]?.trim() || null }),
       });
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso("Ocorrência encerrada e status do abrigo recalculado.");
+      setAviso("Ocorrência encerrada e status do abrigo atualizado.");
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -155,32 +154,30 @@ export default function PaginaOcorrencias() {
 
   return (
     <div className="space-y-6">
+      <ToastFlutuante
+        erro={erro}
+        aviso={aviso}
+        aoFecharErro={() => setErro(null)}
+        aoFecharAviso={() => setAviso(null)}
+      />
+
       <div>
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-          RF05 & RF09 • Monitoramento de Infraestrutura e Vias Colapsadas
+          Infraestrutura e Vias de Acesso
         </span>
-        <h1 className="text-2xl sm:text-3xl font-bold text-white">
-          Reporte de Infraestrutura — {abrigoAtivo?.nome}
+        <h1 className="text-xl sm:text-2xl font-bold text-white">
+          {abrigoAtivo?.nome}
         </h1>
         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-          Alertas ativos atualizam o status operacional do abrigo e aparecem em tempo real no mapa público para evitar deslocamentos por rotas interditadas.
+          Comunique interdições de vias, falta de energia ou água para orientar o deslocamento seguro da população.
         </p>
       </div>
-
-      {erro && (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/60 px-4 py-3 text-sm text-red-200">{erro}</div>
-      )}
-      {aviso && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">
-          {aviso}
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Formulário de Registro (Coordenador / Admin) */}
         {podeGerenciar && (
           <section className="lg:col-span-5 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-            <h2 className="text-lg font-bold text-white">Registrar Nova Ocorrência</h2>
+            <h2 className="text-base sm:text-lg font-bold text-white">Registrar Nova Ocorrência</h2>
 
             <form onSubmit={registrar} className="space-y-4">
               <div>
@@ -194,8 +191,9 @@ export default function PaginaOcorrencias() {
                       <button
                         key={item.tipo}
                         type="button"
+                        disabled={somenteLeitura}
                         onClick={() => selecionarTipo(item.tipo)}
-                        className={`min-h-11 rounded-xl border p-2.5 text-left text-xs font-bold transition cursor-pointer ${
+                        className={`min-h-11 rounded-xl border p-2.5 text-left text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
                           selecionado
                             ? "border-amber-400 bg-amber-500/20 text-amber-200"
                             : "border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800"
@@ -217,11 +215,12 @@ export default function PaginaOcorrencias() {
                     <button
                       key={g}
                       type="button"
+                      disabled={somenteLeitura}
                       onClick={() => setGravidade(g)}
-                      className={`min-h-11 rounded-xl border py-2 text-xs font-black transition cursor-pointer ${
+                      className={`min-h-11 rounded-xl border py-2 text-xs font-black transition cursor-pointer disabled:opacity-40 ${
                         gravidade === g
                           ? g === "CRITICO"
-                            ? "border-red-400 bg-red-500 text-slate-950"
+                            ? "border-rose-400 bg-rose-500 text-slate-950"
                             : "border-amber-400 bg-amber-400 text-slate-950"
                           : "border-slate-800 bg-slate-950 text-slate-300"
                       }`}
@@ -234,35 +233,38 @@ export default function PaginaOcorrencias() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
-                  3. Descrição / Orientação de Rota Alternativa {tipo === "OUTRO" && "(Obrigatória)"}
+                  3. Descrição ou Rota Alternativa {tipo === "OUTRO" && "(Obrigatória)"}
                 </label>
                 <textarea
                   rows={3}
+                  disabled={somenteLeitura}
                   required={tipo === "OUTRO"}
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
                   placeholder="Ex.: Ponte principal interditada; acesse pela rua lateral Norte."
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm text-white placeholder-slate-500"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-base sm:text-sm text-white placeholder-slate-500 disabled:opacity-50"
                 />
               </div>
 
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-300">
-                    Coordenadas do Ponto Bloqueado (opcional)
+                    Localização do Bloqueio (opcional)
                   </span>
                   <div className="flex gap-1.5">
                     <button
                       type="button"
+                      disabled={somenteLeitura}
                       onClick={usarLocalDoAbrigo}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800 cursor-pointer"
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
                     >
-                      Local do Abrigo
+                      Usar Abrigo
                     </button>
                     <button
                       type="button"
+                      disabled={somenteLeitura}
                       onClick={capturarGpsNavegador}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-amber-300 hover:bg-slate-800 cursor-pointer"
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-amber-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
                     >
                       📍 Meu GPS
                     </button>
@@ -272,28 +274,30 @@ export default function PaginaOcorrencias() {
                   <input
                     type="number"
                     step="any"
+                    disabled={somenteLeitura}
                     value={latitude}
                     onChange={(e) => setLatitude(e.target.value)}
-                    placeholder="Latitude (ex.: -28.2486)"
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-white"
+                    placeholder="Latitude (-28.2486)"
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-base sm:text-xs text-white tabular-nums"
                   />
                   <input
                     type="number"
                     step="any"
+                    disabled={somenteLeitura}
                     value={longitude}
                     onChange={(e) => setLongitude(e.target.value)}
-                    placeholder="Longitude (ex.: -52.4230)"
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-white"
+                    placeholder="Longitude (-52.4230)"
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-base sm:text-xs text-white tabular-nums"
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={enviando}
+                disabled={somenteLeitura || enviando}
                 className="w-full min-h-12 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
               >
-                {enviando ? "Publicando Alerta..." : "Publicar Alerta de Infraestrutura"}
+                {enviando ? "Publicando Alerta..." : "Publicar Alerta no Mapa"}
               </button>
             </form>
           </section>
@@ -304,8 +308,8 @@ export default function PaginaOcorrencias() {
           className={`${podeGerenciar ? "lg:col-span-7" : "lg:col-span-12"} rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-bold text-white">
-              {somenteAtivas ? "Ocorrências Ativas no Momento" : "Histórico Completo de Ocorrências"}
+            <h2 className="text-base sm:text-lg font-bold text-white">
+              {somenteAtivas ? "Alertas Ativos" : "Histórico Completo"}
             </h2>
             <div className="inline-flex rounded-xl border border-slate-800 bg-slate-950 p-1">
               <button
@@ -347,7 +351,7 @@ export default function PaginaOcorrencias() {
                       !ativa
                         ? "border-slate-800 bg-slate-950/60 opacity-80"
                         : oc.gravidade === "CRITICO"
-                          ? "border-red-500/40 bg-red-950/25"
+                          ? "border-rose-500/40 bg-rose-950/25"
                           : "border-amber-500/40 bg-amber-950/25"
                     }`}
                   >
@@ -359,7 +363,7 @@ export default function PaginaOcorrencias() {
                               !ativa
                                 ? "bg-emerald-500/20 text-emerald-300"
                                 : oc.gravidade === "CRITICO"
-                                  ? "bg-red-500 text-slate-950"
+                                  ? "bg-rose-500 text-slate-950"
                                   : "bg-amber-400 text-slate-950"
                             }`}
                           >
@@ -371,7 +375,7 @@ export default function PaginaOcorrencias() {
                           <p className="text-sm text-slate-200 mt-1.5 whitespace-pre-line">{oc.descricao}</p>
                         )}
                       </div>
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[11px] text-slate-400 tabular-nums">
                         {new Date(oc.dataRegistro).toLocaleString("pt-BR")}
                       </span>
                     </div>
@@ -380,7 +384,7 @@ export default function PaginaOcorrencias() {
                       <div>
                         <span>Registrado por: <strong className="text-slate-300">{oc.registradoPor}</strong></span>
                         {oc.latitude !== null && oc.longitude !== null && (
-                          <span className="ml-3 font-mono text-[11px] text-amber-300">
+                          <span className="ml-3 font-mono text-[11px] text-amber-300 tabular-nums">
                             📍 {oc.latitude.toFixed(4)}, {oc.longitude.toFixed(4)}
                           </span>
                         )}
@@ -396,18 +400,19 @@ export default function PaginaOcorrencias() {
                         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                           <input
                             type="text"
+                            disabled={somenteLeitura}
                             placeholder="Observação de resolução (opcional)"
                             value={observacaoResolucao[oc.id] ?? ""}
                             onChange={(e) =>
                               setObservacaoResolucao((ant) => ({ ...ant, [oc.id]: e.target.value }))
                             }
-                            className="flex-1 sm:w-56 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs text-white"
+                            className="flex-1 sm:w-56 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-base sm:text-xs text-white"
                           />
                           <button
                             type="button"
-                            disabled={enviando}
+                            disabled={somenteLeitura || enviando}
                             onClick={() => resolver(oc.id)}
-                            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                            className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 cursor-pointer"
                           >
                             ✓ Resolver
                           </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -71,26 +71,97 @@ export function useAdmin(): ContextoAdminValor {
   return ctx;
 }
 
+export function ToastFlutuante({
+  erro,
+  aviso,
+  aoFecharErro,
+  aoFecharAviso,
+}: {
+  erro: string | null;
+  aviso: string | null;
+  aoFecharErro: () => void;
+  aoFecharAviso: () => void;
+}) {
+  useEffect(() => {
+    if (!aviso) return;
+    const timer = window.setTimeout(() => {
+      aoFecharAviso();
+    }, 3500);
+    return () => window.clearTimeout(timer);
+  }, [aviso, aoFecharAviso]);
+
+  if (!erro && !aviso) return null;
+
+  return (
+    <div
+      aria-live="polite"
+      className="fixed bottom-20 md:bottom-6 right-4 left-4 sm:left-auto sm:w-full sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-none"
+    >
+      {erro && (
+        <div
+          role="alert"
+          className="pointer-events-auto flex items-start justify-between gap-3 rounded-2xl border border-rose-500/50 bg-slate-900/95 px-4 py-3 text-sm text-rose-200 shadow-2xl backdrop-blur"
+        >
+          <div className="min-w-0">
+            <p className="font-bold text-rose-300 text-xs uppercase tracking-wider">Atenção</p>
+            <p className="mt-0.5 leading-snug">{erro}</p>
+          </div>
+          <button
+            type="button"
+            onClick={aoFecharErro}
+            className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+            aria-label="Fechar alerta de erro"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {aviso && (
+        <div
+          role="status"
+          className="pointer-events-auto flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/50 bg-slate-900/95 px-4 py-3 text-sm text-emerald-200 shadow-2xl backdrop-blur"
+        >
+          <p className="font-medium leading-snug">✓ {aviso}</p>
+          <button
+            type="button"
+            onClick={aoFecharAviso}
+            className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+            aria-label="Fechar aviso"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CORES_OCUPACAO: Record<NivelOcupacao, string> = {
-  VERDE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-  AMARELO: "bg-amber-500/15 text-amber-300 border-amber-500/40",
-  VERMELHO: "bg-red-500/20 text-red-300 border-red-500/40",
+  VERDE: "bg-emerald-950/70 text-emerald-300 border-emerald-700/60",
+  AMARELO: "bg-amber-950/70 text-amber-300 border-amber-600/60",
+  VERMELHO: "bg-rose-950/70 text-rose-300 border-rose-600/60",
 };
 
 const CORES_INFRA: Record<StatusInfraestrutura, string> = {
-  NORMAL: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-  ALERTA: "bg-amber-500/15 text-amber-300 border-amber-500/40",
-  CRITICO: "bg-red-500/20 text-red-200 border-red-500/50",
+  NORMAL: "bg-emerald-950/70 text-emerald-300 border-emerald-700/60",
+  ALERTA: "bg-amber-950/70 text-amber-300 border-amber-600/60",
+  CRITICO: "bg-rose-950/70 text-rose-200 border-rose-600/60",
+};
+
+const ROTULO_PAPEL: Record<PapelUsuario, string> = {
+  ADMIN: "Administração Geral",
+  COORDENADOR: "Coordenador",
+  VOLUNTARIO: "Voluntário",
 };
 
 export function AdminShell({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
   const [usuario, setUsuario] = useState<UsuarioPerfil | null>(null);
   const [abrigos, setAbrigos] = useState<AbrigoAdmin[]>([]);
   const [idAbrigoSelecionado, setIdAbrigoSelecionado] = useState<number | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erroFatal, setErroFatal] = useState<string | null>(null);
+  const [reativandoAbrigo, setReativandoAbrigo] = useState(false);
 
   // Modal de alteração de senha
   const [modalSenhaAberto, setModalSenhaAberto] = useState(false);
@@ -130,7 +201,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       } catch (err) {
         if (!ativo) return;
         if (err instanceof ErroClienteApi && err.status === 401) {
-          router.replace("/login");
+          window.location.assign(new URL("/login", window.location.origin).href);
           return;
         }
         setErroFatal(mensagemErro(err));
@@ -142,7 +213,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
     return () => {
       ativo = false;
     };
-  }, [router]);
+  }, []);
 
   const selecionarAbrigo = useCallback((id: number) => {
     setIdAbrigoSelecionado(id);
@@ -157,15 +228,29 @@ export function AdminShell({ children }: { children: ReactNode }) {
     try {
       await api("/api/auth/logout", { method: "POST" });
     } finally {
-      router.replace("/login");
+      window.location.assign(new URL("/login", window.location.origin).href);
     }
-  }, [router]);
+  }, []);
 
   const idAbrigoAtivo = usuario?.papel === "ADMIN" ? idAbrigoSelecionado : (usuario?.idAbrigo ?? null);
   const abrigoAtivo = useMemo(
     () => abrigos.find((a) => a.id === idAbrigoAtivo) ?? null,
     [abrigos, idAbrigoAtivo],
   );
+
+  async function reativarAbrigoAtual() {
+    if (!abrigoAtivo) return;
+    setReativandoAbrigo(true);
+    try {
+      await api(`/api/abrigos/${abrigoAtivo.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ativo: true }),
+      });
+      await recarregarAbrigos();
+    } finally {
+      setReativandoAbrigo(false);
+    }
+  }
 
   async function alterarSenha(e: FormEvent) {
     e.preventDefault();
@@ -191,7 +276,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
-          <p className="text-sm text-slate-400">Carregando sessão operacional...</p>
+          <p className="text-sm text-slate-400">Carregando operação...</p>
         </div>
       </div>
     );
@@ -200,10 +285,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
   if (erroFatal || !usuario) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
-        <div className="max-w-md rounded-2xl border border-red-500/40 bg-slate-900 p-6 text-center space-y-4">
-          <p className="text-red-300 font-semibold">{erroFatal ?? "Sessão expirada."}</p>
+        <div className="max-w-md rounded-2xl border border-rose-500/40 bg-slate-900 p-6 text-center space-y-4">
+          <p className="text-rose-300 font-semibold">{erroFatal ?? "Sessão expirada."}</p>
           <Link
             href="/login"
+            prefetch={false}
             className="inline-block rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950"
           >
             Ir para Login
@@ -213,22 +299,27 @@ export function AdminShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const abas = [
-    ...(usuario.papel !== "VOLUNTARIO"
-      ? [{ href: "/admin/dashboard", rotulo: "Dashboard & Triagem" }]
-      : []),
-    { href: "/admin/inventario", rotulo: "Inventário (Fast-CRUD)" },
-    { href: "/admin/ocorrencias", rotulo: "Infraestrutura & Vias" },
-    { href: "/admin/abrigados", rotulo: "Acolhidos & Vagas" },
-    ...(usuario.papel !== "VOLUNTARIO"
+  // Navegação alinhada estritamente ao RBAC e proxy.ts
+  const abas =
+    usuario.papel === "VOLUNTARIO"
       ? [
+          { href: "/admin/inventario", icone: "📦", rotulo: "Estoque", rotuloCurto: "Estoque" },
+          { href: "/admin/abrigados", icone: "👥", rotulo: "Acolhidos & Check-in", rotuloCurto: "Acolhidos" },
+        ]
+      : [
+          { href: "/admin/dashboard", icone: "📊", rotulo: "Visão Geral", rotuloCurto: "Visão Geral" },
+          { href: "/admin/inventario", icone: "📦", rotulo: "Estoque", rotuloCurto: "Estoque" },
+          { href: "/admin/ocorrencias", icone: "🚧", rotulo: "Infraestrutura", rotuloCurto: "Infra" },
+          { href: "/admin/abrigados", icone: "👥", rotulo: "Acolhidos", rotuloCurto: "Acolhidos" },
           {
             href: "/admin/geral",
-            rotulo: usuario.papel === "ADMIN" ? "Administração & Auditoria" : "Equipe & Auditoria",
+            icone: usuario.papel === "ADMIN" ? "🌐" : "🛡️",
+            rotulo: usuario.papel === "ADMIN" ? "Governança Global" : "Equipe & Auditoria",
+            rotuloCurto: "Gestão",
           },
-        ]
-      : []),
-  ];
+        ];
+
+  const ehEscopoGlobal = usuario.papel === "ADMIN" && pathname.startsWith("/admin/geral");
 
   return (
     <ContextoAdmin.Provider
@@ -243,23 +334,27 @@ export function AdminShell({ children }: { children: ReactNode }) {
       }}
     >
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-        {/* Barra Superior */}
+        {/* Barra Superior Enxuta */}
         <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
-          <div className="mx-auto max-w-7xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="mx-auto max-w-7xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Link href={usuario.redirecionarPara} className="flex items-center gap-2.5">
+              <Link href={usuario.redirecionarPara} prefetch={false} className="flex items-center gap-2.5">
                 <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500 text-slate-950 font-black text-lg">
                   W
                 </span>
                 <div>
                   <span className="font-bold text-white leading-none block">WhereToGo</span>
-                  <span className="text-[11px] text-slate-400">Painel Operacional</span>
+                  <span className="text-[11px] text-slate-400">{ROTULO_PAPEL[usuario.papel]}</span>
                 </div>
               </Link>
 
-              {/* Seletor ou Emblema do Abrigo Ativo */}
+              {/* Contexto do Abrigo ou Indicador de Escopo Global (Desktop) */}
               <div className="hidden md:flex items-center gap-2 pl-3 border-l border-slate-800">
-                {usuario.papel === "ADMIN" ? (
+                {ehEscopoGlobal ? (
+                  <span className="rounded-lg border border-indigo-500/40 bg-indigo-950/60 px-3 py-1 text-xs font-semibold text-indigo-200">
+                    🌐 Escopo Global • Todos os Abrigos ({abrigos.length})
+                  </span>
+                ) : usuario.papel === "ADMIN" ? (
                   <div className="flex items-center gap-2">
                     <label htmlFor="seletor-abrigo" className="text-xs text-slate-400">
                       Abrigo:
@@ -273,7 +368,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                       {abrigos.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.nome} ({a.ocupacao.lotacaoAtual}/{a.ocupacao.capacidadeMaxima})
-                          {!a.ativo ? " [INATIVO]" : ""}
+                          {!a.ativo ? " [ARQUIVADO]" : ""}
                         </option>
                       ))}
                     </select>
@@ -284,12 +379,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   </span>
                 )}
 
-                {abrigoAtivo && (
+                {!ehEscopoGlobal && abrigoAtivo && (
                   <>
                     <span
-                      className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
+                      className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
                     >
-                      Lotação: {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima} (
+                      Vagas: {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima} (
                       {abrigoAtivo.ocupacao.percentual}%)
                     </span>
                     <span
@@ -305,7 +400,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2">
               <div className="text-right hidden sm:block mr-1">
                 <p className="text-xs font-semibold text-white leading-tight">{usuario.nome}</p>
-                <p className="text-[11px] text-amber-400 font-mono">{usuario.papel}</p>
+                <p className="text-[11px] text-amber-400">{ROTULO_PAPEL[usuario.papel]}</p>
               </div>
               <button
                 type="button"
@@ -319,26 +414,31 @@ export function AdminShell({ children }: { children: ReactNode }) {
               </button>
               <Link
                 href="/"
+                prefetch={false}
                 className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800"
               >
-                Mapa Público
+                Mapa
               </Link>
               <button
                 type="button"
                 onClick={sair}
-                className="rounded-lg border border-red-500/30 bg-red-950/50 px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-900/60 cursor-pointer"
+                className="rounded-lg border border-rose-500/30 bg-rose-950/50 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-900/60 cursor-pointer"
               >
                 Sair
               </button>
             </div>
           </div>
 
-          {/* Barra Mobile do Abrigo + Navegação por Abas */}
+          {/* Barra Mobile de Contexto do Abrigo */}
           <div className="mx-auto max-w-7xl px-4 pb-2 md:pb-0 flex flex-col gap-2">
-            {usuario.papel === "ADMIN" && (
-              <div className="flex md:hidden items-center gap-2">
-                <span className="text-xs text-slate-400">Abrigo:</span>
+            <div className="flex md:hidden items-center justify-between gap-2">
+              {ehEscopoGlobal ? (
+                <span className="w-full rounded-lg border border-indigo-500/40 bg-indigo-950/50 px-3 py-1.5 text-xs font-semibold text-indigo-200 text-center">
+                  🌐 Escopo Global • Todos os Abrigos ({abrigos.length})
+                </span>
+              ) : usuario.papel === "ADMIN" ? (
                 <select
+                  aria-label="Selecionar abrigo"
                   value={idAbrigoAtivo ?? ""}
                   onChange={(e) => selecionarAbrigo(Number(e.target.value))}
                   className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"
@@ -346,26 +446,42 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   {abrigos.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome} ({a.ocupacao.lotacaoAtual}/{a.ocupacao.capacidadeMaxima})
+                      {!a.ativo ? " [ARQUIVADO]" : ""}
                     </option>
                   ))}
                 </select>
-              </div>
-            )}
+              ) : (
+                <span className="truncate text-xs font-semibold text-slate-300">
+                  📍 {abrigoAtivo?.nome ?? usuario.abrigo}
+                </span>
+              )}
 
-            <nav className="flex items-center gap-1 overflow-x-auto pb-1">
+              {!ehEscopoGlobal && abrigoAtivo && (
+                <span
+                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
+                >
+                  {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima}
+                </span>
+              )}
+            </div>
+
+            {/* Abas Horizontais (Desktop >= md) */}
+            <nav className="hidden md:flex items-center gap-1 overflow-x-auto">
               {abas.map((aba) => {
                 const ativa = pathname === aba.href || pathname.startsWith(`${aba.href}/`);
                 return (
                   <Link
                     key={aba.href}
                     href={aba.href}
-                    className={`whitespace-nowrap rounded-t-lg px-3.5 py-2 text-xs sm:text-sm font-semibold border-b-2 transition ${
+                    prefetch={false}
+                    className={`whitespace-nowrap rounded-t-lg px-3.5 py-2 text-xs sm:text-sm font-semibold border-b-2 transition flex items-center gap-1.5 ${
                       ativa
                         ? "border-amber-400 text-amber-300 bg-slate-900/80"
                         : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40"
                     }`}
                   >
-                    {aba.rotulo}
+                    <span>{aba.icone}</span>
+                    <span>{aba.rotulo}</span>
                   </Link>
                 );
               })}
@@ -373,8 +489,57 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Conteúdo Principal */}
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6">{children}</main>
+        {/* Banner de Aviso caso o abrigo selecionado esteja inativo/arquivado */}
+        {!ehEscopoGlobal && abrigoAtivo && !abrigoAtivo.ativo && (
+          <div className="border-b border-amber-500/40 bg-amber-950/60 px-4 py-2.5">
+            <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
+              <span>
+                ⚠️ <strong>{abrigoAtivo.nome}</strong> está arquivado (somente leitura). Reative o abrigo para
+                registrar movimentações, check-in ou alertas.
+              </span>
+              {usuario.papel === "ADMIN" && (
+                <button
+                  type="button"
+                  disabled={reativandoAbrigo}
+                  onClick={reativarAbrigoAtual}
+                  className="rounded-lg bg-amber-500 px-3 py-1 font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
+                >
+                  {reativandoAbrigo ? "Reativando..." : "Reativar Abrigo"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Conteúdo Principal (com padding-bottom extra no mobile por conta da Bottom Bar) */}
+        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6 pb-24 md:pb-8">{children}</main>
+
+        {/* Barra de Navegação Inferior Fixa no Mobile (< md) — Ergonomia Thumb-First */}
+        <nav
+          aria-label="Navegação principal mobile"
+          className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur px-2 py-1"
+        >
+          <div className="mx-auto max-w-md flex items-center justify-around gap-1">
+            {abas.map((aba) => {
+              const ativa = pathname === aba.href || pathname.startsWith(`${aba.href}/`);
+              return (
+                <Link
+                  key={aba.href}
+                  href={aba.href}
+                  prefetch={false}
+                  className={`min-h-13 flex-1 flex flex-col items-center justify-center rounded-xl py-1 px-1.5 text-[11px] font-semibold transition ${
+                    ativa
+                      ? "bg-amber-500/15 text-amber-300"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <span className="text-base leading-none mb-1">{aba.icone}</span>
+                  <span className="truncate max-w-full">{aba.rotuloCurto}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
 
         {/* Modal de Alteração de Senha */}
         {modalSenhaAberto && (
@@ -385,7 +550,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setModalSenhaAberto(false)}
-                  className="text-slate-400 hover:text-white text-sm"
+                  className="text-slate-400 hover:text-white text-sm cursor-pointer"
                 >
                   ✕
                 </button>
@@ -396,7 +561,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   className={`mb-4 rounded-xl border px-3.5 py-2.5 text-xs ${
                     statusSenha.tipo === "ok"
                       ? "border-emerald-500/40 bg-emerald-950/60 text-emerald-200"
-                      : "border-red-500/40 bg-red-950/60 text-red-200"
+                      : "border-rose-500/40 bg-rose-950/60 text-rose-200"
                   }`}
                 >
                   {statusSenha.texto}
@@ -411,7 +576,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                     required
                     value={senhaAtual}
                     onChange={(e) => setSenhaAtual(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                   />
                 </div>
                 <div>
@@ -424,21 +589,21 @@ export function AdminShell({ children }: { children: ReactNode }) {
                     minLength={8}
                     value={novaSenha}
                     onChange={(e) => setNovaSenha(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setModalSenhaAberto(false)}
-                    className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-300"
+                    className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-300 cursor-pointer"
                   >
                     Fechar
                   </button>
                   <button
                     type="submit"
                     disabled={salvandoSenha}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
                   >
                     {salvandoSenha ? "Salvando..." : "Atualizar Senha"}
                   </button>

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { verificarToken } from "@/lib/auth/jwt";
 import { COOKIE_SESSAO, obterUsuario } from "@/lib/auth/sessao";
 import { consultar } from "@/lib/db";
-import { alterarSenha, login } from "@/modules/auth/auth.service";
+import { alterarSenha, autenticarComGoogle, login } from "@/modules/auth/auth.service";
+import { atualizarUsuario, criarUsuario as criarUsuarioService } from "@/modules/usuarios/usuarios.service";
 import { capturarErro, contexto, criarAbrigo, criarUsuario, logsDoUsuario, SENHA_TESTE } from "./fixtures";
 
 const requisicaoCom = (token: string, via: "header" | "cookie" = "header") =>
@@ -96,5 +97,62 @@ describe("RF01 - Autenticação e RBAC", () => {
     );
     await alterarSenha(ctx, { senhaAtual: SENHA_TESTE, novaSenha: "NovaSenha@2026" });
     await expect(login({ email: usuario.email, senha: "NovaSenha@2026" }, null)).resolves.toBeDefined();
+  });
+
+  it("realiza auto-cadastro via Google One Tap com aprovação pelo Coordenador e login 1-toque", async () => {
+    const abrigo = await criarAbrigo({ nome: "Abrigo Google One Tap" });
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+    const credencial = {
+      nome: "Voluntária Google",
+      email: `google.${abrigo.id}@teste.local`,
+      sub: `sub-google-${abrigo.id}`,
+    };
+
+    // 1. Sem abrigo selecionado, solicita escolha do abrigo
+    const passo1 = await autenticarComGoogle({ credencialSimulada: credencial }, "10.0.0.5");
+    expect(passo1.status).toBe("REQUER_ABRIGO");
+
+    // 2. Com abrigo selecionado, cria solicitação pendente (ativo = false)
+    const passo2 = await autenticarComGoogle(
+      { credencialSimulada: credencial, idAbrigo: abrigo.id },
+      "10.0.0.5",
+    );
+    expect(passo2.status).toBe("PENDENTE_APROVACAO");
+    if (passo2.status !== "PENDENTE_APROVACAO") throw new Error("Esperado PENDENTE_APROVACAO");
+    expect(passo2.usuario).toMatchObject({
+      nome: "Voluntária Google",
+      email: credencial.email,
+      papel: "VOLUNTARIO",
+      idAbrigo: abrigo.id,
+    });
+
+    // 3. Coordenador aprova com 1 clique
+    await atualizarUsuario(coordenador, passo2.usuario.id, { ativo: true });
+
+    // 4. Novo toque no Google One Tap autentica diretamente
+    const passo3 = await autenticarComGoogle({ credencialSimulada: credencial }, "10.0.0.5");
+    expect(passo3.status).toBe("AUTENTICADO");
+    if (passo3.status !== "AUTENTICADO") throw new Error("Esperado AUTENTICADO");
+    expect(passo3.redirecionarPara).toBe("/admin/inventario");
+  });
+
+  it("permite pré-cadastro sem senha pelo Coordenador para entrada direta via Google One Tap", async () => {
+    const abrigo = await criarAbrigo();
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+    const emailPre = `precadastro.${abrigo.id}@teste.local`;
+
+    const preCadastrado = await criarUsuarioService(coordenador, {
+      nome: "Voluntário Pré-Cadastrado",
+      email: emailPre,
+      papel: "VOLUNTARIO",
+    });
+    expect(preCadastrado.ativo).toBe(true);
+    expect(preCadastrado.possuiGoogle).toBe(false);
+
+    const autenticado = await autenticarComGoogle(
+      { credencialSimulada: { nome: "Voluntário Pré-Cadastrado", email: emailPre } },
+      "10.0.0.6",
+    );
+    expect(autenticado.status).toBe("AUTENTICADO");
   });
 });

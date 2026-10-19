@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
-import { useAdmin } from "../contexto-admin";
+import { ToastFlutuante, useAdmin } from "../contexto-admin";
 
 interface ItemEstoque {
   idItem: number;
@@ -90,6 +90,7 @@ function vibrarToque(ms = 12) {
 export default function PaginaInventario() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, abrigos } = useAdmin();
   const podeClassificar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
+  const somenteLeitura = abrigoAtivo ? !abrigoAtivo.ativo : false;
 
   const [itens, setItens] = useState<ItemEstoque[]>([]);
   const [incluirCatalogo, setIncluirCatalogo] = useState(true);
@@ -102,7 +103,10 @@ export default function PaginaInventario() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [ocupadoId, setOcupadoId] = useState<number | null>(null);
 
-  // Estado de feedback tátil/visual por card e fila sequencial por item (RNF04)
+  // Divulgação progressiva: controla qual card está com a gaveta de gestão aberta
+  const [cardExpandidoId, setCardExpandidoId] = useState<number | null>(null);
+
+  // Estado de feedback tátil/visual por card e fila sequencial por item
   const [feedbackPorItem, setFeedbackPorItem] = useState<Record<number, FeedbackCard>>({});
   const [toquesRecentes, setToquesRecentes] = useState<ToqueRecente[]>([]);
   const filasPorItemRef = useRef<Map<number, Promise<void>>>(new Map());
@@ -111,7 +115,7 @@ export default function PaginaInventario() {
   const [itemLote, setItemLote] = useState<ItemEstoque | null>(null);
   const [motivoLote, setMotivoLote] = useState<string>(MOTIVOS_RAPIDOS_LOTE[0]);
 
-  // Histórico de movimentações do abrigo (RF13)
+  // Histórico de movimentações do abrigo
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState<MovimentacaoEstoque[]>([]);
   const [filtroItemHist, setFiltroItemHist] = useState<string>("");
@@ -191,13 +195,13 @@ export default function PaginaInventario() {
     delta: number,
     opcoes?: { observacao?: string; registrarNoTopo?: boolean },
   ) {
-    if (!idAbrigoAtivo) return;
+    if (!idAbrigoAtivo || somenteLeitura) return;
     if (delta < 0 && item.quantidade + delta < 0) return;
 
     vibrarToque(12);
     setErro(null);
 
-    // 1. Atualização Otimista Instantânea (0ms de espera no toque - RNF04)
+    // 1. Atualização Otimista Instantânea (0ms de espera no toque)
     aplicarSaldoNoEstado(item.idItem, item.quantidade + delta);
     setFeedbackPorItem((prev) => {
       const atual = prev[item.idItem] ?? { pendentes: 0, ultimoDelta: null };
@@ -216,7 +220,7 @@ export default function PaginaInventario() {
     const corpo: Record<string, unknown> = { quantidade: delta };
     if (delta < 0 && modoSaida === "PERDA") {
       corpo.tipo = "PERDA";
-      corpo.observacao = opcoes?.observacao ?? "Baixa por perda/avaria via Fast-CRUD";
+      corpo.observacao = opcoes?.observacao ?? "Baixa por perda/avaria no painel de estoque";
     } else if (opcoes?.observacao) {
       corpo.observacao = opcoes.observacao;
     }
@@ -276,7 +280,7 @@ export default function PaginaInventario() {
   }
 
   function desfazerToque(toque: ToqueRecente) {
-    if (toque.desfeito) return;
+    if (toque.desfeito || somenteLeitura) return;
     const itemAtual = itens.find((i) => i.idItem === toque.idItem);
     if (!itemAtual) return;
     const inverso = -toque.delta;
@@ -296,7 +300,7 @@ export default function PaginaInventario() {
   }
 
   async function classificarStatus(item: ItemEstoque, statusNecessidade: "URGENTE" | "NORMAL" | "BLOQUEADO") {
-    if (!idAbrigoAtivo) return;
+    if (!idAbrigoAtivo || somenteLeitura) return;
     vibrarToque(15);
     setOcupadoId(item.idItem);
     setErro(null);
@@ -306,6 +310,7 @@ export default function PaginaInventario() {
         body: JSON.stringify({ statusNecessidade }),
       });
       await carregar();
+      setAviso(`${item.nome} marcado como ${statusNecessidade}.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -315,10 +320,9 @@ export default function PaginaInventario() {
 
   async function salvarConfigItem(e: FormEvent) {
     e.preventDefault();
-    if (!itemConfig || !idAbrigoAtivo) return;
+    if (!itemConfig || !idAbrigoAtivo || somenteLeitura) return;
     setOcupadoId(itemConfig.idItem);
     setErro(null);
-    setAviso(null);
     try {
       const novaMinima = Number(minimoInput);
       if (novaMinima !== itemConfig.quantidadeMinima) {
@@ -350,10 +354,9 @@ export default function PaginaInventario() {
 
   async function confirmarTransferencia(e: FormEvent) {
     e.preventDefault();
-    if (!itemTransferencia || !idAbrigoAtivo || !idAbrigoDestino) return;
+    if (!itemTransferencia || !idAbrigoAtivo || !idAbrigoDestino || somenteLeitura) return;
     setOcupadoId(itemTransferencia.idItem);
     setErro(null);
-    setAviso(null);
     try {
       await api(`/api/abrigos/${idAbrigoAtivo}/transferencias-estoque`, {
         method: "POST",
@@ -403,24 +406,31 @@ export default function PaginaInventario() {
   if (!idAbrigoAtivo) {
     return (
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-slate-400">
-        Selecione um abrigo no topo para acessar o inventário.
+        Selecione um abrigo no topo para acessar o estoque.
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
+      <ToastFlutuante
+        erro={erro}
+        aviso={aviso}
+        aoFecharErro={() => setErro(null)}
+        aoFecharAviso={() => setAviso(null)}
+      />
+
       {/* Cabeçalho e Controles Operacionais Touch */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-            RF02 • RF03 • RNF04 • Interface Tátil de Resposta Rápida (Fast-CRUD)
+            Controle de Estoque e Doações
           </span>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">
-            Estoque Operacional — {abrigoAtivo?.nome}
+          <h1 className="text-xl sm:text-2xl font-bold text-white">
+            {abrigoAtivo?.nome}
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Toques múltiplos atualizam o saldo instantaneamente em fila assíncrona sem bloquear a operação.
+            Toque nos botões para registrar entradas e saídas rapidamente.
           </p>
         </div>
 
@@ -435,14 +445,14 @@ export default function PaginaInventario() {
                   : "text-slate-300 hover:text-white"
               }`}
             >
-              − Saída Consumo
+              − Saída p/ Consumo
             </button>
             <button
               type="button"
               onClick={() => setModoSaida("PERDA")}
               className={`min-h-10 rounded-lg px-3 py-1.5 font-semibold transition cursor-pointer ${
                 modoSaida === "PERDA"
-                  ? "bg-red-500 text-slate-950"
+                  ? "bg-rose-500 text-slate-950"
                   : "text-slate-300 hover:text-white"
               }`}
             >
@@ -457,7 +467,7 @@ export default function PaginaInventario() {
               onChange={(e) => setIncluirCatalogo(e.target.checked)}
               className="h-4 w-4 accent-amber-500"
             />
-            Mostrar saldo zero
+            Mostrar zerados
           </label>
 
           {podeClassificar && (
@@ -470,32 +480,23 @@ export default function PaginaInventario() {
                   : "border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800"
               }`}
             >
-              📜 {mostrarHistorico ? "Ocultar Histórico" : "Histórico (RF13)"}
+              📜 {mostrarHistorico ? "Ocultar Histórico" : "Histórico"}
             </button>
           )}
         </div>
       </div>
 
-      {erro && (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/60 px-4 py-3 text-sm text-red-200">{erro}</div>
-      )}
-      {aviso && (
-        <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">
-          {aviso}
-        </div>
-      )}
-
-      {/* Faixa de Últimos Toques da Sessão + Estorno em 1 Toque (Prevenção de Erro Operacional) */}
+      {/* Faixa de Últimos Toques da Sessão + Estorno em 1 Toque */}
       {toquesRecentes.length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Últimos Toques:
+              Recentes:
             </span>
             {toquesRecentes.map((t) => (
               <div
                 key={t.uid}
-                className={`inline-flex items-center gap-2 rounded-xl border px-2.5 py-1 text-xs ${
+                className={`inline-flex items-center gap-2 rounded-xl border px-2.5 py-1 text-xs tabular-nums ${
                   t.desfeito
                     ? "border-slate-800 bg-slate-950/50 text-slate-500 line-through"
                     : t.delta > 0
@@ -503,17 +504,17 @@ export default function PaginaInventario() {
                       : "border-amber-500/30 bg-amber-950/30 text-amber-200"
                 }`}
               >
-                <span className="font-mono font-bold">
+                <span className="font-bold">
                   {t.delta > 0 ? `+${t.delta}` : t.delta}
                 </span>
                 <span className="font-medium">{t.nomeItem}</span>
                 <span className="text-[10px] text-slate-400">{t.horario}</span>
-                {!t.desfeito && (
+                {!t.desfeito && !somenteLeitura && (
                   <button
                     type="button"
                     onClick={() => desfazerToque(t)}
                     className="ml-1 rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-slate-700 cursor-pointer"
-                    title="Estornar este toque no livro-razão"
+                    title="Desfazer este lançamento"
                   >
                     ↩ Desfazer
                   </button>
@@ -526,7 +527,7 @@ export default function PaginaInventario() {
             onClick={() => setToquesRecentes([])}
             className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
           >
-            Limpar faixa
+            Limpar
           </button>
         </div>
       )}
@@ -539,8 +540,8 @@ export default function PaginaInventario() {
               type="search"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar item por nome (ex.: Água, Fralda, Cobertor, Insulina)..."
-              className="w-full min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-white"
+              placeholder="Buscar item (ex.: Água, Fralda, Cobertor, Insulina)..."
+              className="w-full min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-base sm:text-sm text-white"
             />
             {busca && (
               <button
@@ -554,13 +555,13 @@ export default function PaginaInventario() {
           </div>
 
           {/* Pílulas de Filtro Rápido por Status (1 Toque) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 tabular-nums">
             {[
               { id: "TODOS" as const, rotulo: `Todos (${itens.length})` },
-              { id: "CRITICOS" as const, rotulo: `🚨 Críticos (${totalCriticos})` },
+              { id: "CRITICOS" as const, rotulo: `🚨 Em Alerta (${totalCriticos})` },
               { id: "URGENTE" as const, rotulo: `🔴 Urgentes (${totalUrgentes})` },
               { id: "BLOQUEADO" as const, rotulo: `🛑 Bloqueados (${totalBloqueados})` },
-              { id: "COM_SALDO" as const, rotulo: `📦 Em Estoque (${totalComSaldo})` },
+              { id: "COM_SALDO" as const, rotulo: `📦 Com Saldo (${totalComSaldo})` },
             ].map((f) => (
               <button
                 key={f.id}
@@ -589,7 +590,7 @@ export default function PaginaInventario() {
                 : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
             }`}
           >
-            📋 Todas Categorias
+            📋 Todas
           </button>
           {categorias.map((c) => (
             <button
@@ -608,7 +609,7 @@ export default function PaginaInventario() {
         </div>
       </div>
 
-      {/* Grade de Cards Fast-CRUD */}
+      {/* Grade de Cards de Estoque */}
       {carregando ? (
         <p className="py-12 text-center text-sm text-slate-400">Carregando estoque...</p>
       ) : itensFiltrados.length === 0 ? (
@@ -618,17 +619,18 @@ export default function PaginaInventario() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {itensFiltrados.map((item) => {
-            const desabilitadoClassificacao = ocupadoId === item.idItem;
+            const desabilitadoClassificacao = ocupadoId === item.idItem || somenteLeitura;
             const fb = feedbackPorItem[item.idItem];
             const sincronizando = (fb?.pendentes ?? 0) > 0;
             const abaixoDoMinimo = item.quantidade < item.quantidadeMinima;
+            const expandido = cardExpandidoId === item.idItem;
 
             return (
               <div
                 key={item.idItem}
                 className={`rounded-2xl border p-4 flex flex-col justify-between space-y-4 transition ${
                   item.statusNecessidade === "URGENTE"
-                    ? "border-red-500/50 bg-slate-900 shadow-sm shadow-red-950/30"
+                    ? "border-rose-500/50 bg-slate-900 shadow-sm shadow-rose-950/30"
                     : item.statusNecessidade === "BLOQUEADO"
                       ? "border-slate-700 bg-slate-900/70"
                       : abaixoDoMinimo
@@ -636,6 +638,7 @@ export default function PaginaInventario() {
                         : "border-slate-800 bg-slate-900"
                 }`}
               >
+                {/* Zona 1: Identificação e Contador Principal */}
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -648,7 +651,7 @@ export default function PaginaInventario() {
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
                           item.statusNecessidade === "URGENTE"
-                            ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                            ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
                             : item.statusNecessidade === "BLOQUEADO"
                               ? "bg-slate-700 text-slate-300"
                               : "bg-emerald-500/15 text-emerald-300"
@@ -657,20 +660,20 @@ export default function PaginaInventario() {
                         {item.statusNecessidade}
                       </span>
                       {sincronizando ? (
-                        <span className="text-[10px] font-mono text-amber-300 animate-pulse">
+                        <span className="text-[10px] tabular-nums text-amber-300 animate-pulse">
                           ⟳ Salvando ({fb.pendentes})...
                         </span>
                       ) : fb?.ultimoDelta ? (
-                        <span className="text-[10px] font-mono text-emerald-400">
+                        <span className="text-[10px] tabular-nums text-emerald-400">
                           ✓ {fb.ultimoDelta > 0 ? `+${fb.ultimoDelta}` : fb.ultimoDelta} salvo
                         </span>
                       ) : null}
                     </div>
                   </div>
 
-                  <div className="flex items-baseline justify-between pt-1">
+                  <div className="flex items-baseline justify-between pt-1 tabular-nums">
                     <div>
-                      <span className="text-3xl font-black text-white font-mono">{item.quantidade}</span>
+                      <span className="text-3xl font-extrabold text-white">{item.quantidade}</span>
                       <span className="ml-1.5 text-xs text-slate-400">{item.unidadeMedida}(s)</span>
                     </div>
                     <div className="text-right">
@@ -679,22 +682,22 @@ export default function PaginaInventario() {
                           abaixoDoMinimo ? "text-amber-300 font-bold" : "text-slate-400"
                         }`}
                       >
-                        Mínimo: {item.quantidadeMinima}
+                        Mín: {item.quantidadeMinima}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Botões Touch Fast-CRUD (-5, -1, +1, +5) com altura >= 48px (min-h-12 / min-h-14) */}
+                {/* Zona 2: Botões Touch Rápidos (-5, -1, +1, +5) + Lote e Gestão */}
                 <div className="space-y-2">
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 gap-2 tabular-nums">
                     <button
                       type="button"
-                      disabled={item.quantidade < 5}
+                      disabled={somenteLeitura || item.quantidade < 5}
                       onClick={() => movimentarRapido(item, -5)}
                       className={`min-h-12 rounded-xl border text-base font-black transition active:scale-95 disabled:opacity-30 cursor-pointer ${
                         modoSaida === "PERDA"
-                          ? "border-red-500/40 bg-red-950/40 text-red-300 hover:bg-red-900/50"
+                          ? "border-rose-500/40 bg-rose-950/40 text-rose-300 hover:bg-rose-900/50"
                           : "border-slate-700 bg-slate-950 text-amber-300 hover:bg-slate-800"
                       }`}
                     >
@@ -702,11 +705,11 @@ export default function PaginaInventario() {
                     </button>
                     <button
                       type="button"
-                      disabled={item.quantidade < 1}
+                      disabled={somenteLeitura || item.quantidade < 1}
                       onClick={() => movimentarRapido(item, -1)}
                       className={`min-h-12 rounded-xl border text-lg font-black transition active:scale-95 disabled:opacity-30 cursor-pointer ${
                         modoSaida === "PERDA"
-                          ? "border-red-500/40 bg-red-950/40 text-red-300 hover:bg-red-900/50"
+                          ? "border-rose-500/40 bg-rose-950/40 text-rose-300 hover:bg-rose-900/50"
                           : "border-slate-700 bg-slate-950 text-amber-300 hover:bg-slate-800"
                       }`}
                     >
@@ -714,7 +717,7 @@ export default function PaginaInventario() {
                     </button>
                     <button
                       type="button"
-                      disabled={!item.itemAtivo}
+                      disabled={somenteLeitura || !item.itemAtivo}
                       onClick={() => movimentarRapido(item, 1)}
                       className="min-h-12 rounded-xl border border-emerald-500/40 bg-emerald-500/15 text-lg font-black text-emerald-200 hover:bg-emerald-500/25 transition active:scale-95 disabled:opacity-30 cursor-pointer"
                     >
@@ -722,7 +725,7 @@ export default function PaginaInventario() {
                     </button>
                     <button
                       type="button"
-                      disabled={!item.itemAtivo}
+                      disabled={somenteLeitura || !item.itemAtivo}
                       onClick={() => movimentarRapido(item, 5)}
                       className="min-h-12 rounded-xl border border-emerald-500/40 bg-emerald-500/15 text-base font-black text-emerald-200 hover:bg-emerald-500/25 transition active:scale-95 disabled:opacity-30 cursor-pointer"
                     >
@@ -730,63 +733,88 @@ export default function PaginaInventario() {
                     </button>
                   </div>
 
-                  {/* Atalho de Lote Rápido Touch (disponível para Voluntário, Coordenador e Admin) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setItemLote(item);
-                      setMotivoLote(MOTIVOS_RAPIDOS_LOTE[0]);
-                    }}
-                    className="w-full min-h-10 rounded-xl border border-slate-800 bg-slate-950/90 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
-                  >
-                    🚚 Lote Rápido (+10 / +20 / +50 / +100)
-                  </button>
+                  {/* Linha Secundária Enxuta: Lote Rápido + Toggle de Gestão (Progressive Disclosure) */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={somenteLeitura}
+                      onClick={() => {
+                        setItemLote(item);
+                        setMotivoLote(MOTIVOS_RAPIDOS_LOTE[0]);
+                      }}
+                      className="flex-1 min-h-10 rounded-xl border border-slate-800 bg-slate-950/90 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 transition cursor-pointer"
+                    >
+                      🚚 Lote (+10 a +100)
+                    </button>
+
+                    {podeClassificar && (
+                      <button
+                        type="button"
+                        aria-expanded={expandido}
+                        onClick={() => setCardExpandidoId(expandido ? null : item.idItem)}
+                        className={`min-h-10 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                          expandido
+                            ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
+                            : "border-slate-800 bg-slate-950/90 text-slate-400 hover:text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        ⚙️ {expandido ? "Fechar" : "Gerenciar"}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Controles exclusivos de Coordenador / Admin (RF03 + Ajuste + Transferência) */}
-                {podeClassificar && (
-                  <div className="pt-2.5 border-t border-slate-800 space-y-2">
-                    <div className="grid grid-cols-3 gap-1">
-                      {(["URGENTE", "NORMAL", "BLOQUEADO"] as const).map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          disabled={desabilitadoClassificacao || item.statusNecessidade === st}
-                          onClick={() => classificarStatus(item, st)}
-                          className={`min-h-9 rounded-lg py-1 text-[10px] font-bold transition cursor-pointer ${
-                            item.statusNecessidade === st
-                              ? "bg-amber-500 text-slate-950"
-                              : "border border-slate-800 bg-slate-950 text-slate-400 hover:text-white"
-                          }`}
-                        >
-                          {st}
-                        </button>
-                      ))}
+                {/* Zona 3: Gaveta de Governança Recolhível (Exclusiva Coordenador / Admin) */}
+                {podeClassificar && expandido && (
+                  <div className="pt-3 border-t border-slate-800 space-y-2.5 animate-fadeIn">
+                    <div>
+                      <p className="text-[11px] font-medium text-slate-400 mb-1.5">
+                        Visibilidade para doações no mapa público:
+                      </p>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(["URGENTE", "NORMAL", "BLOQUEADO"] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            disabled={desabilitadoClassificacao || item.statusNecessidade === st}
+                            onClick={() => classificarStatus(item, st)}
+                            className={`min-h-9 rounded-lg py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-40 ${
+                              item.statusNecessidade === st
+                                ? "bg-amber-500 text-slate-950"
+                                : "border border-slate-700 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800"
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
                       <button
                         type="button"
+                        disabled={somenteLeitura}
                         onClick={() => {
                           setItemConfig(item);
                           setMinimoInput(String(item.quantidadeMinima));
                           setContagemFisicaInput(String(item.quantidade));
                           setJustificativaAjuste("");
                         }}
-                        className="min-h-9 flex-1 rounded-lg border border-slate-800 bg-slate-950 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800 cursor-pointer"
+                        className="min-h-9 flex-1 rounded-lg border border-slate-700 bg-slate-950 py-1.5 px-2 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
                       >
-                        ⚙️ Mínimo / Contagem
+                        📏 Mínimo / Contagem
                       </button>
                       {item.quantidade > 0 && abrigosDestino.length > 0 && (
                         <button
                           type="button"
+                          disabled={somenteLeitura}
                           onClick={() => {
                             setItemTransferencia(item);
                             setIdAbrigoDestino(abrigosDestino[0]?.id ?? "");
                             setQtdTransferencia("1");
                             setObsTransferencia("");
                           }}
-                          className="min-h-9 flex-1 rounded-lg border border-slate-800 bg-slate-950 py-1 text-[11px] font-medium text-sky-300 hover:bg-slate-800 cursor-pointer"
+                          className="min-h-9 flex-1 rounded-lg border border-sky-500/40 bg-sky-950/40 py-1.5 px-2 text-xs font-semibold text-sky-300 hover:bg-sky-900/50 disabled:opacity-40 cursor-pointer"
                         >
                           ⇄ Transferir
                         </button>
@@ -800,29 +828,29 @@ export default function PaginaInventario() {
         </div>
       )}
 
-      {/* Modal Touch de Lote Rápido (Sem Teclado Virtual - RNF04) */}
+      {/* Modal Touch de Lote Rápido (Sem Teclado Virtual) */}
       {itemLote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-4">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <span className="text-xs font-bold uppercase text-amber-400">Lançamento Touch em Lote</span>
+                <span className="text-xs font-bold uppercase text-amber-400">Lançamento em Lote</span>
                 <h3 className="text-lg font-bold text-white">{itemLote.nome}</h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 tabular-nums">
                   Saldo atual: <strong className="text-white">{itemLote.quantidade}</strong> {itemLote.unidadeMedida}(s)
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setItemLote(null)}
-                className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300"
+                className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-300">1. Selecione a origem/motivo (1 toque):</p>
+              <p className="text-xs font-semibold text-slate-300">1. Selecione a origem ou motivo:</p>
               <div className="grid grid-cols-1 gap-1.5">
                 {MOTIVOS_RAPIDOS_LOTE.map((m) => (
                   <button
@@ -841,8 +869,8 @@ export default function PaginaInventario() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-300">2. Toque na quantidade do lote para lançar:</p>
+            <div className="space-y-2 tabular-nums">
+              <p className="text-xs font-semibold text-slate-300">2. Toque na quantidade para lançar:</p>
               <div className="grid grid-cols-4 gap-2">
                 {[10, 20, 50, 100].map((qtd) => (
                   <button
@@ -902,7 +930,7 @@ export default function PaginaInventario() {
                   required
                   value={minimoInput}
                   onChange={(e) => setMinimoInput(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                 />
               </div>
 
@@ -915,7 +943,7 @@ export default function PaginaInventario() {
                   min={0}
                   value={contagemFisicaInput}
                   onChange={(e) => setContagemFisicaInput(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                 />
                 {Number(contagemFisicaInput) !== itemConfig.quantidade && (
                   <input
@@ -923,8 +951,8 @@ export default function PaginaInventario() {
                     required
                     value={justificativaAjuste}
                     onChange={(e) => setJustificativaAjuste(e.target.value)}
-                    placeholder="Justificativa obrigatória do ajuste físico *"
-                    className="w-full rounded-xl border border-amber-500/50 bg-slate-950 px-3 py-2 text-xs text-white"
+                    placeholder="Motivo da correção de saldo *"
+                    className="w-full rounded-xl border border-amber-500/50 bg-slate-950 px-3 py-2 text-base sm:text-xs text-white"
                   />
                 )}
               </div>
@@ -933,13 +961,13 @@ export default function PaginaInventario() {
                 <button
                   type="button"
                   onClick={() => setItemConfig(null)}
-                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300"
+                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
                 >
                   Salvar Alterações
                 </button>
@@ -963,7 +991,7 @@ export default function PaginaInventario() {
                   required
                   value={idAbrigoDestino}
                   onChange={(e) => setIdAbrigoDestino(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 >
                   {abrigosDestino.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -981,7 +1009,7 @@ export default function PaginaInventario() {
                   required
                   value={qtdTransferencia}
                   onChange={(e) => setQtdTransferencia(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
                 />
               </div>
               <div>
@@ -992,20 +1020,20 @@ export default function PaginaInventario() {
                   value={obsTransferencia}
                   onChange={(e) => setObsTransferencia(e.target.value)}
                   placeholder="Ex.: Apoio emergencial ao abrigo vizinho"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setItemTransferencia(null)}
-                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300"
+                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
                 >
                   Confirmar Transferência
                 </button>
@@ -1015,16 +1043,16 @@ export default function PaginaInventario() {
         </div>
       )}
 
-      {/* Histórico Imutável de Movimentações do Abrigo (RF13) */}
+      {/* Histórico de Movimentações do Abrigo */}
       {mostrarHistorico && podeClassificar && (
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-white">
-                Histórico de Movimentações de Estoque (RF13)
+                Histórico de Movimentações de Estoque
               </h2>
               <p className="text-xs text-slate-400">
-                Livro-razão imutável de entradas, saídas, perdas, ajustes e transferências do abrigo.
+                Registro cronológico de entradas, saídas, perdas, ajustes e transferências do abrigo.
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -1077,7 +1105,7 @@ export default function PaginaInventario() {
                 ) : (
                   movimentacoes.map((m) => (
                     <tr key={m.id}>
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-slate-400 font-mono">
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-slate-400 tabular-nums">
                         {new Date(m.dataHora).toLocaleString("pt-BR")}
                       </td>
                       <td className="py-2.5 pr-3 font-semibold text-white">{m.item}</td>
@@ -1086,7 +1114,7 @@ export default function PaginaInventario() {
                           {m.tipo}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-3 font-mono">
+                      <td className="py-2.5 pr-3 tabular-nums">
                         <span className={m.quantidade > 0 ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
                           {m.quantidade > 0 ? `+${m.quantidade}` : m.quantidade}
                         </span>{" "}

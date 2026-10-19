@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { exigirPermissao, PAPEIS, type Contexto, type Papel } from "@/lib/auth/rbac";
 import { gerarHashSenha } from "@/lib/auth/senha";
 import { auditar } from "@/lib/auditoria";
@@ -12,7 +13,7 @@ const esquemaEmail = z.string().trim().toLowerCase().pipe(z.email("E-mail invál
 export const esquemaCriarUsuario = z.object({
   nome: textoObrigatorio(150),
   email: esquemaEmail,
-  senha: esquemaSenha,
+  senha: esquemaSenha.optional(),
   papel: z.enum(PAPEIS),
   idAbrigo: esquemaId.nullish(),
 });
@@ -38,6 +39,7 @@ export const esquemaFiltroUsuarios = z.object({
 
 const COLUNAS_USUARIO = `
   u.id, u.nome, u.email, p.nome AS papel, u.id_abrigo AS "idAbrigo", a.nome AS abrigo, u.ativo,
+  (u.google_sub IS NOT NULL) AS "possuiGoogle",
   u.criado_em AS "criadoEm", u.atualizado_em AS "atualizadoEm"`;
 
 const FROM_USUARIO = `
@@ -53,6 +55,7 @@ export interface Usuario {
   idAbrigo: number | null;
   abrigo: string | null;
   ativo: boolean;
+  possuiGoogle: boolean;
   criadoEm: Date;
   atualizadoEm: Date;
 }
@@ -88,7 +91,7 @@ export async function listarUsuarios(ctx: Contexto, filtros: z.infer<typeof esqu
 
   const [itens, total] = await Promise.all([
     consultar<Usuario>(
-      `SELECT ${COLUNAS_USUARIO} ${FROM_USUARIO} WHERE ${where} ORDER BY u.nome LIMIT $5 OFFSET $6`,
+      `SELECT ${COLUNAS_USUARIO} ${FROM_USUARIO} WHERE ${where} ORDER BY u.ativo ASC, u.nome ASC LIMIT $5 OFFSET $6`,
       [...parametros, paginacao.tamanho, offset(paginacao)],
     ),
     consultarUm<{ total: number }>(`SELECT count(*) AS total ${FROM_USUARIO} WHERE ${where}`, parametros),
@@ -121,7 +124,8 @@ export async function criarUsuario(ctx: Contexto, dados: z.infer<typeof esquemaC
     throw erros.regraDeNegocio("VINCULO_INVALIDO", `Usuários ${dados.papel} devem ser vinculados a um abrigo (idAbrigo).`);
   }
 
-  const senhaHash = await gerarHashSenha(dados.senha);
+  const senhaBruta = dados.senha ?? `${randomUUID()}-${randomUUID()}`;
+  const senhaHash = await gerarHashSenha(senhaBruta);
   const usuario = await comTransacao(async (client) => {
     if (idAbrigo) await exigirAbrigoAtivo(idAbrigo, client);
     const criado = await consultarUm<{ id: number }>(
