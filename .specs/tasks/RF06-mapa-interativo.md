@@ -5,7 +5,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: Nenhuma
-- **Status**: ✅ API pública pronta (Semana 2) · ⏳ Mapa Leaflet (Semana 5)
+- **Status**: ✅ CONCLUÍDA (API pública na Semana 2 + Mapa Interativo Leaflet.js na Semana 5)
 
 ---
 

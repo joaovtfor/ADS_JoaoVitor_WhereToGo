@@ -23,3 +23,43 @@ body {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* Ajustes para o container do Leaflet no tema escuro Crisis-First */
+.leaflet-container {
+  background-color: #090d16;
+  font-family: inherit;
+}
+
+.wtg-pin-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Barra horizontal de filtros rápidos com scroll suave em touch e desktop */
+.barra-filtros-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+.barra-filtros-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+
+.barra-filtros-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.barra-filtros-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+.barra-filtros-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(245, 158, 11, 0.7);
+}
+
+
