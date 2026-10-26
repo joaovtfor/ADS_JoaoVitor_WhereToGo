@@ -56,6 +56,7 @@ interface DetalheAbrigoPublico {
     id: number;
     tipo: string;
     descricao: string | null;
+    poligono?: Array<{ lat: number; lng: number }> | null;
     dataRegistro: string;
   }>;
 }
@@ -63,11 +64,18 @@ interface DetalheAbrigoPublico {
 type FiltroRapido = "TODOS" | "COM_VAGAS" | "INFRA_NORMAL" | "PRECISA_DOACOES" | "DESTAQUE";
 
 const ROTULO_OCORRENCIA: Record<string, string> = {
+  AREA_RISCO: "Área de risco demarcada no entorno",
+  SEM_ENERGIA: "Queda de energia elétrica",
+  SEM_AGUA: "Interrupção no abastecimento de água",
+  SEM_COMUNICACAO: "Sem internet ou telefone",
   FALTA_ENERGIA: "Queda de energia elétrica",
   FALTA_AGUA: "Interrupção no abastecimento de água",
   VIA_BLOQUEADA: "Via de acesso interditada ou bloqueada",
   ALAGAMENTO: "Alagamento próximo ao abrigo",
+  DESLIZAMENTO: "Risco de deslizamento de terra",
+  RISCO_ESTRUTURAL: "Risco ou dano estrutural no local",
   ESTRUTURA_DANIFICADA: "Risco ou dano estrutural no local",
+  OUTRO: "Alerta operacional no abrigo",
 };
 
 function obterEstiloNivel(nivel: NivelOcupacaoPublico) {
@@ -1149,9 +1157,16 @@ export default function PaginaMapaPublico() {
                             key={oc.id}
                             className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
                           >
-                            <p className="font-bold">
-                              ⚠️ {ROTULO_OCORRENCIA[oc.tipo] ?? oc.tipo}
-                            </p>
+                            <div className="flex flex-wrap items-center justify-between gap-1">
+                              <p className="font-bold">
+                                {oc.tipo === "AREA_RISCO" ? "🔺" : "⚠️"} {ROTULO_OCORRENCIA[oc.tipo] ?? oc.tipo}
+                              </p>
+                              {oc.poligono && oc.poligono.length >= 3 && (
+                                <span className="rounded-full border border-rose-400/50 bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">
+                                  {oc.poligono.length} pontos no mapa
+                                </span>
+                              )}
+                            </div>
                             {oc.descricao && (
                               <p className="text-[11px] text-rose-300/90 mt-0.5">{oc.descricao}</p>
                             )}

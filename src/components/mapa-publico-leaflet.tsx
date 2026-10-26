@@ -46,6 +46,7 @@ export interface AlertaMapa {
   descricao: string | null;
   latitude: number;
   longitude: number;
+  poligono?: Array<{ lat: number; lng: number }> | null;
   localizacaoPropria: boolean;
   dataRegistro: string;
   abrigo: { id: number; nome: string };
@@ -131,11 +132,34 @@ function criarIconeAbrigo(abrigo: AbrigoMapa, selecionado: boolean): L.DivIcon {
   });
 }
 
+function obterEmojiAlerta(tipo: string): string {
+  switch (tipo) {
+    case "AREA_RISCO":
+      return "🔺";
+    case "ALAGAMENTO":
+      return "🌊";
+    case "DESLIZAMENTO":
+      return "⛰️";
+    case "RISCO_ESTRUTURAL":
+      return "🏚️";
+    case "SEM_ENERGIA":
+      return "⚡";
+    case "SEM_AGUA":
+      return "🚰";
+    case "SEM_COMUNICACAO":
+      return "📡";
+    case "VIA_BLOQUEADA":
+    default:
+      return "🚧";
+  }
+}
+
 function criarIconeAlerta(alerta: AlertaMapa): L.DivIcon {
   const cor = alerta.gravidade === "CRITICO" ? "#be123c" : "#b45309";
+  const emoji = obterEmojiAlerta(alerta.tipo);
   const html = `
     <div style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:${cor};color:#fff;border:2px solid #fde047;box-shadow:0 4px 10px rgba(0,0,0,0.5);font-size:14px;" title="${escaparHtml(alerta.descricaoTipo)}">
-      🚧
+      ${emoji}
     </div>
   `;
   return L.divIcon({
@@ -143,6 +167,23 @@ function criarIconeAlerta(alerta: AlertaMapa): L.DivIcon {
     html,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
+  });
+}
+
+function criarIconeCentroAreaRisco(alerta: AlertaMapa): L.DivIcon {
+  const fundo = alerta.gravidade === "CRITICO" ? "rgba(159, 18, 57, 0.94)" : "rgba(180, 83, 9, 0.94)";
+  const borda = alerta.gravidade === "CRITICO" ? "#fda4af" : "#fde047";
+  const html = `
+    <div style="display:flex;align-items:center;gap:4px;background:${fundo};color:#ffffff;border:2px solid ${borda};border-radius:9999px;padding:3px 9px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.65);cursor:pointer;">
+      <span>🔺</span>
+      <span>Área de Risco</span>
+    </div>
+  `;
+  return L.divIcon({
+    className: "wtg-pin-icon",
+    html,
+    iconSize: [108, 24],
+    iconAnchor: [54, 12],
   });
 }
 
@@ -247,7 +288,7 @@ export default function MapaPublicoLeaflet({
     }
   }, [abrigos, idSelecionado, aoSelecionarAbrigo]);
 
-  // 3. Plota alertas de infraestrutura/vias no mapa quando habilitado (RF09)
+  // 3. Plota alertas de infraestrutura/vias e polígonos de Área de Risco no mapa quando habilitado (RF09)
   useEffect(() => {
     const grupoAlertas = camadaAlertasRef.current;
     if (!grupoAlertas) return;
@@ -256,7 +297,59 @@ export default function MapaPublicoLeaflet({
     if (!mostrarAlertas) return;
 
     for (const alerta of alertas) {
-      // Exibe no mapa ocorrências com coordenada própria ou críticas
+      const tooltipHtml = `<div style="font-size:12px;"><strong>${escaparHtml(alerta.descricaoTipo)}</strong><br/>${escaparHtml(
+        alerta.descricao ?? alerta.abrigo.nome,
+      )}<br/><span style="font-size:10px;opacity:0.8;">Reportado por: ${escaparHtml(alerta.abrigo.nome)}</span></div>`;
+
+      // Caso 1: Alerta com polígono demarcado por marcadores (Área de Risco)
+      if (Array.isArray(alerta.poligono) && alerta.poligono.length >= 3) {
+        const coordenadas: [number, number][] = alerta.poligono.map((p) => [p.lat, p.lng]);
+        const corBorda = alerta.gravidade === "CRITICO" ? "#f43f5e" : "#f59e0b";
+        const corPreenchimento = alerta.gravidade === "CRITICO" ? "#e11d48" : "#d97706";
+
+        const poligonoLayer = L.polygon(coordenadas, {
+          color: corBorda,
+          weight: 2.5,
+          dashArray: "6, 4",
+          fillColor: corPreenchimento,
+          fillOpacity: 0.26,
+        });
+
+        poligonoLayer.bindTooltip(tooltipHtml, { sticky: true });
+        poligonoLayer.on("click", () => {
+          aoSelecionarAbrigo(alerta.abrigo.id);
+        });
+        poligonoLayer.addTo(grupoAlertas);
+
+        // Marcadores nos vértices que delimitam o perímetro da área de risco
+        for (const vertice of alerta.poligono) {
+          L.circleMarker([vertice.lat, vertice.lng], {
+            radius: 4.5,
+            color: "#ffffff",
+            weight: 1.5,
+            fillColor: corBorda,
+            fillOpacity: 1,
+          })
+            .bindTooltip(tooltipHtml, { direction: "top", offset: [0, -6] })
+            .addTo(grupoAlertas);
+        }
+
+        // Marcador central da Área de Risco no centroide do polígono
+        const centroLat = alerta.poligono.reduce((acc, p) => acc + p.lat, 0) / alerta.poligono.length;
+        const centroLng = alerta.poligono.reduce((acc, p) => acc + p.lng, 0) / alerta.poligono.length;
+        const marcadorCentro = L.marker([centroLat, centroLng], {
+          icon: criarIconeCentroAreaRisco(alerta),
+          zIndexOffset: 350,
+        });
+        marcadorCentro.bindTooltip(tooltipHtml, { direction: "top", offset: [0, -10] });
+        marcadorCentro.on("click", () => {
+          aoSelecionarAbrigo(alerta.abrigo.id);
+        });
+        marcadorCentro.addTo(grupoAlertas);
+        continue;
+      }
+
+      // Caso 2: Alerta pontual (exibe ocorrências com coordenada própria ou críticas)
       if (!alerta.localizacaoPropria && alerta.gravidade !== "CRITICO") continue;
       // Desloca levemente quando compartilha a mesma coordenada do abrigo para não sobrepor o pino principal
       const lat = alerta.localizacaoPropria ? alerta.latitude : alerta.latitude + 0.0012;
@@ -267,12 +360,7 @@ export default function MapaPublicoLeaflet({
         zIndexOffset: 300,
       });
 
-      marcadorAlerta.bindTooltip(
-        `<div style="font-size:12px;"><strong>${escaparHtml(alerta.descricaoTipo)}</strong><br/>${escaparHtml(
-          alerta.descricao ?? alerta.abrigo.nome,
-        )}</div>`,
-        { direction: "top", offset: [0, -10] },
-      );
+      marcadorAlerta.bindTooltip(tooltipHtml, { direction: "top", offset: [0, -10] });
 
       marcadorAlerta.on("click", () => {
         aoSelecionarAbrigo(alerta.abrigo.id);
@@ -390,6 +478,15 @@ export default function MapaPublicoLeaflet({
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-500" />
           <span>■ Crítico/Lotado (&gt;90%)</span>
         </span>
+        {mostrarAlertas && (
+          <>
+            <span className="hidden sm:inline-block h-3.5 w-px bg-slate-800" />
+            <span className="inline-flex items-center gap-1.5 text-rose-300">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm border border-rose-400 bg-rose-500/40" />
+              <span>🔺 Área de Risco</span>
+            </span>
+          </>
+        )}
       </div>
     </div>
   );

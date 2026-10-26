@@ -281,7 +281,7 @@ export async function obterDashboard(ctx: Contexto, id: number) {
       [id],
     ),
     consultar(
-      `SELECT id, tipo, gravidade, descricao, latitude, longitude, data_registro AS "dataRegistro"
+      `SELECT id, tipo, gravidade, descricao, latitude, longitude, poligono_risco AS poligono, data_registro AS "dataRegistro"
          FROM ocorrencia_infraestrutura
         WHERE id_abrigo = $1 AND data_resolucao IS NULL
         ORDER BY gravidade DESC, data_registro`,

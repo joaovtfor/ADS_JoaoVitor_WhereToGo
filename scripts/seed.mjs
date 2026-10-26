@@ -131,9 +131,21 @@ const ABRIGADOS = {
 };
 
 const OCORRENCIAS = {
-  centro: [['SEM_ENERGIA', 'ALERTA', 'Queda de energia desde as 14h; gerador atende apenas a cozinha.', null]],
+  centro: [['SEM_ENERGIA', 'ALERTA', 'Queda de energia desde as 14h; gerador atende apenas a cozinha.', null, null]],
   boqueirao: [
-    ['VIA_BLOQUEADA', 'CRITICO', 'Ponte de acesso pela avenida principal interditada. Use o acesso pela rua lateral.', [-28.2471, -52.4252]],
+    ['VIA_BLOQUEADA', 'CRITICO', 'Ponte de acesso pela avenida principal interditada. Use o acesso pela rua lateral.', [-28.2471, -52.4252], null],
+    [
+      'AREA_RISCO',
+      'CRITICO',
+      'Perímetro interditado por alagamento severo e risco de solapamento de margem. Não transite nesta área.',
+      [-28.2512, -52.4195],
+      [
+        { lat: -28.2495, lng: -52.4215 },
+        { lat: -28.2498, lng: -52.4168 },
+        { lat: -28.2532, lng: -52.4172 },
+        { lat: -28.2528, lng: -52.4222 },
+      ],
+    ],
   ],
 };
 
@@ -244,14 +256,26 @@ export async function executarSeed({ connectionString, senha, log = console.log 
     // --- Ocorrências de infraestrutura ---------------------------------------
     for (const [chave, ocorrencias] of Object.entries(OCORRENCIAS)) {
       const idAbrigo = idsAbrigo[chave];
-      const { rows } = await client.query('SELECT count(*)::int AS total FROM ocorrencia_infraestrutura WHERE id_abrigo = $1', [idAbrigo]);
-      if (rows[0].total > 0) continue;
+      for (const [tipo, gravidade, descricao, coordenadas, poligono] of ocorrencias) {
+        const { rows } = await client.query(
+          'SELECT count(*)::int AS total FROM ocorrencia_infraestrutura WHERE id_abrigo = $1 AND tipo = $2 AND data_resolucao IS NULL',
+          [idAbrigo, tipo],
+        );
+        if (rows[0].total > 0) continue;
 
-      for (const [tipo, gravidade, descricao, coordenadas] of ocorrencias) {
         await client.query(
-          `INSERT INTO ocorrencia_infraestrutura (id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [idAbrigo, responsavel(chave), tipo, gravidade, descricao, coordenadas?.[0] ?? null, coordenadas?.[1] ?? null],
+          `INSERT INTO ocorrencia_infraestrutura (id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, poligono_risco)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+          [
+            idAbrigo,
+            responsavel(chave),
+            tipo,
+            gravidade,
+            descricao,
+            coordenadas?.[0] ?? null,
+            coordenadas?.[1] ?? null,
+            poligono ? JSON.stringify(poligono) : null,
+          ],
         );
       }
     }

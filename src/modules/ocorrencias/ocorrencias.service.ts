@@ -13,6 +13,13 @@ import {
   type TipoOcorrencia,
 } from "../dominio";
 
+export const esquemaPontoPoligono = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+
+export type PontoPoligono = z.infer<typeof esquemaPontoPoligono>;
+
 export const esquemaRegistrarOcorrencia = z
   .object({
     tipo: z.enum(TIPOS_OCORRENCIA),
@@ -20,14 +27,23 @@ export const esquemaRegistrarOcorrencia = z
     descricao: textoOpcional(500),
     latitude: z.number().min(-90).max(90).nullish(),
     longitude: z.number().min(-180).max(180).nullish(),
+    poligono: z
+      .array(esquemaPontoPoligono)
+      .min(3, "Demarque ao menos 3 marcadores no mapa para delimitar a área de risco (polígono).")
+      .max(50, "O polígono pode conter no máximo 50 vértices.")
+      .nullish(),
   })
   .refine((d) => (d.latitude == null) === (d.longitude == null), {
     message: "Informe latitude e longitude juntas (ou nenhuma, para usar o local do abrigo).",
     path: ["longitude"],
   })
   .refine((d) => d.tipo !== "OUTRO" || !!d.descricao, {
-    message: 'Ocorrências do tipo OUTRO exigem descrição.',
+    message: "Ocorrências do tipo OUTRO exigem descrição.",
     path: ["descricao"],
+  })
+  .refine((d) => d.tipo !== "AREA_RISCO" || (Array.isArray(d.poligono) && d.poligono.length >= 3), {
+    message: "Ocorrências do tipo AREA_RISCO exigem a demarcação de um polígono com ao menos 3 pontos no mapa.",
+    path: ["poligono"],
   });
 
 export const esquemaResolverOcorrencia = z.object({ observacao: textoOpcional(500) });
@@ -36,9 +52,10 @@ export const esquemaFiltroOcorrencias = z.object({ ativas: booleanoQuery.optiona
 
 const COLUNAS_OCORRENCIA = `
   o.id, o.id_abrigo AS "idAbrigo", o.tipo, o.gravidade, o.descricao, o.latitude, o.longitude,
+  o.poligono_risco AS "poligono",
   o.data_registro AS "dataRegistro", o.data_resolucao AS "dataResolucao",
-  o.id_usuario_registro AS "idUsuarioRegistro", ur.nome AS "usuarioRegistro",
-  o.id_usuario_resolucao AS "idUsuarioResolucao", us.nome AS "usuarioResolucao"`;
+  o.id_usuario_registro AS "idUsuarioRegistro", ur.nome AS "usuarioRegistro", ur.nome AS "registradoPor",
+  o.id_usuario_resolucao AS "idUsuarioResolucao", us.nome AS "usuarioResolucao", us.nome AS "resolvidoPor"`;
 
 const FROM_OCORRENCIA = `
   FROM ocorrencia_infraestrutura o
@@ -51,6 +68,9 @@ interface Ocorrencia {
   tipo: TipoOcorrencia;
   gravidade: Gravidade;
   descricao: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  poligono: PontoPoligono[] | null;
   dataRegistro: Date;
   dataResolucao: Date | null;
 }
@@ -84,7 +104,7 @@ export async function listarOcorrencias(ctx: Contexto, idAbrigo: number, filtros
   return linhas.map(apresentar);
 }
 
-/** RF05 - registra incidente (falta de energia, via colapsada...). Reflete no mapa público (RF09). */
+/** RF05 - registra incidente (falta de energia, via colapsada, área de risco poligonal...). Reflete no mapa público (RF09). */
 export async function registrarOcorrencia(
   ctx: Contexto,
   idAbrigo: number,
@@ -96,10 +116,32 @@ export async function registrarOcorrencia(
   if (!abrigo.ativo) throw erros.conflito("ABRIGO_INATIVO", `O abrigo "${abrigo.nome}" está desativado.`);
 
   const gravidade = dados.gravidade ?? GRAVIDADE_PADRAO[dados.tipo];
+  const poligonoValido = dados.poligono && dados.poligono.length >= 3 ? dados.poligono : null;
+  const centroide = poligonoValido
+    ? {
+        lat: Number((poligonoValido.reduce((acc, p) => acc + p.lat, 0) / poligonoValido.length).toFixed(6)),
+        lng: Number((poligonoValido.reduce((acc, p) => acc + p.lng, 0) / poligonoValido.length).toFixed(6)),
+      }
+    : null;
+
+  const latitudeFinal = dados.latitude ?? centroide?.lat ?? null;
+  const longitudeFinal = dados.longitude ?? centroide?.lng ?? null;
+
   const registrada = await consultarUm<{ id: number }>(
-    `INSERT INTO ocorrencia_infraestrutura (id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [idAbrigo, ctx.usuario.id, dados.tipo, gravidade, dados.descricao ?? null, dados.latitude ?? null, dados.longitude ?? null],
+    `INSERT INTO ocorrencia_infraestrutura (
+       id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, poligono_risco
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) RETURNING id`,
+    [
+      idAbrigo,
+      ctx.usuario.id,
+      dados.tipo,
+      gravidade,
+      dados.descricao ?? null,
+      latitudeFinal,
+      longitudeFinal,
+      poligonoValido ? JSON.stringify(poligonoValido) : null,
+    ],
   );
   const ocorrencia = await consultarUm<Ocorrencia>(`SELECT ${COLUNAS_OCORRENCIA} ${FROM_OCORRENCIA} WHERE o.id = $1`, [
     registrada!.id,

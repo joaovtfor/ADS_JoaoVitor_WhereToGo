@@ -3,6 +3,7 @@ import { erros } from "@/lib/http";
 import { booleanoQuery, z } from "@/lib/validacao";
 import { linksNavegacao, resumirOcupacao } from "../abrigos/ocupacao";
 import { DESCRICAO_TIPO_OCORRENCIA, type Gravidade, type StatusInfraestrutura, type TipoOcorrencia } from "../dominio";
+import type { PontoPoligono } from "../ocorrencias/ocorrencias.service";
 
 // API pública (RNF02): sem login. Nunca expõe dados pessoais (abrigados,
 // usuários) nem quantidades de estoque — apenas o necessário para o mapa.
@@ -173,9 +174,10 @@ export async function obterAbrigoPublico(id: number) {
     descricao: string | null;
     latitude: number | null;
     longitude: number | null;
+    poligono: PontoPoligono[] | null;
     dataRegistro: Date;
   }>(
-    `SELECT id, tipo, gravidade, descricao, latitude, longitude, data_registro AS "dataRegistro"
+    `SELECT id, tipo, gravidade, descricao, latitude, longitude, poligono_risco AS poligono, data_registro AS "dataRegistro"
        FROM ocorrencia_infraestrutura
       WHERE id_abrigo = $1 AND data_resolucao IS NULL
       ORDER BY gravidade DESC, data_registro`,
@@ -213,7 +215,7 @@ export function listarCategoriasPublicas() {
   );
 }
 
-/** RF09 - alertas de risco ativos (local próprio da ocorrência ou o do abrigo). */
+/** RF09 - alertas de risco ativos (local próprio da ocorrência, polígono de área de risco ou o do abrigo). */
 export async function listarAlertasPublicos() {
   const alertas = await consultar<{
     id: number;
@@ -222,6 +224,7 @@ export async function listarAlertasPublicos() {
     descricao: string | null;
     latitude: number;
     longitude: number;
+    poligono: PontoPoligono[] | null;
     localizacaoPropria: boolean;
     dataRegistro: Date;
     idAbrigo: number;
@@ -229,7 +232,9 @@ export async function listarAlertasPublicos() {
   }>(
     `SELECT o.id, o.tipo, o.gravidade, o.descricao,
             COALESCE(o.latitude, a.latitude) AS latitude, COALESCE(o.longitude, a.longitude) AS longitude,
-            o.latitude IS NOT NULL AS "localizacaoPropria", o.data_registro AS "dataRegistro",
+            o.poligono_risco AS poligono,
+            (o.latitude IS NOT NULL OR o.poligono_risco IS NOT NULL) AS "localizacaoPropria",
+            o.data_registro AS "dataRegistro",
             a.id AS "idAbrigo", a.nome AS abrigo
        FROM ocorrencia_infraestrutura o
        JOIN abrigo a ON a.id = o.id_abrigo AND a.ativo
@@ -243,14 +248,26 @@ export async function listarAlertasPublicos() {
   }));
 }
 
-/** Converte uma lista com latitude/longitude em GeoJSON (consumido direto pelo Leaflet). */
-export function paraGeoJson<T extends { latitude: number; longitude: number }>(itens: T[]) {
+/** Converte uma lista com latitude/longitude (e polígono opcional) em GeoJSON (consumido direto pelo Leaflet). */
+export function paraGeoJson<T extends { latitude: number; longitude: number; poligono?: PontoPoligono[] | null }>(
+  itens: T[],
+) {
   return {
     type: "FeatureCollection" as const,
-    features: itens.map(({ latitude, longitude, ...propriedades }) => ({
-      type: "Feature" as const,
-      geometry: { type: "Point" as const, coordinates: [longitude, latitude] },
-      properties: propriedades,
-    })),
+    features: itens.map(({ latitude, longitude, poligono, ...propriedades }) => {
+      if (Array.isArray(poligono) && poligono.length >= 3) {
+        const anelLinear = [...poligono, poligono[0]].map((p) => [p.lng, p.lat] as [number, number]);
+        return {
+          type: "Feature" as const,
+          geometry: { type: "Polygon" as const, coordinates: [anelLinear] },
+          properties: { ...propriedades, centroide: { latitude, longitude }, poligono },
+        };
+      }
+      return {
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [longitude, latitude] },
+        properties: propriedades,
+      };
+    }),
   };
 }

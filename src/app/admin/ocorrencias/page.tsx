@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type { VerticePoligono } from "@/components/seletor-ponto-mapa";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
 
@@ -22,6 +23,7 @@ interface Ocorrencia {
   descricao: string | null;
   latitude: number | null;
   longitude: number | null;
+  poligono: VerticePoligono[] | null;
   dataRegistro: string;
   dataResolucao: string | null;
   registradoPor: string;
@@ -29,6 +31,7 @@ interface Ocorrencia {
 }
 
 const TIPOS_OCORRENCIA = [
+  { tipo: "AREA_RISCO", rotulo: "🔺 Área de Risco", gravidadePadrao: "CRITICO" as const },
   { tipo: "VIA_BLOQUEADA", rotulo: "🚧 Via de Acesso Bloqueada", gravidadePadrao: "CRITICO" as const },
   { tipo: "ALAGAMENTO", rotulo: "🌊 Alagamento no Entorno", gravidadePadrao: "CRITICO" as const },
   { tipo: "DESLIZAMENTO", rotulo: "⛰️ Risco de Deslizamento", gravidadePadrao: "CRITICO" as const },
@@ -57,8 +60,11 @@ export default function PaginaOcorrencias() {
   const [descricao, setDescricao] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+  const [poligono, setPoligono] = useState<VerticePoligono[]>([]);
   const [mostrarSeletorMapa, setMostrarSeletorMapa] = useState(true);
   const [observacaoResolucao, setObservacaoResolucao] = useState<Record<number, string>>({});
+
+  const modoPoligono = tipo === "AREA_RISCO" || poligono.length > 0;
 
   const carregar = useCallback(async () => {
     if (!idAbrigoAtivo) return;
@@ -83,12 +89,32 @@ export default function PaginaOcorrencias() {
     setTipo(novoTipo);
     const info = TIPOS_OCORRENCIA.find((t) => t.tipo === novoTipo);
     if (info) setGravidade(info.gravidadePadrao);
+    if (novoTipo === "AREA_RISCO") {
+      setMostrarSeletorMapa(true);
+    } else if (poligono.length > 0) {
+      setPoligono([]);
+    }
   }
 
   function usarLocalDoAbrigo() {
     if (!abrigoAtivo) return;
     setLatitude(String(abrigoAtivo.latitude));
     setLongitude(String(abrigoAtivo.longitude));
+  }
+
+  function gerarPoligonoInicialEntorno() {
+    const baseLat = latitude.trim() !== "" ? Number(latitude) : (abrigoAtivo?.latitude ?? -28.258);
+    const baseLng = longitude.trim() !== "" ? Number(longitude) : (abrigoAtivo?.longitude ?? -52.406);
+    const novos: VerticePoligono[] = [
+      { lat: Number((baseLat + 0.0022).toFixed(6)), lng: Number((baseLng - 0.0022).toFixed(6)) },
+      { lat: Number((baseLat + 0.0022).toFixed(6)), lng: Number((baseLng + 0.0022).toFixed(6)) },
+      { lat: Number((baseLat - 0.0018).toFixed(6)), lng: Number((baseLng + 0.0026).toFixed(6)) },
+      { lat: Number((baseLat - 0.0018).toFixed(6)), lng: Number((baseLng - 0.0026).toFixed(6)) },
+    ];
+    setPoligono(novos);
+    setLatitude(baseLat.toFixed(6));
+    setLongitude(baseLng.toFixed(6));
+    setMostrarSeletorMapa(true);
   }
 
   function capturarGpsNavegador() {
@@ -108,6 +134,12 @@ export default function PaginaOcorrencias() {
   async function registrar(e: FormEvent) {
     e.preventDefault();
     if (!idAbrigoAtivo || somenteLeitura) return;
+
+    if (tipo === "AREA_RISCO" && poligono.length < 3) {
+      setErro("Clique no mapa para posicionar ao menos 3 marcadores que delimitem a área de risco (polígono).");
+      return;
+    }
+
     setEnviando(true);
     setErro(null);
     try {
@@ -116,7 +148,10 @@ export default function PaginaOcorrencias() {
         gravidade,
         descricao: descricao.trim() || null,
       };
-      if (latitude.trim() !== "" || longitude.trim() !== "") {
+      if (poligono.length >= 3) {
+        corpo.poligono = poligono;
+      }
+      if (latitude.trim() !== "" && longitude.trim() !== "") {
         corpo.latitude = Number(latitude);
         corpo.longitude = Number(longitude);
       }
@@ -128,8 +163,13 @@ export default function PaginaOcorrencias() {
       setDescricao("");
       setLatitude("");
       setLongitude("");
+      setPoligono([]);
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso("Alerta de infraestrutura publicado no mapa.");
+      setAviso(
+        tipo === "AREA_RISCO"
+          ? "Área de risco (polígono) demarcada e publicada no mapa público."
+          : "Alerta de infraestrutura publicado no mapa.",
+      );
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -174,13 +214,13 @@ export default function PaginaOcorrencias() {
 
       <div>
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-          Infraestrutura e Vias de Acesso
+          Infraestrutura, Vias de Acesso e Áreas de Risco
         </span>
         <h1 className="text-xl sm:text-2xl font-bold text-white">
           {abrigoAtivo?.nome}
         </h1>
         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-          Comunique interdições de vias, falta de energia ou água para orientar o deslocamento seguro da população.
+          Comunique interdições de vias, demarque polígonos de áreas de risco ou reporte falhas de energia/água para orientar o deslocamento seguro da população.
         </p>
       </div>
 
@@ -198,6 +238,7 @@ export default function PaginaOcorrencias() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {TIPOS_OCORRENCIA.map((item) => {
                     const selecionado = tipo === item.tipo;
+                    const ehAreaRisco = item.tipo === "AREA_RISCO";
                     return (
                       <button
                         key={item.tipo}
@@ -205,8 +246,12 @@ export default function PaginaOcorrencias() {
                         disabled={somenteLeitura}
                         onClick={() => selecionarTipo(item.tipo)}
                         className={`min-h-11 rounded-xl border p-2.5 text-left text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
+                          ehAreaRisco ? "sm:col-span-2" : ""
+                        } ${
                           selecionado
-                            ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                            ? ehAreaRisco
+                              ? "border-rose-400 bg-rose-500/20 text-rose-200"
+                              : "border-amber-400 bg-amber-500/20 text-amber-200"
                             : "border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800"
                         }`}
                       >
@@ -252,16 +297,29 @@ export default function PaginaOcorrencias() {
                   required={tipo === "OUTRO"}
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
-                  placeholder="Ex.: Ponte principal interditada; acesse pela rua lateral Norte."
+                  placeholder={
+                    tipo === "AREA_RISCO"
+                      ? "Ex.: Encosta instável e risco de inundação severa neste quarteirão. Evite transitar dentro do perímetro demarcado."
+                      : "Ex.: Ponte principal interditada; acesse pela rua lateral Norte."
+                  }
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-base sm:text-sm text-white placeholder-slate-500 disabled:opacity-50"
                 />
               </div>
 
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-300">
-                    Localização do Bloqueio (opcional)
-                  </span>
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">
+                      {modoPoligono
+                        ? `4. Demarcação do Polígono de Risco (${poligono.length} marcadores)`
+                        : "4. Localização do Bloqueio (opcional)"}
+                    </span>
+                    {modoPoligono && (
+                      <span className="text-[11px] text-rose-300">
+                        Clique em 3 ou mais pontos no mapa para cercar a área de risco.
+                      </span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     <button
                       type="button"
@@ -275,22 +333,57 @@ export default function PaginaOcorrencias() {
                     >
                       🗺️ {mostrarSeletorMapa ? "Ocultar Mapa" : "Marcar no Mapa"}
                     </button>
-                    <button
-                      type="button"
-                      disabled={somenteLeitura}
-                      onClick={usarLocalDoAbrigo}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
-                    >
-                      🏠 Usar Abrigo
-                    </button>
-                    <button
-                      type="button"
-                      disabled={somenteLeitura}
-                      onClick={capturarGpsNavegador}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-amber-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
-                    >
-                      📍 Meu GPS
-                    </button>
+                    {modoPoligono ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={somenteLeitura}
+                          onClick={gerarPoligonoInicialEntorno}
+                          className="rounded-lg border border-rose-500/40 bg-rose-950/50 px-2.5 py-1 text-[11px] font-bold text-rose-200 hover:bg-rose-900/50 disabled:opacity-40 cursor-pointer"
+                        >
+                          🔺 Gerar Perímetro Base
+                        </button>
+                        {poligono.length > 0 && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={somenteLeitura}
+                              onClick={() => setPoligono((ant) => ant.slice(0, -1))}
+                              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800 cursor-pointer"
+                            >
+                              ↩️ Desfazer
+                            </button>
+                            <button
+                              type="button"
+                              disabled={somenteLeitura}
+                              onClick={() => setPoligono([])}
+                              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-rose-300 hover:bg-slate-800 cursor-pointer"
+                            >
+                              🗑️ Limpar
+                            </button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={somenteLeitura}
+                          onClick={usarLocalDoAbrigo}
+                          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
+                        >
+                          🏠 Usar Abrigo
+                        </button>
+                        <button
+                          type="button"
+                          disabled={somenteLeitura}
+                          onClick={capturarGpsNavegador}
+                          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-amber-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
+                        >
+                          📍 Meu GPS
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -307,12 +400,28 @@ export default function PaginaOcorrencias() {
                           }
                         : null
                     }
+                    modo={modoPoligono ? "poligono" : "ponto"}
+                    poligono={poligono}
+                    aoAlterarPoligono={setPoligono}
                     aoSelecionarCoordenada={(lat, lng) => {
                       setLatitude(String(lat));
                       setLongitude(String(lng));
                     }}
-                    alturaClasse="h-52"
+                    alturaClasse="h-60"
                   />
+                )}
+
+                {modoPoligono && poligono.length > 0 && (
+                  <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-3 py-2 text-[11px] text-rose-200 flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      {poligono.length < 3
+                        ? `⚠️ Adicione mais ${3 - poligono.length} marcador(es) no mapa para fechar o polígono.`
+                        : `✅ Polígono fechado com ${poligono.length} marcadores demarcados.`}
+                    </span>
+                    <span className="font-mono text-[10px] text-rose-300">
+                      Centroide: {latitude}, {longitude}
+                    </span>
+                  </div>
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
@@ -342,7 +451,11 @@ export default function PaginaOcorrencias() {
                 disabled={somenteLeitura || enviando}
                 className="w-full min-h-12 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
               >
-                {enviando ? "Publicando Alerta..." : "Publicar Alerta no Mapa"}
+                {enviando
+                  ? "Publicando Alerta..."
+                  : tipo === "AREA_RISCO"
+                    ? "Publicar Área de Risco no Mapa"
+                    : "Publicar Alerta no Mapa"}
               </button>
             </form>
           </section>
@@ -402,7 +515,7 @@ export default function PaginaOcorrencias() {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={`rounded px-2 py-0.5 text-[10px] font-black ${
                               !ativa
@@ -415,6 +528,11 @@ export default function PaginaOcorrencias() {
                             {ativa ? oc.gravidade : "RESOLVIDA"}
                           </span>
                           <h3 className="text-base font-bold text-white">{rotulo}</h3>
+                          {oc.poligono && oc.poligono.length >= 3 && (
+                            <span className="rounded-full border border-rose-400/50 bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-200">
+                              🔺 Polígono ({oc.poligono.length} marcadores)
+                            </span>
+                          )}
                         </div>
                         {oc.descricao && (
                           <p className="text-sm text-slate-200 mt-1.5 whitespace-pre-line">{oc.descricao}</p>

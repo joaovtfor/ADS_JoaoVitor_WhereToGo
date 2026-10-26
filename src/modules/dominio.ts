@@ -34,6 +34,7 @@ export const TIPOS_OCORRENCIA = [
   "ALAGAMENTO",
   "DESLIZAMENTO",
   "RISCO_ESTRUTURAL",
+  "AREA_RISCO",
   "OUTRO",
 ] as const;
 export type TipoOcorrencia = (typeof TIPOS_OCORRENCIA)[number];
@@ -49,6 +50,7 @@ export const DESCRICAO_TIPO_OCORRENCIA: Record<TipoOcorrencia, string> = {
   ALAGAMENTO: "Alagamento no acesso ou no abrigo",
   DESLIZAMENTO: "Deslizamento de terra próximo",
   RISCO_ESTRUTURAL: "Risco estrutural na edificação",
+  AREA_RISCO: "Área de risco demarcada no entorno",
   OUTRO: "Outra ocorrência",
 };
 
@@ -61,6 +63,7 @@ export const GRAVIDADE_PADRAO: Record<TipoOcorrencia, Gravidade> = {
   ALAGAMENTO: "CRITICO",
   DESLIZAMENTO: "CRITICO",
   RISCO_ESTRUTURAL: "CRITICO",
+  AREA_RISCO: "CRITICO",
   OUTRO: "ALERTA",
 };
 

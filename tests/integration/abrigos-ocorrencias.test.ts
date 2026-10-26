@@ -9,7 +9,12 @@ import {
   obterDashboard,
 } from "@/modules/abrigos/abrigos.service";
 import { classificarItem, movimentarEstoque } from "@/modules/estoque/estoque.service";
-import { registrarOcorrencia, resolverOcorrencia } from "@/modules/ocorrencias/ocorrencias.service";
+import {
+  esquemaRegistrarOcorrencia,
+  registrarOcorrencia,
+  resolverOcorrencia,
+} from "@/modules/ocorrencias/ocorrencias.service";
+import { listarAlertasPublicos, paraGeoJson } from "@/modules/publico/publico.service";
 import { capturarErro, criarCenario, idItem } from "./fixtures";
 
 const NOVO_ABRIGO = {
@@ -79,6 +84,54 @@ describe("RF05 - Ocorrências de infraestrutura", () => {
     const resolvida = await resolverOcorrencia(coordenador, abrigo.id, via.ocorrencia.id, {});
     expect(resolvida).toMatchObject({ statusInfraestrutura: "ALERTA", ocorrencia: { ativa: false } });
     expect((await capturarErro(resolverOcorrencia(coordenador, abrigo.id, via.ocorrencia.id, {}))).codigo).toBe("OCORRENCIA_JA_RESOLVIDA");
+  });
+
+  it("demarca área de risco poligonal com ao menos 3 marcadores e exporta GeoJSON Polygon", async () => {
+    const { abrigo, coordenador } = await criarCenario();
+
+    // Exige ao menos 3 vértices para AREA_RISCO
+    expect(
+      (
+        await capturarErro(
+          Promise.resolve().then(() =>
+            validar(esquemaRegistrarOcorrencia, {
+              tipo: "AREA_RISCO",
+              poligono: [
+                { lat: -28.25, lng: -52.4 },
+                { lat: -28.26, lng: -52.41 },
+              ],
+            }),
+          ),
+        )
+      ).status,
+    ).toBe(400);
+
+    const vertices = [
+      { lat: -28.25, lng: -52.4 },
+      { lat: -28.26, lng: -52.4 },
+      { lat: -28.255, lng: -52.415 },
+    ];
+
+    const areaRisco = await registrarOcorrencia(coordenador, abrigo.id, {
+      tipo: "AREA_RISCO",
+      descricao: "Encosta com risco de deslizamento",
+      poligono: vertices,
+    });
+
+    expect(areaRisco.statusInfraestrutura).toBe("CRITICO");
+    expect(areaRisco.ocorrencia.poligono).toHaveLength(3);
+    expect(areaRisco.ocorrencia.latitude).toBeCloseTo(-28.255, 3);
+    expect(areaRisco.ocorrencia.longitude).toBeCloseTo(-52.405, 3);
+
+    const alertas = await listarAlertasPublicos();
+    const alertaPublico = alertas.find((a) => a.id === areaRisco.ocorrencia.id);
+    expect(alertaPublico).toBeDefined();
+    expect(alertaPublico?.poligono).toEqual(vertices);
+
+    const geojson = paraGeoJson([alertaPublico!]);
+    expect(geojson.features[0].geometry.type).toBe("Polygon");
+    // Anel linear fechado no padrão RFC 7946: 4 pares [lng, lat] (primeiro = último)
+    expect(geojson.features[0].geometry.coordinates[0]).toHaveLength(4);
   });
 });
 
