@@ -56,6 +56,7 @@ interface PropriedadesMapaLeaflet {
   alertas?: AlertaMapa[];
   mostrarAlertas?: boolean;
   idSelecionado: number | null;
+  focoTick?: number;
   posicaoUsuario: { lat: number; lng: number } | null;
   aoSelecionarAbrigo: (id: number) => void;
 }
@@ -150,6 +151,7 @@ export default function MapaPublicoLeaflet({
   alertas = [],
   mostrarAlertas = true,
   idSelecionado,
+  focoTick = 0,
   posicaoUsuario,
   aoSelecionarAbrigo,
 }: PropriedadesMapaLeaflet) {
@@ -159,6 +161,7 @@ export default function MapaPublicoLeaflet({
   const camadaAlertasRef = useRef<L.LayerGroup | null>(null);
   const camadaUsuarioRef = useRef<L.LayerGroup | null>(null);
   const jaAjustouBoundsIniciaisRef = useRef(false);
+  const ultimoFocoRef = useRef<{ id: number | null; tick: number }>({ id: null, tick: -1 });
 
   // 1. Inicializa a instância do mapa Leaflet uma única vez
   useEffect(() => {
@@ -173,10 +176,12 @@ export default function MapaPublicoLeaflet({
 
     L.control.zoom({ position: "bottomleft" }).addTo(mapa);
 
-    // Camada de tiles OpenStreetMap (leve e compatível com redes 3G - RNF01)
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    // Camada de tiles Humanitarian OpenStreetMap Team (HOT - voltada a resposta a desastres e emergências)
+    L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      subdomains: ["a", "b", "c"],
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> • Estilo <a href="https://www.hotosm.org/" target="_blank" rel="noopener noreferrer">Humanitarian (HOT)</a>',
     }).addTo(mapa);
 
     camadaAlertasRef.current = L.layerGroup().addTo(mapa);
@@ -309,11 +314,25 @@ export default function MapaPublicoLeaflet({
   // 5. Centraliza suavemente quando o usuário seleciona um abrigo (compensando a largura da aba lateral)
   useEffect(() => {
     const mapa = mapaRef.current;
-    if (!mapa || !idSelecionado) return;
+    if (!mapa || !idSelecionado) {
+      ultimoFocoRef.current = { id: null, tick: focoTick };
+      return;
+    }
 
     const alvo = abrigos.find((a) => a.id === idSelecionado);
     if (!alvo) return;
 
+    // Evita recentralizar durante o polling automático se o abrigo e o focoTick não mudaram
+    if (
+      ultimoFocoRef.current.id === idSelecionado &&
+      ultimoFocoRef.current.tick === focoTick
+    ) {
+      return;
+    }
+
+    ultimoFocoRef.current = { id: idSelecionado, tick: focoTick };
+
+    mapa.stop();
     const zoomDestino = Math.max(mapa.getZoom(), 15);
     const pontoAlvo = mapa.project([alvo.latitude, alvo.longitude], zoomDestino);
     const deslocamentoX = typeof window !== "undefined" && window.innerWidth >= 640 ? 185 : 0;
@@ -323,9 +342,10 @@ export default function MapaPublicoLeaflet({
     );
 
     mapa.flyTo(centroCompensado, zoomDestino, {
-      duration: 0.45,
+      animate: true,
+      duration: 0.5,
     });
-  }, [idSelecionado, abrigos]);
+  }, [idSelecionado, focoTick, abrigos]);
 
   function enquadrarTodos() {
     const mapa = mapaRef.current;

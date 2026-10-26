@@ -1,9 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin, type AbrigoAdmin, type PapelUsuario } from "../contexto-admin";
+
+const SeletorPontoMapa = dynamic(() => import("@/components/seletor-ponto-mapa"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-48 w-full items-center justify-center rounded-xl border border-slate-800 bg-slate-950 text-xs text-slate-400">
+      Carregando seletor de localização...
+    </div>
+  ),
+});
 
 interface UsuarioLista {
   id: number;
@@ -510,28 +520,53 @@ export default function PaginaAdminGeral() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Latitude *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    value={latitudeAbrigo}
-                    onChange={(e) => setLatitudeAbrigo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
-                  />
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Localização Geográfica no Mapa *
+                  </span>
+                  <span className="text-[11px] text-amber-300 font-semibold">
+                    Clique no mapa para definir
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Longitude *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    value={longitudeAbrigo}
-                    onChange={(e) => setLongitudeAbrigo(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
-                  />
+
+                <SeletorPontoMapa
+                  latitude={latitudeAbrigo.trim() !== "" ? Number(latitudeAbrigo) : null}
+                  longitude={longitudeAbrigo.trim() !== "" ? Number(longitudeAbrigo) : null}
+                  aoSelecionarCoordenada={(lat, lng) => {
+                    setLatitudeAbrigo(String(lat));
+                    setLongitudeAbrigo(String(lng));
+                  }}
+                  alturaClasse="h-48"
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                      Latitude *
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={latitudeAbrigo}
+                      onChange={(e) => setLatitudeAbrigo(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-base sm:text-xs text-white tabular-nums"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                      Longitude *
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={longitudeAbrigo}
+                      onChange={(e) => setLongitudeAbrigo(e.target.value)}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-base sm:text-xs text-white tabular-nums"
+                    />
+                  </div>
                 </div>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2">

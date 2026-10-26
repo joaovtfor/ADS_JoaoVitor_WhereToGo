@@ -128,6 +128,68 @@ function formatarHorario(iso: string): string {
   }
 }
 
+function calcularDistanciaKmHaversine(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function campoEmv(id: string, valor: string): string {
+  const tam = String(valor.length).padStart(2, "0");
+  return `${id}${tam}${valor}`;
+}
+
+/**
+ * Gera payload estático oficial BR Code (BACEN EMVCo) com cálculo CRC16-CCITT (0x1021)
+ */
+function gerarPayloadPixBrCode(chave: string, titular: string | null): string {
+  const nomeLimpo = (titular ?? "ABRIGO EMERGENCIAL")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9 ]/g, "")
+    .trim()
+    .slice(0, 25)
+    .toUpperCase() || "ABRIGO EMERGENCIAL";
+
+  const contaMerchant = campoEmv("00", "br.gov.bcb.pix") + campoEmv("01", chave.trim());
+  const semCrc =
+    campoEmv("00", "01") +
+    campoEmv("26", contaMerchant) +
+    campoEmv("52", "0000") +
+    campoEmv("53", "986") +
+    campoEmv("58", "BR") +
+    campoEmv("59", nomeLimpo) +
+    campoEmv("60", "PASSO FUNDO") +
+    campoEmv("62", campoEmv("05", "***")) +
+    "6304";
+
+  let crc = 0xffff;
+  for (let i = 0; i < semCrc.length; i++) {
+    crc ^= semCrc.charCodeAt(i) << 8;
+    for (let bit = 0; bit < 8; bit++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xffff;
+      } else {
+        crc = (crc << 1) & 0xffff;
+      }
+    }
+  }
+  const crcHex = crc.toString(16).toUpperCase().padStart(4, "0");
+  return `${semCrc}${crcHex}`;
+}
+
 export default function PaginaMapaPublico() {
   const [abrigos, setAbrigos] = useState<AbrigoMapa[]>([]);
   const [alertas, setAlertas] = useState<AlertaMapa[]>([]);
@@ -148,22 +210,35 @@ export default function PaginaMapaPublico() {
   const [mensagemGps, setMensagemGps] = useState<string | null>(null);
 
   // Abrigo selecionado (abre a aba lateral estilo mobile)
-  const [idSelecionado, setIdSelecionado] = useState<number | null>(null);
+  const [idSelecionado, setIdSelecionado] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const param = new URLSearchParams(window.location.search).get("abrigo");
+    const num = param ? Number(param) : NaN;
+    return Number.isInteger(num) && num > 0 ? num : null;
+  });
   const [detalheSelecionado, setDetalheSelecionado] = useState<DetalheAbrigoPublico | null>(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
+  const [focoTick, setFocoTick] = useState(0);
   const [pixCopiado, setPixCopiado] = useState(false);
+  const [brCodeCopiado, setBrCodeCopiado] = useState(false);
+  const [mostrarQrPix, setMostrarQrPix] = useState(false);
+  const [linkCopiado, setLinkCopiado] = useState(false);
 
   // Referência para scroll horizontal da barra de filtros rápidos
   const barraFiltrosRef = useRef<HTMLDivElement | null>(null);
+  const [autoSelecionarGpsTick, setAutoSelecionarGpsTick] = useState(0);
+  const ultimoGpsTickProcessadoRef = useRef(0);
 
   const carregarDadosPublicos = useCallback(
-    async (coords: { lat: number; lng: number } | null, slugCategoria: string | null) => {
+    async (
+      coords: { lat: number; lng: number } | null,
+      slugCategoria: string | null,
+    ): Promise<AbrigoMapa[]> => {
       try {
         const params = new URLSearchParams();
         if (coords) {
           params.set("lat", String(coords.lat));
           params.set("lng", String(coords.lng));
-          params.set("raioKm", "50");
         }
         if (slugCategoria) {
           params.set("necessidade", slugCategoria);
@@ -181,7 +256,32 @@ export default function PaginaMapaPublico() {
         }
 
         const jsonAbrigos = (await respAbrigos.json()) as { dados: AbrigoMapa[] };
-        setAbrigos(jsonAbrigos.dados ?? []);
+        const listaNormalizada = (jsonAbrigos.dados ?? []).map((a) => ({
+          ...a,
+          distanciaKm:
+            a.distanciaKm !== null && a.distanciaKm !== undefined
+              ? Number(a.distanciaKm)
+              : coords
+                ? Number(
+                    calcularDistanciaKmHaversine(
+                      coords.lat,
+                      coords.lng,
+                      a.latitude,
+                      a.longitude,
+                    ).toFixed(2),
+                  )
+                : null,
+        }));
+
+        if (coords) {
+          listaNormalizada.sort(
+            (a, b) =>
+              (a.distanciaKm ?? Number.POSITIVE_INFINITY) -
+              (b.distanciaKm ?? Number.POSITIVE_INFINITY),
+          );
+        }
+
+        setAbrigos(listaNormalizada);
         setErro(null);
 
         if (respAlertas.ok) {
@@ -193,8 +293,11 @@ export default function PaginaMapaPublico() {
           const jsonCategorias = (await respCategorias.json()) as { dados: CategoriaPublica[] };
           setCategorias(jsonCategorias.dados ?? []);
         }
+
+        return listaNormalizada;
       } catch (e) {
         setErro(e instanceof Error ? e.message : "Falha ao carregar o mapa de abrigos.");
+        return [];
       } finally {
         setCarregando(false);
       }
@@ -318,9 +421,17 @@ export default function PaginaMapaPublico() {
 
   const selecionarAbrigo = useCallback((id: number) => {
     setIdSelecionado(id);
+    setFocoTick((t) => t + 1);
     setDetalheSelecionado(null);
     setCarregandoDetalhe(true);
     setPixCopiado(false);
+    setBrCodeCopiado(false);
+    setLinkCopiado(false);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("abrigo", String(id));
+      window.history.replaceState({}, "", url.toString());
+    }
   }, []);
 
   function fecharDetalheAbrigo() {
@@ -328,6 +439,46 @@ export default function PaginaMapaPublico() {
     setDetalheSelecionado(null);
     setCarregandoDetalhe(false);
     setPixCopiado(false);
+    setLinkCopiado(false);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("abrigo");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }
+
+  async function compartilharAbrigo(abrigo: AbrigoMapa) {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.origin);
+    url.searchParams.set("abrigo", String(abrigo.id));
+
+    const urgentes =
+      abrigo.necessidades.urgentes.length > 0
+        ? `\n🚨 Doações urgentes: ${abrigo.necessidades.urgentes.map((i) => i.nome).join(", ")}`
+        : "";
+
+    const texto = `📍 *${abrigo.nome}*\n🏠 ${abrigo.endereco}\n🟢 Vagas livres: ${abrigo.ocupacao.vagasDisponiveis} (${abrigo.ocupacao.lotacaoAtual}/${abrigo.ocupacao.capacidadeMaxima})${urgentes}\n🔗 Mapa ao vivo: ${url.toString()}`;
+
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: `WhereToGo • ${abrigo.nome}`,
+          text: texto,
+          url: url.toString(),
+        });
+        return;
+      } catch {
+        // Fallback para área de transferência
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(texto);
+      setLinkCopiado(true);
+      setTimeout(() => setLinkCopiado(false), 3000);
+    } catch {
+      setLinkCopiado(false);
+    }
   }
 
   function navegarAbrigoVizinho(direcao: -1 | 1) {
@@ -340,6 +491,30 @@ export default function PaginaMapaPublico() {
     }
   }
 
+  // Auto-seleciona o 1º item da lista (abrigosFiltrados[0]) assim que o GPS conecta e ordena a lista
+  useEffect(() => {
+    if (
+      autoSelecionarGpsTick === 0 ||
+      autoSelecionarGpsTick === ultimoGpsTickProcessadoRef.current
+    ) {
+      return;
+    }
+    if (abrigosFiltrados.length === 0) return;
+
+    const primeiroDaLista = abrigosFiltrados[0];
+    if (!primeiroDaLista) return;
+
+    ultimoGpsTickProcessadoRef.current = autoSelecionarGpsTick;
+    void Promise.resolve().then(() => {
+      selecionarAbrigo(primeiroDaLista.id);
+      const sufixoKm =
+        primeiroDaLista.distanciaKm !== null
+          ? ` (${Number(primeiroDaLista.distanciaKm).toFixed(1)} km)`
+          : "";
+      setMensagemGps(`📍 Abrigo mais próximo selecionado: ${primeiroDaLista.nome}${sufixoKm}`);
+    });
+  }, [autoSelecionarGpsTick, abrigosFiltrados, selecionarAbrigo]);
+
   function ativarGeolocalizacao() {
     if (typeof window === "undefined" || !("geolocation" in navigator)) {
       setMensagemGps("Seu navegador não suporta localização por GPS.");
@@ -349,20 +524,64 @@ export default function PaginaMapaPublico() {
     setBuscandoGps(true);
     setMensagemGps(null);
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setBuscandoGps(false);
-        setPosicaoUsuario({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
+    const aoConectarGps = async (pos: GeolocationPosition) => {
+      const coords = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      };
+
+      const listaAtualizada = await carregarDadosPublicos(coords, categoriaSlug);
+      setPosicaoUsuario(coords);
+
+      if (listaAtualizada.length > 0) {
+        // Se algum filtro anterior deixaria a lista vazia, limpa para exibir os abrigos ordenados
+        const buscaNormalizada = termoBusca.trim().toLowerCase();
+        const filtradosAgora = listaAtualizada.filter((abrigo) => {
+          if (buscaNormalizada) {
+            const bateNome = abrigo.nome.toLowerCase().includes(buscaNormalizada);
+            const bateEndereco = abrigo.endereco.toLowerCase().includes(buscaNormalizada);
+            const bateItem = abrigo.necessidades.urgentes.some((i) =>
+              i.nome.toLowerCase().includes(buscaNormalizada),
+            );
+            if (!bateNome && !bateEndereco && !bateItem) return false;
+          }
+          if (filtroRapido === "COM_VAGAS" && abrigo.ocupacao.vagasDisponiveis <= 0) return false;
+          if (filtroRapido === "INFRA_NORMAL" && abrigo.statusInfraestrutura !== "NORMAL")
+            return false;
+          if (filtroRapido === "PRECISA_DOACOES" && abrigo.necessidades.urgentes.length === 0)
+            return false;
+          if (filtroRapido === "DESTAQUE" && !abrigo.destaque) return false;
+          return true;
         });
-        setMensagemGps("Abrigos ordenados pela proximidade da sua localização.");
-      },
+
+        if (filtradosAgora.length === 0) {
+          setTermoBusca("");
+          setFiltroRapido("TODOS");
+        }
+
+        // Dispara o gatilho que auto-seleciona o 1º item da lista (abrigosFiltrados[0])
+        setAutoSelecionarGpsTick((t) => t + 1);
+      } else {
+        setMensagemGps("Localização obtida, mas nenhum abrigo ativo foi encontrado.");
+      }
+
+      setBuscandoGps(false);
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => void aoConectarGps(pos),
       () => {
-        setBuscandoGps(false);
-        setMensagemGps("Permissão de localização negada ou indisponível no navegador.");
+        // Fallback sem alta precisão para computadores desktop (Wi-Fi / rede)
+        navigator.geolocation.getCurrentPosition(
+          (posFallback) => void aoConectarGps(posFallback),
+          () => {
+            setBuscandoGps(false);
+            setMensagemGps("Permissão de localização negada ou indisponível no navegador.");
+          },
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+        );
       },
-      { enableHighAccuracy: true, timeout: 8000 },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 },
     );
   }
 
@@ -455,24 +674,30 @@ export default function PaginaMapaPublico() {
               📋 Abrigos ({abrigosFiltrados.length})
             </button>
 
-            {posicaoUsuario ? (
-              <button
-                type="button"
-                onClick={limparGeolocalizacao}
-                className="h-9 rounded-xl border border-sky-500/50 bg-sky-500/15 px-3 text-xs font-bold text-sky-300 hover:bg-sky-500/25 cursor-pointer"
-              >
-                📍 GPS Ativo
-              </button>
-            ) : (
+            <div className="inline-flex items-center gap-1">
               <button
                 type="button"
                 onClick={ativarGeolocalizacao}
                 disabled={buscandoGps}
-                className="hidden sm:inline-flex h-9 items-center rounded-xl border border-slate-700 bg-slate-900 px-3 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
+                className={`inline-flex h-9 items-center rounded-xl border px-3 text-xs font-bold transition disabled:opacity-60 cursor-pointer ${
+                  posicaoUsuario
+                    ? "border-sky-500/50 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25"
+                    : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                }`}
               >
                 {buscandoGps ? "Localizando..." : "📍 Perto de Mim"}
               </button>
-            )}
+              {posicaoUsuario && (
+                <button
+                  type="button"
+                  onClick={limparGeolocalizacao}
+                  title="Remover localização GPS"
+                  className="inline-flex h-9 w-7 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-xs font-bold text-slate-400 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
 
             <button
               type="button"
@@ -510,6 +735,7 @@ export default function PaginaMapaPublico() {
           alertas={alertas}
           mostrarAlertas={mostrarAlertasMapa}
           idSelecionado={idSelecionado}
+          focoTick={focoTick}
           posicaoUsuario={posicaoUsuario}
           aoSelecionarAbrigo={selecionarAbrigo}
         />
@@ -829,6 +1055,31 @@ export default function PaginaMapaPublico() {
                   📞 Ligar para o abrigo: {abrigoSelecionadoBase.telefone}
                 </a>
               )}
+
+              {/* Compartilhamento Rápido (Link Direto / WhatsApp) */}
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void compartilharAbrigo(abrigoSelecionadoBase)}
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
+                >
+                  {linkCopiado ? "✅ Resumo Copiado!" : "📤 Copiar / Compartilhar"}
+                </button>
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `📍 *${abrigoSelecionadoBase.nome}*\n🏠 ${abrigoSelecionadoBase.endereco}\n🟢 Vagas livres: ${abrigoSelecionadoBase.ocupacao.vagasDisponiveis} (${abrigoSelecionadoBase.ocupacao.lotacaoAtual}/${abrigoSelecionadoBase.ocupacao.capacidadeMaxima})${
+                      abrigoSelecionadoBase.necessidades.urgentes.length > 0
+                        ? `\n🚨 Precisa de: ${abrigoSelecionadoBase.necessidades.urgentes.map((i) => i.nome).join(", ")}`
+                        : ""
+                    }`,
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-2.5 py-1.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/25 transition"
+                >
+                  💬 Enviar no WhatsApp
+                </a>
+              </div>
             </div>
 
             {/* Corpo Rolável Interno da Aba Mobile */}
@@ -965,9 +1216,20 @@ export default function PaginaMapaPublico() {
 
               {/* 4. Card de Doação Oficial via PIX */}
               <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-3.5 space-y-2.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Doação Financeira Oficial (PIX)
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Doação Financeira Oficial (PIX)
+                  </span>
+                  {detalheSelecionado?.pix && (
+                    <button
+                      type="button"
+                      onClick={() => setMostrarQrPix((v) => !v)}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-slate-800 cursor-pointer"
+                    >
+                      {mostrarQrPix ? "Ocultar QR / BR Code" : "📱 Ver QR / Copia e Cola"}
+                    </button>
+                  )}
+                </div>
 
                 {carregandoDetalhe ? (
                   <p className="text-xs text-slate-400">Consultando chave PIX verificada...</p>
@@ -984,6 +1246,46 @@ export default function PaginaMapaPublico() {
                         </strong>
                       </p>
                     )}
+
+                    {mostrarQrPix && (() => {
+                      const payloadBrCode = gerarPayloadPixBrCode(
+                        detalheSelecionado.pix.chave,
+                        detalheSelecionado.pix.titular,
+                      );
+                      return (
+                        <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2 text-center">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=8&data=${encodeURIComponent(payloadBrCode)}`}
+                            alt="QR Code PIX Oficial do Abrigo"
+                            width={148}
+                            height={148}
+                            className="mx-auto rounded-xl border border-slate-700 bg-white p-1"
+                          />
+                          <p className="text-[10px] text-slate-400">
+                            Escaneie no aplicativo do seu banco ou copie o código BR Code (BACEN) abaixo:
+                          </p>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(payloadBrCode);
+                                setBrCodeCopiado(true);
+                                setTimeout(() => setBrCodeCopiado(false), 3000);
+                              } catch {
+                                setBrCodeCopiado(false);
+                              }
+                            }}
+                            className="min-h-9 w-full rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/25 cursor-pointer"
+                          >
+                            {brCodeCopiado
+                              ? "✅ Código PIX Copia e Cola Copiado!"
+                              : "📲 Copiar Código PIX Copia e Cola (BR Code)"}
+                          </button>
+                        </div>
+                      );
+                    })()}
+
                     <button
                       type="button"
                       onClick={() => void copiarChavePix(detalheSelecionado.pix!.chave)}

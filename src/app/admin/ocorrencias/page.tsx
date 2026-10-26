@@ -1,8 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
+
+const SeletorPontoMapa = dynamic(() => import("@/components/seletor-ponto-mapa"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-52 w-full items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-xs text-slate-400">
+      Carregando seletor de mapa...
+    </div>
+  ),
+});
 
 interface Ocorrencia {
   id: number;
@@ -47,6 +57,7 @@ export default function PaginaOcorrencias() {
   const [descricao, setDescricao] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+  const [mostrarSeletorMapa, setMostrarSeletorMapa] = useState(true);
   const [observacaoResolucao, setObservacaoResolucao] = useState<Record<number, string>>({});
 
   const carregar = useCallback(async () => {
@@ -251,14 +262,26 @@ export default function PaginaOcorrencias() {
                   <span className="text-xs font-semibold text-slate-300">
                     Localização do Bloqueio (opcional)
                   </span>
-                  <div className="flex gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={somenteLeitura}
+                      onClick={() => setMostrarSeletorMapa((v) => !v)}
+                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold cursor-pointer ${
+                        mostrarSeletorMapa
+                          ? "border-amber-500/50 bg-amber-500/20 text-amber-300"
+                          : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      🗺️ {mostrarSeletorMapa ? "Ocultar Mapa" : "Marcar no Mapa"}
+                    </button>
                     <button
                       type="button"
                       disabled={somenteLeitura}
                       onClick={usarLocalDoAbrigo}
                       className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
                     >
-                      Usar Abrigo
+                      🏠 Usar Abrigo
                     </button>
                     <button
                       type="button"
@@ -270,6 +293,28 @@ export default function PaginaOcorrencias() {
                     </button>
                   </div>
                 </div>
+
+                {mostrarSeletorMapa && !somenteLeitura && (
+                  <SeletorPontoMapa
+                    latitude={latitude.trim() !== "" ? Number(latitude) : null}
+                    longitude={longitude.trim() !== "" ? Number(longitude) : null}
+                    referenciaAbrigo={
+                      abrigoAtivo
+                        ? {
+                            lat: abrigoAtivo.latitude,
+                            lng: abrigoAtivo.longitude,
+                            nome: abrigoAtivo.nome,
+                          }
+                        : null
+                    }
+                    aoSelecionarCoordenada={(lat, lng) => {
+                      setLatitude(String(lat));
+                      setLongitude(String(lng));
+                    }}
+                    alturaClasse="h-52"
+                  />
+                )}
+
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="number"
