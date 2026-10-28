@@ -7,7 +7,7 @@
 - **Importância**: Importante
 - **Priorização**: 2
 - **Dependências**: RF06, RF03
-- **Status**: ✅ API pública pronta (Semana 2) · ⏳ Filtros na interface (Semana 6)
+- **Status**: ✅ Implementado (Backend Semana 2 · Filtros e Roteamento na Semana 6)
 
 ---
 

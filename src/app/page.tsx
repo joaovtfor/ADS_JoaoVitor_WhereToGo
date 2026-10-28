@@ -63,6 +63,17 @@ interface DetalheAbrigoPublico {
 
 type FiltroRapido = "TODOS" | "COM_VAGAS" | "INFRA_NORMAL" | "PRECISA_DOACOES" | "DESTAQUE";
 
+const ICONE_CATEGORIA: Record<string, string> = {
+  agua: "💧",
+  alimentos: "🍲",
+  higiene: "🧼",
+  medicamentos: "💊",
+  roupas: "🧥",
+  "cama-e-banho": "🛏️",
+  infantil: "🍼",
+  animais: "🐾",
+};
+
 const ROTULO_OCORRENCIA: Record<string, string> = {
   AREA_RISCO: "Área de risco demarcada no entorno",
   SEM_ENERGIA: "Queda de energia elétrica",
@@ -205,11 +216,15 @@ export default function PaginaMapaPublico() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Filtros de busca e proximidade
+  // Filtros de busca, roteamento de doações (RF08) e alertas (RF09)
   const [termoBusca, setTermoBusca] = useState("");
   const [filtroRapido, setFiltroRapido] = useState<FiltroRapido>("TODOS");
   const [categoriaSlug, setCategoriaSlug] = useState<string | null>(null);
+  const [itemFiltroId, setItemFiltroId] = useState<number | null>(null);
+  const [raioKm, setRaioKm] = useState<number | null>(null);
+  const [ocultarNaoDestaque, setOcultarNaoDestaque] = useState(false);
   const [mostrarAlertasMapa, setMostrarAlertasMapa] = useState(true);
+  const [mostrarPainelAlertas, setMostrarPainelAlertas] = useState(false);
   const [mostrarListaFlutuante, setMostrarListaFlutuante] = useState(false);
 
   // Geolocalização do cidadão (PostGIS ST_Distance / ST_DWithin)
@@ -217,7 +232,7 @@ export default function PaginaMapaPublico() {
   const [buscandoGps, setBuscandoGps] = useState(false);
   const [mensagemGps, setMensagemGps] = useState<string | null>(null);
 
-  // Abrigo selecionado (abre a aba lateral estilo mobile)
+  // Abrigo selecionado (abre a aba lateral estilo mobile - RF07)
   const [idSelecionado, setIdSelecionado] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     const param = new URLSearchParams(window.location.search).get("abrigo");
@@ -227,6 +242,7 @@ export default function PaginaMapaPublico() {
   const [detalheSelecionado, setDetalheSelecionado] = useState<DetalheAbrigoPublico | null>(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [focoTick, setFocoTick] = useState(0);
+  const [focoCoordenada, setFocoCoordenada] = useState<{ lat: number; lng: number; tick: number } | null>(null);
   const [pixCopiado, setPixCopiado] = useState(false);
   const [brCodeCopiado, setBrCodeCopiado] = useState(false);
   const [mostrarQrPix, setMostrarQrPix] = useState(false);
@@ -241,15 +257,23 @@ export default function PaginaMapaPublico() {
     async (
       coords: { lat: number; lng: number } | null,
       slugCategoria: string | null,
+      idItem: number | null,
+      raioMaxKm: number | null,
     ): Promise<AbrigoMapa[]> => {
       try {
         const params = new URLSearchParams();
         if (coords) {
           params.set("lat", String(coords.lat));
           params.set("lng", String(coords.lng));
+          if (raioMaxKm) {
+            params.set("raioKm", String(raioMaxKm));
+          }
         }
         if (slugCategoria) {
           params.set("necessidade", slugCategoria);
+        }
+        if (idItem) {
+          params.set("item", String(idItem));
         }
 
         const urlAbrigos = `/api/public/abrigos${params.toString() ? `?${params.toString()}` : ""}`;
@@ -284,8 +308,9 @@ export default function PaginaMapaPublico() {
         if (coords) {
           listaNormalizada.sort(
             (a, b) =>
+              Number(b.destaque ?? false) - Number(a.destaque ?? false) ||
               (a.distanciaKm ?? Number.POSITIVE_INFINITY) -
-              (b.distanciaKm ?? Number.POSITIVE_INFINITY),
+                (b.distanciaKm ?? Number.POSITIVE_INFINITY),
           );
         }
 
@@ -317,13 +342,13 @@ export default function PaginaMapaPublico() {
     let ativo = true;
     void Promise.resolve().then(async () => {
       if (!ativo) return;
-      await carregarDadosPublicos(posicaoUsuario, categoriaSlug);
+      await carregarDadosPublicos(posicaoUsuario, categoriaSlug, itemFiltroId, raioKm);
     });
 
     // Atualização automática silenciosa a cada 30s quando a aba está visível
     const intervalo = window.setInterval(() => {
       if (document.visibilityState === "visible") {
-        void carregarDadosPublicos(posicaoUsuario, categoriaSlug);
+        void carregarDadosPublicos(posicaoUsuario, categoriaSlug, itemFiltroId, raioKm);
       }
     }, 30000);
 
@@ -331,7 +356,7 @@ export default function PaginaMapaPublico() {
       ativo = false;
       window.clearInterval(intervalo);
     };
-  }, [carregarDadosPublicos, posicaoUsuario, categoriaSlug]);
+  }, [carregarDadosPublicos, posicaoUsuario, categoriaSlug, itemFiltroId, raioKm]);
 
   // Busca detalhes completos do abrigo selecionado (rotas Google Maps/Waze, PIX e alertas)
   useEffect(() => {
@@ -377,11 +402,32 @@ export default function PaginaMapaPublico() {
     return () => window.removeEventListener("keydown", aoPressionarTecla);
   }, []);
 
-  // Filtragem local instantânea combinada com os filtros da API
+  const categoriaAtivaObj = useMemo(
+    () => categorias.find((c) => c.slug === categoriaSlug) ?? null,
+    [categorias, categoriaSlug],
+  );
+
+  // Filtragem e ordenação local instantânea combinada com os filtros da API (RF08)
   const abrigosFiltrados = useMemo(() => {
     const buscaNormalizada = termoBusca.trim().toLowerCase();
+    const temFiltroDoacao = Boolean(categoriaSlug || itemFiltroId);
 
-    return abrigos.filter((abrigo) => {
+    const processados = abrigos.map((abrigo) => {
+      const destaqueCalculado = temFiltroDoacao
+        ? abrigo.necessidades.urgentes.some(
+            (i) =>
+              (categoriaSlug ? i.categoria === categoriaSlug : true) &&
+              (itemFiltroId ? i.id === itemFiltroId : true),
+          )
+        : abrigo.destaque;
+
+      return {
+        ...abrigo,
+        destaque: destaqueCalculado,
+      };
+    });
+
+    const filtrados = processados.filter((abrigo) => {
       if (buscaNormalizada) {
         const bateNome = abrigo.nome.toLowerCase().includes(buscaNormalizada);
         const bateEndereco = abrigo.endereco.toLowerCase().includes(buscaNormalizada);
@@ -400,13 +446,21 @@ export default function PaginaMapaPublico() {
       if (filtroRapido === "PRECISA_DOACOES" && abrigo.necessidades.urgentes.length === 0) {
         return false;
       }
-      if (filtroRapido === "DESTAQUE" && !abrigo.destaque) {
+      if ((filtroRapido === "DESTAQUE" || ocultarNaoDestaque) && !abrigo.destaque) {
         return false;
       }
 
       return true;
     });
-  }, [abrigos, termoBusca, filtroRapido]);
+
+    return filtrados.sort(
+      (a, b) =>
+        Number(b.destaque ?? false) - Number(a.destaque ?? false) ||
+        (a.distanciaKm ?? Number.POSITIVE_INFINITY) -
+          (b.distanciaKm ?? Number.POSITIVE_INFINITY) ||
+        a.nome.localeCompare(b.nome, "pt-BR"),
+    );
+  }, [abrigos, termoBusca, filtroRapido, ocultarNaoDestaque, categoriaSlug, itemFiltroId]);
 
   const resumoGeral = useMemo(() => {
     const totalAbrigos = abrigosFiltrados.length;
@@ -414,7 +468,8 @@ export default function PaginaMapaPublico() {
       (acc, a) => acc + Math.max(0, a.ocupacao.vagasDisponiveis),
       0,
     );
-    return { totalAbrigos, totalVagasLivres };
+    const totalDestaque = abrigosFiltrados.filter((a) => a.destaque === true).length;
+    return { totalAbrigos, totalVagasLivres, totalDestaque };
   }, [abrigosFiltrados]);
 
   const indiceSelecionado = useMemo(
@@ -423,8 +478,11 @@ export default function PaginaMapaPublico() {
   );
 
   const abrigoSelecionadoBase = useMemo(
-    () => abrigos.find((a) => a.id === idSelecionado) ?? null,
-    [abrigos, idSelecionado],
+    () =>
+      abrigosFiltrados.find((a) => a.id === idSelecionado) ??
+      abrigos.find((a) => a.id === idSelecionado) ??
+      null,
+    [abrigosFiltrados, abrigos, idSelecionado],
   );
 
   const selecionarAbrigo = useCallback((id: number) => {
@@ -453,6 +511,58 @@ export default function PaginaMapaPublico() {
       url.searchParams.delete("abrigo");
       window.history.replaceState({}, "", url.toString());
     }
+  }
+
+  function limparFiltroCategoria() {
+    setCategoriaSlug(null);
+    setItemFiltroId(null);
+    setOcultarNaoDestaque(false);
+    setMensagemGps(null);
+  }
+
+  function limparTodosFiltros() {
+    setFiltroRapido("TODOS");
+    setCategoriaSlug(null);
+    setItemFiltroId(null);
+    setRaioKm(null);
+    setOcultarNaoDestaque(false);
+    setTermoBusca("");
+    setMensagemGps(null);
+  }
+
+  function selecionarFiltroRapido(novoFiltro: FiltroRapido) {
+    if (novoFiltro === "TODOS") {
+      limparTodosFiltros();
+      return;
+    }
+    setFiltroRapido(novoFiltro);
+    setAutoSelecionarGpsTick((t) => t + 1);
+    if (!posicaoUsuario && !buscandoGps) {
+      ativarGeolocalizacao();
+    }
+  }
+
+  function alternarCategoriaDoacao(slug: string) {
+    if (categoriaSlug === slug) {
+      limparFiltroCategoria();
+    } else {
+      setCategoriaSlug(slug);
+      setItemFiltroId(null);
+      setAutoSelecionarGpsTick((t) => t + 1);
+      if (!posicaoUsuario && !buscandoGps) {
+        ativarGeolocalizacao();
+      }
+    }
+  }
+
+  function selecionarItemDoacao(idItem: number | null) {
+    setItemFiltroId(idItem);
+    setAutoSelecionarGpsTick((t) => t + 1);
+  }
+
+  function selecionarRaioGps(novoRaio: number | null) {
+    setRaioKm(novoRaio);
+    setAutoSelecionarGpsTick((t) => t + 1);
   }
 
   async function compartilharAbrigo(abrigo: AbrigoMapa) {
@@ -499,7 +609,7 @@ export default function PaginaMapaPublico() {
     }
   }
 
-  // Auto-seleciona o 1º item da lista (abrigosFiltrados[0]) assim que o GPS conecta e ordena a lista
+  // Auto-seleciona e centraliza no ponto mais próximo que atende ao filtro ativo ou GPS
   useEffect(() => {
     if (
       autoSelecionarGpsTick === 0 ||
@@ -509,19 +619,32 @@ export default function PaginaMapaPublico() {
     }
     if (abrigosFiltrados.length === 0) return;
 
-    const primeiroDaLista = abrigosFiltrados[0];
-    if (!primeiroDaLista) return;
+    const temFiltroNecessidade = Boolean(categoriaSlug || itemFiltroId);
+    const alvo = temFiltroNecessidade
+      ? (abrigosFiltrados.find((a) => a.destaque === true) ?? abrigosFiltrados[0])
+      : abrigosFiltrados[0];
+    if (!alvo) return;
 
     ultimoGpsTickProcessadoRef.current = autoSelecionarGpsTick;
     void Promise.resolve().then(() => {
-      selecionarAbrigo(primeiroDaLista.id);
+      selecionarAbrigo(alvo.id);
       const sufixoKm =
-        primeiroDaLista.distanciaKm !== null
-          ? ` (${Number(primeiroDaLista.distanciaKm).toFixed(1)} km)`
-          : "";
-      setMensagemGps(`📍 Abrigo mais próximo selecionado: ${primeiroDaLista.nome}${sufixoKm}`);
+        alvo.distanciaKm !== null ? ` (${Number(alvo.distanciaKm).toFixed(1)} km)` : "";
+      if (temFiltroNecessidade && alvo.destaque) {
+        setMensagemGps(
+          `📍 Mais próximo com a necessidade filtrada: ${alvo.nome}${sufixoKm}`,
+        );
+      } else {
+        setMensagemGps(`📍 Abrigo mais próximo selecionado: ${alvo.nome}${sufixoKm}`);
+      }
     });
-  }, [autoSelecionarGpsTick, abrigosFiltrados, selecionarAbrigo]);
+  }, [
+    autoSelecionarGpsTick,
+    abrigosFiltrados,
+    categoriaSlug,
+    itemFiltroId,
+    selecionarAbrigo,
+  ]);
 
   function ativarGeolocalizacao() {
     if (typeof window === "undefined" || !("geolocation" in navigator)) {
@@ -538,11 +661,10 @@ export default function PaginaMapaPublico() {
         lng: pos.coords.longitude,
       };
 
-      const listaAtualizada = await carregarDadosPublicos(coords, categoriaSlug);
+      const listaAtualizada = await carregarDadosPublicos(coords, categoriaSlug, itemFiltroId, raioKm);
       setPosicaoUsuario(coords);
 
       if (listaAtualizada.length > 0) {
-        // Se algum filtro anterior deixaria a lista vazia, limpa para exibir os abrigos ordenados
         const buscaNormalizada = termoBusca.trim().toLowerCase();
         const filtradosAgora = listaAtualizada.filter((abrigo) => {
           if (buscaNormalizada) {
@@ -558,19 +680,20 @@ export default function PaginaMapaPublico() {
             return false;
           if (filtroRapido === "PRECISA_DOACOES" && abrigo.necessidades.urgentes.length === 0)
             return false;
-          if (filtroRapido === "DESTAQUE" && !abrigo.destaque) return false;
+          if ((filtroRapido === "DESTAQUE" || ocultarNaoDestaque) && !abrigo.destaque) return false;
           return true;
         });
 
         if (filtradosAgora.length === 0) {
           setTermoBusca("");
           setFiltroRapido("TODOS");
+          setOcultarNaoDestaque(false);
         }
 
         // Dispara o gatilho que auto-seleciona o 1º item da lista (abrigosFiltrados[0])
         setAutoSelecionarGpsTick((t) => t + 1);
       } else {
-        setMensagemGps("Localização obtida, mas nenhum abrigo ativo foi encontrado.");
+        setMensagemGps("Localização obtida, mas nenhum abrigo ativo foi encontrado neste raio.");
       }
 
       setBuscandoGps(false);
@@ -579,7 +702,6 @@ export default function PaginaMapaPublico() {
     navigator.geolocation.getCurrentPosition(
       (pos) => void aoConectarGps(pos),
       () => {
-        // Fallback sem alta precisão para computadores desktop (Wi-Fi / rede)
         navigator.geolocation.getCurrentPosition(
           (posFallback) => void aoConectarGps(posFallback),
           () => {
@@ -595,6 +717,7 @@ export default function PaginaMapaPublico() {
 
   function limparGeolocalizacao() {
     setPosicaoUsuario(null);
+    setRaioKm(null);
     setMensagemGps(null);
   }
 
@@ -615,7 +738,12 @@ export default function PaginaMapaPublico() {
   }
 
   const temFiltroAtivo =
-    filtroRapido !== "TODOS" || categoriaSlug !== null || termoBusca.trim() !== "";
+    filtroRapido !== "TODOS" ||
+    categoriaSlug !== null ||
+    itemFiltroId !== null ||
+    raioKm !== null ||
+    ocultarNaoDestaque ||
+    termoBusca.trim() !== "";
 
   return (
     <div className="h-dvh w-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col select-none">
@@ -672,7 +800,10 @@ export default function PaginaMapaPublico() {
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setMostrarListaFlutuante((v) => !v)}
+              onClick={() => {
+                setMostrarListaFlutuante((v) => !v);
+                setMostrarPainelAlertas(false);
+              }}
               className={`h-9 rounded-xl border px-3 text-xs font-bold transition cursor-pointer tabular-nums ${
                 mostrarListaFlutuante
                   ? "border-amber-500 bg-amber-500/20 text-amber-300"
@@ -709,7 +840,9 @@ export default function PaginaMapaPublico() {
 
             <button
               type="button"
-              onClick={() => void carregarDadosPublicos(posicaoUsuario, categoriaSlug)}
+              onClick={() =>
+                void carregarDadosPublicos(posicaoUsuario, categoriaSlug, itemFiltroId, raioKm)
+              }
               title="Atualizar dados do mapa agora"
               className="hidden sm:inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700 bg-slate-900 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
             >
@@ -744,11 +877,12 @@ export default function PaginaMapaPublico() {
           mostrarAlertas={mostrarAlertasMapa}
           idSelecionado={idSelecionado}
           focoTick={focoTick}
+          focoCoordenada={focoCoordenada}
           posicaoUsuario={posicaoUsuario}
           aoSelecionarAbrigo={selecionarAbrigo}
         />
 
-        {/* Pílulas de Filtro Rápido Flutuando no Topo do Mapa com Scroll Horizontal Habilitado */}
+        {/* Pílulas de Filtro Rápido e Roteamento de Doações (RF08 + RF09) */}
         <div
           className={`pointer-events-none absolute top-3 left-3 z-[400] flex flex-col gap-1.5 transition-all ${
             abrigoSelecionadoBase ? "right-3 sm:right-[410px] md:right-[430px]" : "right-3"
@@ -784,12 +918,15 @@ export default function PaginaMapaPublico() {
                   { id: "DESTAQUE", rotulo: "⭐ Prioritários" },
                 ] as const
               ).map((pilula) => {
-                const ativo = filtroRapido === pilula.id;
+                const ativo =
+                  pilula.id === "TODOS"
+                    ? filtroRapido === "TODOS" && categoriaSlug === null && itemFiltroId === null
+                    : filtroRapido === pilula.id;
                 return (
                   <button
                     key={pilula.id}
                     type="button"
-                    onClick={() => setFiltroRapido(pilula.id)}
+                    onClick={() => selecionarFiltroRapido(pilula.id)}
                     className={`h-7 shrink-0 whitespace-nowrap rounded-full px-3 text-[11px] font-bold transition cursor-pointer ${
                       ativo
                         ? "bg-amber-500 text-slate-950 shadow-sm"
@@ -803,26 +940,30 @@ export default function PaginaMapaPublico() {
 
               <span className="h-4 w-px shrink-0 bg-slate-800 mx-0.5" />
 
+              {/* RF08: Categorias de Doação com Ícones Minimalistas pelo Slug */}
               {categorias.map((cat) => {
                 const ativo = categoriaSlug === cat.slug;
+                const icone = ICONE_CATEGORIA[cat.slug] ?? "📦";
                 return (
                   <button
                     key={cat.id}
                     type="button"
-                    onClick={() => setCategoriaSlug(ativo ? null : cat.slug)}
+                    onClick={() => alternarCategoriaDoacao(cat.slug)}
+                    title={ativo ? "Clique para remover este filtro de categoria" : `Filtrar por ${cat.nome}`}
                     className={`h-7 shrink-0 whitespace-nowrap rounded-full px-2.5 text-[11px] font-semibold transition cursor-pointer ${
                       ativo
-                        ? "bg-sky-400 text-slate-950 font-bold"
+                        ? "bg-sky-400 text-slate-950 font-black shadow-sm"
                         : "border border-slate-800 bg-slate-900/80 text-slate-300 hover:bg-slate-800"
                     }`}
                   >
-                    📦 {cat.nome}
+                    {icone} {cat.nome} {ativo ? "✕" : ""}
                   </button>
                 );
               })}
 
               <span className="h-4 w-px shrink-0 bg-slate-800 mx-0.5" />
 
+              {/* RF09: Toggle de Alertas no Mapa + Abertura do Painel de Vias e Áreas de Risco */}
               <button
                 type="button"
                 onClick={() => setMostrarAlertasMapa((v) => !v)}
@@ -832,23 +973,37 @@ export default function PaginaMapaPublico() {
                     : "border border-slate-800 bg-slate-900/70 text-slate-400"
                 }`}
               >
-                🚧 Alertas ({alertas.length})
+                🚧 Camada de Alertas ({alertas.length})
               </button>
 
-              {temFiltroAtivo && (
+              {alertas.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
-                    setFiltroRapido("TODOS");
-                    setCategoriaSlug(null);
-                    setTermoBusca("");
+                    setMostrarPainelAlertas((v) => !v);
+                    setMostrarListaFlutuante(false);
                   }}
-                  className="h-7 shrink-0 whitespace-nowrap rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 text-[11px] font-bold text-amber-300 hover:bg-amber-500/25 cursor-pointer"
+                  className={`h-7 shrink-0 whitespace-nowrap rounded-full px-2.5 text-[11px] font-bold transition cursor-pointer ${
+                    mostrarPainelAlertas
+                      ? "bg-rose-500 text-slate-950"
+                      : "border border-rose-500/30 bg-slate-900/90 text-rose-200 hover:bg-slate-800"
+                  }`}
                 >
-                  ✕ Limpar filtros
+                  🔺 Ver Vias / Riscos
                 </button>
               )}
             </div>
+
+            {/* Botão Fixo Sempre Visível para Excluir Filtros Ativos */}
+            {temFiltroAtivo && (
+              <button
+                type="button"
+                onClick={limparTodosFiltros}
+                className="h-7 shrink-0 whitespace-nowrap rounded-full border border-rose-500/50 bg-rose-500/20 px-2.5 text-[11px] font-bold text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+              >
+                ✕ Limpar filtros
+              </button>
+            )}
 
             {/* Botão de rolagem para a direita */}
             <button
@@ -860,6 +1015,102 @@ export default function PaginaMapaPublico() {
               ›
             </button>
           </div>
+
+          {/* Sub-barra de Roteamento Inteligente de Doações (RF08): Itens da Categoria + Opacidade/Ocultação + Raio PostGIS */}
+          {(categoriaAtivaObj || posicaoUsuario) && (
+            <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-sky-500/35 bg-slate-950/92 px-3 py-1.5 text-[11px] shadow-lg backdrop-blur-md">
+              {categoriaAtivaObj && (
+                <>
+                  <button
+                    type="button"
+                    onClick={limparFiltroCategoria}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2.5 py-0.5 text-[10px] font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  >
+                    ← Voltar
+                  </button>
+                  <span className="font-bold text-sky-300">
+                    {ICONE_CATEGORIA[categoriaAtivaObj.slug] ?? "📦"} Doar {categoriaAtivaObj.nome}:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => selecionarItemDoacao(null)}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold cursor-pointer ${
+                        itemFiltroId === null
+                          ? "bg-sky-400 text-slate-950"
+                          : "border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      Qualquer item
+                    </button>
+                    {categoriaAtivaObj.itens.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => selecionarItemDoacao(itemFiltroId === item.id ? null : item.id)}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold cursor-pointer ${
+                          itemFiltroId === item.id
+                            ? "bg-sky-400 text-slate-950"
+                            : "border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {item.nome}
+                      </button>
+                    ))}
+                  </div>
+
+                  <span className="hidden sm:inline-block h-3.5 w-px bg-slate-800" />
+
+                  <span className="text-slate-300">
+                    <strong className="text-sky-300">{resumoGeral.totalDestaque}</strong> abrigo(s) com necessidade urgente
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setOcultarNaoDestaque((v) => !v)}
+                    className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold cursor-pointer ${
+                      ocultarNaoDestaque
+                        ? "border-amber-400 bg-amber-400/20 text-amber-200"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    {ocultarNaoDestaque ? "👁️ Exibindo apenas prioritários" : "👁️ Ocultar demais abrigos"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={limparFiltroCategoria}
+                    className="rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-0.5 text-[10px] font-bold text-rose-200 hover:bg-rose-500/25 cursor-pointer"
+                  >
+                    ✕ Excluir filtro
+                  </button>
+                </>
+              )}
+
+              {posicaoUsuario && (
+                <>
+                  {categoriaAtivaObj && <span className="hidden sm:inline-block h-3.5 w-px bg-slate-800" />}
+                  <div className="flex items-center gap-1">
+                    <span className="font-semibold text-slate-400">Raio GPS:</span>
+                    {([null, 5, 10, 25] as const).map((r) => (
+                      <button
+                        key={r ?? "todos"}
+                        type="button"
+                        onClick={() => selecionarRaioGps(r)}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold cursor-pointer ${
+                          raioKm === r
+                            ? "bg-emerald-400 text-slate-950"
+                            : "border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {r ? `${r} km` : "Todos"}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Avisos flutuantes de GPS ou Erro */}
           {mensagemGps && (
@@ -882,11 +1133,98 @@ export default function PaginaMapaPublico() {
           )}
         </div>
 
+        {/* Gaveta Flutuante Esquerda: Painel de Vias Bloqueadas e Áreas de Risco (RF09) */}
+        {mostrarPainelAlertas && (
+          <aside
+            aria-label="Alertas de vias e áreas de risco na região"
+            className="pointer-events-auto absolute top-20 bottom-14 left-3 z-[450] flex w-[calc(100%-1.5rem)] sm:w-88 flex-col overflow-hidden rounded-3xl border border-rose-500/40 bg-slate-950/95 shadow-2xl backdrop-blur-xl select-text"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <div>
+                <h2 className="text-xs font-black uppercase tracking-wider text-rose-400">
+                  🚧 Alertas de Vias e Áreas de Risco ({alertas.length})
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Clique para localizar o ponto ou área interditada no mapa
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarPainelAlertas(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-xs font-bold text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+              {alertas.map((alerta) => (
+                <div
+                  key={alerta.id}
+                  className={`rounded-2xl border p-3 space-y-2 ${
+                    alerta.gravidade === "CRITICO"
+                      ? "border-rose-500/40 bg-rose-950/25"
+                      : "border-amber-500/40 bg-amber-950/25"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-bold text-white">
+                      {alerta.tipo === "AREA_RISCO" ? "🔺" : "🚧"} {alerta.descricaoTipo}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black ${
+                        alerta.gravidade === "CRITICO"
+                          ? "bg-rose-500 text-slate-950"
+                          : "bg-amber-400 text-slate-950"
+                      }`}
+                    >
+                      {alerta.gravidade}
+                    </span>
+                  </div>
+
+                  {alerta.descricao && (
+                    <p className="text-[11px] text-slate-200">{alerta.descricao}</p>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+                    <span className="text-[10px] text-slate-400 truncate">
+                      Ref.: {alerta.abrigo.nome}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMostrarAlertasMapa(true);
+                          setFocoCoordenada({
+                            lat: alerta.latitude,
+                            lng: alerta.longitude,
+                            tick: Date.now(),
+                          });
+                        }}
+                        className="rounded-lg border border-rose-500/40 bg-rose-500/20 px-2 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/30 cursor-pointer"
+                      >
+                        🎯 Ver no Mapa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selecionarAbrigo(alerta.abrigo.id)}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
+                      >
+                        🏠 Abrigo
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
+
         {/* Gaveta Flutuante Esquerda Opcional: Lista Rápida de Abrigos */}
         {mostrarListaFlutuante && (
           <aside
             aria-label="Lista rápida de abrigos"
-            className="pointer-events-auto absolute top-16 bottom-14 left-3 z-[450] flex w-[calc(100%-1.5rem)] sm:w-80 flex-col overflow-hidden rounded-3xl border border-slate-700/80 bg-slate-950/95 shadow-2xl backdrop-blur-xl select-text"
+            className="pointer-events-auto absolute top-20 bottom-14 left-3 z-[450] flex w-[calc(100%-1.5rem)] sm:w-80 flex-col overflow-hidden rounded-3xl border border-slate-700/80 bg-slate-950/95 shadow-2xl backdrop-blur-xl select-text"
           >
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <div>
@@ -920,6 +1258,8 @@ export default function PaginaMapaPublico() {
                       setTermoBusca("");
                       setFiltroRapido("TODOS");
                       setCategoriaSlug(null);
+                      setItemFiltroId(null);
+                      setOcultarNaoDestaque(false);
                     }}
                     className="rounded-xl bg-amber-500 px-3 py-1.5 text-xs font-bold text-slate-950 cursor-pointer"
                   >
@@ -943,11 +1283,14 @@ export default function PaginaMapaPublico() {
                       className={`w-full text-left rounded-2xl border p-3 transition cursor-pointer ${
                         selecionado
                           ? "border-amber-500 bg-slate-900 ring-1 ring-amber-500/40"
-                          : "border-slate-800/90 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
+                          : abrigo.destaque
+                            ? "border-sky-500/50 bg-sky-950/20 hover:bg-slate-900"
+                            : "border-slate-800/90 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-xs font-bold text-white line-clamp-1">
+                          {abrigo.destaque ? "⭐ " : ""}
                           {abrigo.nome}
                         </span>
                         <span
@@ -959,9 +1302,14 @@ export default function PaginaMapaPublico() {
                             : "Lotado"}
                         </span>
                       </div>
-                      <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-1">
-                        {abrigo.endereco}
-                      </p>
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                        <span className="truncate">{abrigo.endereco}</span>
+                        {abrigo.distanciaKm !== null && (
+                          <span className="shrink-0 font-bold text-sky-300 tabular-nums">
+                            {abrigo.distanciaKm.toFixed(1)} km
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })
@@ -970,7 +1318,7 @@ export default function PaginaMapaPublico() {
           </aside>
         )}
 
-        {/* ABA LATERAL DETALHADA DO ABRIGO SELECIONADO (ESTILO MOBILE SHEET / CARD) */}
+        {/* ABA LATERAL DETALHADA DO ABRIGO SELECIONADO (ESTILO MOBILE SHEET / CARD - RF07) */}
         {abrigoSelecionadoBase && (
           <aside
             role="dialog"
@@ -1003,7 +1351,7 @@ export default function PaginaMapaPublico() {
 
                   {abrigoSelecionadoBase.destaque && (
                     <span className="rounded-full border border-sky-500/40 bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold text-sky-300">
-                      ⭐ Prioritário
+                      ⭐ Precisa da sua doação
                     </span>
                   )}
 
@@ -1029,7 +1377,7 @@ export default function PaginaMapaPublico() {
               </h2>
               <p className="mt-0.5 text-xs text-slate-400">{abrigoSelecionadoBase.endereco}</p>
 
-              {/* Botões Principais de Ação Mobile (Google Maps / Waze / Telefone) */}
+              {/* Botões Principais de Ação Mobile (Google Maps / Waze / Telefone - RF07) */}
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <a
                   href={
@@ -1054,6 +1402,13 @@ export default function PaginaMapaPublico() {
                   🚗 Ir com Waze
                 </a>
               </div>
+
+              {/* RF09 Critério de Aceite 2: Aviso imediato de advertência sobre condições de acesso */}
+              {abrigoSelecionadoBase.statusInfraestrutura !== "NORMAL" && (
+                <div className="mt-2 rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-[11px] font-semibold text-rose-200">
+                  ⚠️ <strong>Atenção no deslocamento:</strong> há alerta de acesso ou infraestrutura reportado neste abrigo. Confira os detalhes abaixo antes de sair.
+                </div>
+              )}
 
               {abrigoSelecionadoBase.telefone && (
                 <a
@@ -1182,7 +1537,7 @@ export default function PaginaMapaPublico() {
                 );
               })()}
 
-              {/* 3. Card de Suprimentos: O que doar agora vs Estoque Cheio */}
+              {/* 3. Card de Suprimentos: O que doar agora vs Estoque Cheio (RF07 + RF08) */}
               <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-3.5 space-y-2.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
                   Suprimentos para Doação
@@ -1194,14 +1549,24 @@ export default function PaginaMapaPublico() {
                       🚨 Precisa com urgência:
                     </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {abrigoSelecionadoBase.necessidades.urgentes.map((item) => (
-                        <span
-                          key={item.id}
-                          className="rounded-xl border border-rose-500/40 bg-rose-500/15 px-2.5 py-1 text-xs font-bold text-rose-200"
-                        >
-                          {item.nome}
-                        </span>
-                      ))}
+                      {abrigoSelecionadoBase.necessidades.urgentes.map((item) => {
+                        const bateFiltroDoador =
+                          (categoriaSlug && item.categoria === categoriaSlug) ||
+                          (itemFiltroId && item.id === itemFiltroId);
+                        return (
+                          <span
+                            key={item.id}
+                            className={`rounded-xl border px-2.5 py-1 text-xs font-bold ${
+                              bateFiltroDoador
+                                ? "border-sky-400 bg-sky-500/25 text-sky-200 ring-1 ring-sky-400/50"
+                                : "border-rose-500/40 bg-rose-500/15 text-rose-200"
+                            }`}
+                          >
+                            {bateFiltroDoador ? "⭐ " : ""}
+                            {item.nome}
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : (

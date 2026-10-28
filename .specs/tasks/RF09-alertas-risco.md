@@ -5,7 +5,7 @@
 - **Importância**: Desejável
 - **Priorização**: 3
 - **Dependências**: RF06, RF05
-- **Status**: ✅ API pública pronta (Semana 2) · ⏳ Camada de alertas no mapa (Semana 6)
+- **Status**: ✅ Implementado (Backend Semana 2 · Camada de Alertas e Polígonos de Risco na Semana 6)
 
 ---
 

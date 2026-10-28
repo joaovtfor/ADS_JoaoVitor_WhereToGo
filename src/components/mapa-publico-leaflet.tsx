@@ -58,6 +58,7 @@ interface PropriedadesMapaLeaflet {
   mostrarAlertas?: boolean;
   idSelecionado: number | null;
   focoTick?: number;
+  focoCoordenada?: { lat: number; lng: number; tick: number } | null;
   posicaoUsuario: { lat: number; lng: number } | null;
   aoSelecionarAbrigo: (id: number) => void;
 }
@@ -107,15 +108,25 @@ function criarIconeAbrigo(abrigo: AbrigoMapa, selecionado: boolean): L.DivIcon {
         ? `<span style="position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#020617;border:2px solid #020617;border-radius:9999px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;" title="Atenção na infraestrutura">⚡</span>`
         : "";
 
+  // RF08: Destaca abrigos que precisam URGENTE do item filtrado e atenua a opacidade dos demais
+  const atenuadoPorFiltro = abrigo.destaque === false && !selecionado;
+  const estiloOpacidade = atenuadoPorFiltro ? "opacity:0.36;filter:saturate(0.35);transform:scale(0.88);" : "";
+
+  const badgeDoarAqui =
+    abrigo.destaque === true
+      ? `<span style="position:absolute;top:-17px;left:50%;transform:translateX(-50%);background:#0284c7;color:#ffffff;border:1.5px solid #bae6fd;border-radius:9999px;padding:1px 6px;font-size:9px;font-weight:900;letter-spacing:0.02em;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.55);">⭐ PRECISA</span>`
+      : "";
+
   const destaqueAnel = selecionado
     ? "box-shadow: 0 0 0 4px #f59e0b, 0 10px 20px rgba(0,0,0,0.65); transform: scale(1.12);"
-    : abrigo.destaque
-      ? "box-shadow: 0 0 0 3px #38bdf8, 0 6px 14px rgba(0,0,0,0.5);"
+    : abrigo.destaque === true
+      ? "box-shadow: 0 0 0 4px #38bdf8, 0 8px 18px rgba(0,0,0,0.6); transform: scale(1.07);"
       : "box-shadow: 0 4px 12px rgba(0,0,0,0.55);";
 
   const html = `
-    <div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none;">
-      <div style="position:relative;display:flex;align-items:center;gap:5px;background:${paleta.fundo};color:#ffffff;border:2px solid ${selecionado ? "#ffffff" : paleta.borda};border-radius:9999px;padding:4px 10px;font-size:11px;font-weight:800;white-space:nowrap;transition:transform 0.15s ease;${destaqueAnel}">
+    <div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;user-select:none;transition:all 0.2s ease;${estiloOpacidade}">
+      <div style="position:relative;display:flex;align-items:center;gap:5px;background:${paleta.fundo};color:#ffffff;border:2px solid ${selecionado ? "#ffffff" : abrigo.destaque ? "#bae6fd" : paleta.borda};border-radius:9999px;padding:4px 10px;font-size:11px;font-weight:800;white-space:nowrap;transition:transform 0.15s ease;${destaqueAnel}">
+        ${badgeDoarAqui}
         <span style="font-size:10px;line-height:1;">${paleta.simbolo}</span>
         <span style="font-variant-numeric:tabular-nums;">${escaparHtml(paleta.rotuloVagas)}</span>
         ${alertaInfra}
@@ -193,6 +204,7 @@ export default function MapaPublicoLeaflet({
   mostrarAlertas = true,
   idSelecionado,
   focoTick = 0,
+  focoCoordenada = null,
   posicaoUsuario,
   aoSelecionarAbrigo,
 }: PropriedadesMapaLeaflet) {
@@ -203,6 +215,7 @@ export default function MapaPublicoLeaflet({
   const camadaUsuarioRef = useRef<L.LayerGroup | null>(null);
   const jaAjustouBoundsIniciaisRef = useRef(false);
   const ultimoFocoRef = useRef<{ id: number | null; tick: number }>({ id: null, tick: -1 });
+  const ultimoFocoCoordTickRef = useRef<number>(-1);
 
   // 1. Inicializa a instância do mapa Leaflet uma única vez
   useEffect(() => {
@@ -238,7 +251,7 @@ export default function MapaPublicoLeaflet({
     };
   }, []);
 
-  // 2. Plota os abrigos ativos via GeoJSON (RF06)
+  // 2. Plota os abrigos ativos via GeoJSON (RF06 / RF08)
   useEffect(() => {
     const mapa = mapaRef.current;
     if (!mapa) return;
@@ -266,7 +279,7 @@ export default function MapaPublicoLeaflet({
         const selecionado = abrigo.id === idSelecionado;
         const marcador = L.marker(latlng, {
           icon: criarIconeAbrigo(abrigo, selecionado),
-          zIndexOffset: selecionado ? 1000 : abrigo.destaque ? 500 : 0,
+          zIndexOffset: selecionado ? 1000 : abrigo.destaque ? 600 : 0,
           title: `${abrigo.nome} (${abrigo.ocupacao.vagasDisponiveis} vagas livres)`,
         });
         marcador.on("click", () => {
@@ -297,9 +310,11 @@ export default function MapaPublicoLeaflet({
     if (!mostrarAlertas) return;
 
     for (const alerta of alertas) {
-      const tooltipHtml = `<div style="font-size:12px;"><strong>${escaparHtml(alerta.descricaoTipo)}</strong><br/>${escaparHtml(
-        alerta.descricao ?? alerta.abrigo.nome,
-      )}<br/><span style="font-size:10px;opacity:0.8;">Reportado por: ${escaparHtml(alerta.abrigo.nome)}</span></div>`;
+      const emoji = obterEmojiAlerta(alerta.tipo);
+      const corBadge = alerta.gravidade === "CRITICO" ? "#e11d48" : "#d97706";
+      const tooltipHtml = `<div style="font-size:12px;max-width:240px;"><div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;"><span style="background:${corBadge};color:#fff;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:800;">${escaparHtml(alerta.gravidade)}</span><strong>${emoji} ${escaparHtml(alerta.descricaoTipo)}</strong></div><div>${escaparHtml(
+        alerta.descricao ?? "Ocorrência ativa reportada na região.",
+      )}</div><div style="font-size:10px;opacity:0.8;margin-top:3px;">📍 Referência: ${escaparHtml(alerta.abrigo.nome)} (clique para ver abrigo)</div></div>`;
 
       // Caso 1: Alerta com polígono demarcado por marcadores (Área de Risco)
       if (Array.isArray(alerta.poligono) && alerta.poligono.length >= 3) {
@@ -434,6 +449,19 @@ export default function MapaPublicoLeaflet({
       duration: 0.5,
     });
   }, [idSelecionado, focoTick, abrigos]);
+
+  // 6. Centraliza diretamente em uma coordenada de alerta/bloqueio quando acionado no painel de alertas (RF09)
+  useEffect(() => {
+    const mapa = mapaRef.current;
+    if (!mapa || !focoCoordenada || focoCoordenada.tick === ultimoFocoCoordTickRef.current) return;
+
+    ultimoFocoCoordTickRef.current = focoCoordenada.tick;
+    mapa.stop();
+    mapa.flyTo([focoCoordenada.lat, focoCoordenada.lng], Math.max(mapa.getZoom(), 15), {
+      animate: true,
+      duration: 0.5,
+    });
+  }, [focoCoordenada]);
 
   function enquadrarTodos() {
     const mapa = mapaRef.current;

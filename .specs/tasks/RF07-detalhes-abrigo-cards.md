@@ -5,7 +5,7 @@
 - **Importância**: Essencial
 - **Priorização**: 1
 - **Dependências**: RF06, RF03
-- **Status**: ✅ API pública pronta (Semana 2) · ⏳ Card na interface (Semana 6)
+- **Status**: ✅ Implementado (Backend Semana 2 · Card e Aba Mobile na Semana 6)
 
 ---
 
