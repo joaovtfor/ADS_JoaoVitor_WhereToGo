@@ -165,6 +165,9 @@ export default function PaginaLogin() {
 
   useEffect(() => {
     let ativo = true;
+    if (new URLSearchParams(window.location.search).get("sessao") === "expirada") {
+      void Promise.resolve().then(() => setErro("Sua sessão expirou ou foi encerrada. Entre novamente para continuar."));
+    }
     api<{ redirecionarPara: string }>("/api/auth/me")
       .then((sessao) => {
         if (ativo && sessao?.redirecionarPara) {
@@ -358,7 +361,7 @@ export default function PaginaLogin() {
             </button>
           </div>
 
-          <p className="mt-2.5 text-[11px] text-slate-400 leading-snug">
+          <p className="mt-2.5 text-xs text-slate-400 leading-snug">
             Toque em uma conta para entrar com 1 clique ou solicite seu cadastro rápido de voluntário:
           </p>
 
@@ -380,7 +383,7 @@ export default function PaginaLogin() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold text-white truncate">{conta.rotulo}</p>
-                  <p className="text-[11px] text-slate-400 truncate">{conta.email}</p>
+                  <p className="text-xs text-slate-400 truncate">{conta.email}</p>
                 </div>
               </button>
             ))}
@@ -474,7 +477,7 @@ export default function PaginaLogin() {
           {credencialPendente ? (
             <form onSubmit={concluirSolicitacaoAbrigo} className="mb-6 rounded-2xl border border-sky-500/40 bg-slate-950 p-4 space-y-4">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-sky-300">
+                <span className="text-xs font-bold uppercase tracking-wider text-sky-300">
                   Auto-cadastro Google One Tap
                 </span>
                 <h2 className="text-base font-bold text-white mt-0.5">
@@ -559,7 +562,7 @@ export default function PaginaLogin() {
                         ✕
                       </button>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-snug">
+                    <p className="text-xs text-slate-400 leading-snug">
                       Se o e-mail já estiver ativo, você entra direto. Se for novo, sua solicitação vai para aprovação do Coordenador do abrigo escolhido.
                     </p>
                     <div>
@@ -613,7 +616,7 @@ export default function PaginaLogin() {
 
                 <div className="relative my-5 flex items-center justify-center">
                   <div className="border-t border-slate-800 w-full" />
-                  <span className="bg-slate-900 px-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+                  <span className="bg-slate-900 px-3 text-xs uppercase tracking-wider text-slate-500 font-semibold">
                     ou com e-mail e senha
                   </span>
                   <div className="border-t border-slate-800 w-full" />
@@ -686,7 +689,7 @@ export default function PaginaLogin() {
                   className="flex flex-col items-start rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-left hover:border-amber-500/50 hover:bg-slate-800/70 transition cursor-pointer"
                 >
                   <span className="text-xs font-bold text-slate-100">{conta.rotulo}</span>
-                  <span className="text-[11px] text-slate-400 mt-0.5 leading-snug">{conta.descricao}</span>
+                  <span className="text-xs text-slate-400 mt-0.5 leading-snug">{conta.descricao}</span>
                 </button>
               ))}
             </div>

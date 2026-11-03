@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { consultarUm } from "@/lib/db";
 import {
   classificarItem,
+  estornarMovimentacao,
   listarEstoque,
   listarMovimentacoes,
   movimentarEstoque,
@@ -126,6 +127,87 @@ describe("RF03 - Status de necessidade (URGENTE / BLOQUEADO)", () => {
     await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: -6 });
     const aposQueda = (await listarEstoque(voluntario, abrigo.id, {})).find((e) => e.idItem === item);
     expect(aposQueda).toMatchObject({ quantidade: 4, quantidadeMinima: 5, statusNecessidade: "URGENTE", critico: true });
+  });
+
+  it("urgência automática volta a NORMAL na reposição; a manual permanece", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario();
+    const automatico = await idItem("Fralda Infantil");
+    const manual = await idItem("Cobertor");
+    const status = async (item: number) =>
+      (await listarEstoque(voluntario, abrigo.id, {})).find((e) => e.idItem === item)?.statusNecessidade;
+
+    await movimentarEstoque(voluntario, abrigo.id, automatico, { quantidade: 6 });
+    await classificarItem(coordenador, abrigo.id, automatico, { quantidadeMinima: 5 });
+    await movimentarEstoque(voluntario, abrigo.id, automatico, { quantidade: -2 });
+    expect(await status(automatico)).toBe("URGENTE"); // saldo 4 < mínimo 5
+    await movimentarEstoque(voluntario, abrigo.id, automatico, { quantidade: 1 });
+    expect(await status(automatico)).toBe("NORMAL");
+
+    await movimentarEstoque(voluntario, abrigo.id, manual, { quantidade: 1 });
+    await classificarItem(coordenador, abrigo.id, manual, { statusNecessidade: "URGENTE", quantidadeMinima: 5 });
+    await movimentarEstoque(voluntario, abrigo.id, manual, { quantidade: 10 });
+    expect(await status(manual)).toBe("URGENTE");
+  });
+
+  it("definir mínimo não publica urgência; reduzir o mínimo reverte a urgência automática", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario();
+    const item = await idItem("Sabonete");
+    await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: 4 });
+
+    // Só o mínimo mudou: fica "abaixo do mínimo" no dashboard, sem ir ao mapa como URGENTE.
+    expect(await classificarItem(coordenador, abrigo.id, item, { quantidadeMinima: 10 })).toMatchObject({
+      statusNecessidade: "NORMAL",
+      critico: true,
+    });
+    await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: -1 });
+    expect((await classificarItem(coordenador, abrigo.id, item, { quantidadeMinima: 2 })).statusNecessidade).toBe("NORMAL");
+  });
+});
+
+describe("Estorno (desfazer do Fast-CRUD)", () => {
+  it("estorna com tipo ESTORNO e quantidade oposta, uma única vez", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario();
+    const item = await idItem("Cobertor");
+    await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: 5 });
+    const perda = await movimentarEstoque(voluntario, abrigo.id, item, { tipo: "PERDA", quantidade: -2, observacao: "molhou" });
+
+    const estorno = await estornarMovimentacao(voluntario, abrigo.id, perda.movimentacao!.id, {});
+    expect(estorno).toMatchObject({ quantidadeAtual: 5, movimentacao: { tipo: "ESTORNO", quantidade: 2 } });
+
+    const repetido = await capturarErro(estornarMovimentacao(voluntario, abrigo.id, perda.movimentacao!.id, {}));
+    expect(repetido).toMatchObject({ status: 409, codigo: "JA_ESTORNADA" });
+
+    const historico = await listarMovimentacoes(coordenador, abrigo.id, {}, { pagina: 1, tamanho: 10 });
+    const original = historico.itens.find((m) => (m as { id: number }).id === perda.movimentacao!.id);
+    expect(original).toMatchObject({ tipo: "PERDA", estornada: true });
+  });
+
+  it("voluntário só desfaz os próprios lançamentos; coordenador desfaz qualquer um", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario();
+    const outroVoluntario = contexto(await criarUsuario("VOLUNTARIO", abrigo.id));
+    const item = await idItem("Sabonete");
+    const entrada = await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: 3 });
+
+    const alheio = await capturarErro(estornarMovimentacao(outroVoluntario, abrigo.id, entrada.movimentacao!.id, {}));
+    expect(alheio.status).toBe(403);
+    await expect(estornarMovimentacao(coordenador, abrigo.id, entrada.movimentacao!.id, {})).resolves.toMatchObject({
+      quantidadeAtual: 0,
+    });
+  });
+
+  it("não estorna transferências nem ajustes, nem movimentação de outro abrigo", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario();
+    const outro = await criarCenario();
+    const item = await idItem("Colchão");
+    await movimentarEstoque(voluntario, abrigo.id, item, { quantidade: 4 });
+    const ajuste = await movimentarEstoque(coordenador, abrigo.id, item, { tipo: "AJUSTE", quantidadeFinal: 3, observacao: "contagem" });
+
+    expect((await capturarErro(estornarMovimentacao(coordenador, abrigo.id, ajuste.movimentacao!.id, {}))).codigo).toBe(
+      "ESTORNO_INVALIDO",
+    );
+    expect((await capturarErro(estornarMovimentacao(outro.coordenador, outro.abrigo.id, ajuste.movimentacao!.id, {}))).status).toBe(
+      404,
+    );
   });
 });
 

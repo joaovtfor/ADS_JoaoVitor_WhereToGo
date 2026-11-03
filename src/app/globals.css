@@ -19,6 +19,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * DESIGN.md §1.2 (Thumb-First): em telas de toque, todo controle tem no mínimo
+ * 48 × 48 px. Fica fora das camadas do Tailwind de propósito: assim vale mesmo
+ * para botões com altura menor definida por classe (h-7, py-1...). Com mouse
+ * (desktop) os tamanhos de cada componente continuam valendo.
+ */
+@media (pointer: coarse) {
+  button,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  a[role="button"] {
+    min-height: 48px;
+  }
+
+  button {
+    min-width: 48px;
+  }
+}
+
 /* Garante largura fixa em dígitos numéricos para evitar layout shift em contadores */
 .tabular-nums {
   font-variant-numeric: tabular-nums;

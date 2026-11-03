@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validar } from "@/lib/http";
 import { registrarEntrada } from "@/modules/abrigados/abrigados.service";
 import {
+  ajustarNaoTriados,
   atualizarAbrigo,
   criarAbrigo as criarAbrigoService,
   esquemaCriarAbrigo,
@@ -14,8 +15,19 @@ import {
   registrarOcorrencia,
   resolverOcorrencia,
 } from "@/modules/ocorrencias/ocorrencias.service";
-import { listarAlertasPublicos, paraGeoJson } from "@/modules/publico/publico.service";
-import { capturarErro, criarCenario, idItem } from "./fixtures";
+import { consultar, consultarUm } from "@/lib/db";
+import { listarAbrigosPublicos, listarAlertasPublicos, paraGeoJson } from "@/modules/publico/publico.service";
+import { capturarErro, contexto, criarAbrigo, criarCenario, criarUsuario, idItem } from "./fixtures";
+
+/** O ponto do rótulo (latitude/longitude) está dentro do polígono da área de risco? */
+async function dentroDaArea(idOcorrencia: number): Promise<boolean> {
+  const linha = await consultarUm<{ dentro: boolean }>(
+    `SELECT ST_Covers(area_risco, ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography) AS dentro
+       FROM ocorrencia_infraestrutura WHERE id = $1`,
+    [idOcorrencia],
+  );
+  return linha!.dentro;
+}
 
 const NOVO_ABRIGO = {
   nome: "Abrigo Novo",
@@ -58,6 +70,38 @@ describe("RF10 - Cadastro de abrigos", () => {
 
     expect((await capturarErro(atualizarAbrigo(admin, abrigo.id, { capacidadeMaxima: 1 }))).codigo).toBe("CAPACIDADE_ABAIXO_DA_LOTACAO");
     expect((await capturarErro(atualizarAbrigo(admin, abrigo.id, { ativo: false }))).codigo).toBe("ABRIGO_COM_ABRIGADOS");
+  });
+
+  it("valida e normaliza a chave PIX oficial", () => {
+    const comChave = (chavePix: string) => validar(esquemaCriarAbrigo, { ...NOVO_ABRIGO, chavePix, titularPix: "Entidade" });
+
+    expect(comChave(" Doacoes@Abrigo.ORG ").chavePix).toBe("doacoes@abrigo.org");
+    expect(comChave("529.982.247-25").chavePix).toBe("52998224725");
+    expect(comChave("+55 (54) 99999-0000").chavePix).toBe("+5554999990000");
+    expect(() => comChave("golpe@pix")).toThrow();
+    expect(() => comChave("123.456.789-00")).toThrow();
+  });
+});
+
+describe("RF04 - Fila de triagem em massa", () => {
+  it("soma toques simultâneos no banco, sem perder nenhum", async () => {
+    const { abrigo, coordenador, admin } = await criarCenario({ capacidade: 10 });
+
+    await Promise.all([
+      ajustarNaoTriados(coordenador, abrigo.id, { delta: 1 }),
+      ajustarNaoTriados(admin, abrigo.id, { delta: 1 }),
+      ajustarNaoTriados(coordenador, abrigo.id, { delta: 1 }),
+    ]);
+    const depois = await ajustarNaoTriados(coordenador, abrigo.id, { delta: -1 });
+    expect(depois).toMatchObject({ acolhidosNaoTriados: 2, lotacaoAtual: 2 });
+  });
+
+  it("não deixa a fila negativa nem ultrapassa a capacidade; voluntário não ajusta", async () => {
+    const { abrigo, coordenador, voluntario } = await criarCenario({ capacidade: 2 });
+
+    expect((await capturarErro(ajustarNaoTriados(coordenador, abrigo.id, { delta: -1 }))).codigo).toBe("NAO_TRIADOS_INVALIDO");
+    expect((await capturarErro(ajustarNaoTriados(coordenador, abrigo.id, { delta: 3 }))).codigo).toBe("ABRIGO_LOTADO");
+    expect((await capturarErro(ajustarNaoTriados(voluntario, abrigo.id, { delta: 1 }))).status).toBe(403);
   });
 });
 
@@ -119,9 +163,8 @@ describe("RF05 - Ocorrências de infraestrutura", () => {
     });
 
     expect(areaRisco.statusInfraestrutura).toBe("CRITICO");
-    expect(areaRisco.ocorrencia.poligono).toHaveLength(3);
-    expect(areaRisco.ocorrencia.latitude).toBeCloseTo(-28.255, 3);
-    expect(areaRisco.ocorrencia.longitude).toBeCloseTo(-52.405, 3);
+    expect(areaRisco.ocorrencia.poligono).toEqual(vertices);
+    expect(await dentroDaArea(areaRisco.ocorrencia.id)).toBe(true);
 
     const alertas = await listarAlertasPublicos();
     const alertaPublico = alertas.find((a) => a.id === areaRisco.ocorrencia.id);
@@ -132,6 +175,71 @@ describe("RF05 - Ocorrências de infraestrutura", () => {
     expect(geojson.features[0].geometry.type).toBe("Polygon");
     // Anel linear fechado no padrão RFC 7946: 4 pares [lng, lat] (primeiro = último)
     expect(geojson.features[0].geometry.coordinates[0]).toHaveLength(4);
+  });
+
+  it("posiciona o rótulo dentro de área côncava e liga pontos marcados fora de ordem", async () => {
+    const { abrigo, coordenador } = await criarCenario();
+
+    // "U": a média dos vértices cai no vão, fora da área.
+    const emU = [
+      { lat: -28.25, lng: -52.42 },
+      { lat: -28.25, lng: -52.41 },
+      { lat: -28.27, lng: -52.41 },
+      { lat: -28.27, lng: -52.412 },
+      { lat: -28.252, lng: -52.412 },
+      { lat: -28.252, lng: -52.418 },
+      { lat: -28.27, lng: -52.418 },
+      { lat: -28.27, lng: -52.42 },
+    ];
+    const concava = await registrarOcorrencia(coordenador, abrigo.id, { tipo: "AREA_RISCO", poligono: emU });
+    expect(await dentroDaArea(concava.ocorrencia.id)).toBe(true);
+
+    // Os 4 cantos de uma quadra marcados em "Z" (bordas se cruzando): vira o retângulo pretendido.
+    const emZ = [
+      { lat: -28.25, lng: -52.42 },
+      { lat: -28.26, lng: -52.41 },
+      { lat: -28.25, lng: -52.41 },
+      { lat: -28.26, lng: -52.42 },
+    ];
+    const corrigida = await registrarOcorrencia(coordenador, abrigo.id, { tipo: "AREA_RISCO", poligono: emZ });
+    expect(corrigida.ocorrencia.poligono).toHaveLength(4);
+    expect(new Set(corrigida.ocorrencia.poligono!.map((p) => `${p.lat},${p.lng}`))).toEqual(new Set(emZ.map((p) => `${p.lat},${p.lng}`)));
+    expect(await dentroDaArea(corrigida.ocorrencia.id)).toBe(true);
+    const [{ valida, areaM2 }] = await consultar<{ valida: boolean; areaM2: number }>(
+      `SELECT ST_IsValid(area_risco::geometry) AS valida, ST_Area(area_risco) AS "areaM2"
+         FROM ocorrencia_infraestrutura WHERE id = $1`,
+      [corrigida.ocorrencia.id],
+    );
+    expect(valida).toBe(true);
+    expect(areaM2).toBeGreaterThan(1_000_000); // ~1,1 km x 0,98 km, não dois triângulos
+
+    // Pontos alinhados não formam área: continua recusado com mensagem clara.
+    const alinhados = [
+      { lat: -28.25, lng: -52.42 },
+      { lat: -28.255, lng: -52.415 },
+      { lat: -28.26, lng: -52.41 },
+    ];
+    const erro = await capturarErro(registrarOcorrencia(coordenador, abrigo.id, { tipo: "AREA_RISCO", poligono: alinhados }));
+    expect(erro).toMatchObject({ status: 422, codigo: "POLIGONO_INVALIDO" });
+  });
+
+  it("marca no mapa público o abrigo que fica dentro de uma área de risco ativa", async () => {
+    // Coordenada exclusiva: os demais testes criam abrigos no ponto padrão.
+    const [lat, lng] = [-29.6841, -51.1302];
+    const abrigo = await criarAbrigo({ latitude: lat, longitude: lng });
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+    const emVolta = [
+      { lat: lat + 0.001, lng: lng - 0.001 },
+      { lat: lat + 0.001, lng: lng + 0.001 },
+      { lat: lat - 0.001, lng: lng + 0.001 },
+      { lat: lat - 0.001, lng: lng - 0.001 },
+    ];
+    const area = await registrarOcorrencia(coordenador, abrigo.id, { tipo: "AREA_RISCO", poligono: emVolta });
+
+    const estaNaArea = async () => (await listarAbrigosPublicos({ formato: "json" })).find((a) => a.id === abrigo.id)?.emAreaDeRisco;
+    expect(await estaNaArea()).toBe(true);
+    await resolverOcorrencia(coordenador, abrigo.id, area.ocorrencia.id, {});
+    expect(await estaNaArea()).toBe(false);
   });
 });
 

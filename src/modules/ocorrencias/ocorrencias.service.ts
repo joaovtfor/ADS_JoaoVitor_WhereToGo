@@ -52,7 +52,7 @@ export const esquemaFiltroOcorrencias = z.object({ ativas: booleanoQuery.optiona
 
 const COLUNAS_OCORRENCIA = `
   o.id, o.id_abrigo AS "idAbrigo", o.tipo, o.gravidade, o.descricao, o.latitude, o.longitude,
-  o.poligono_risco AS "poligono",
+  fn_vertices_area_risco(o.area_risco) AS "poligono",
   o.data_registro AS "dataRegistro", o.data_resolucao AS "dataResolucao",
   o.id_usuario_registro AS "idUsuarioRegistro", ur.nome AS "usuarioRegistro", ur.nome AS "registradoPor",
   o.id_usuario_resolucao AS "idUsuarioResolucao", us.nome AS "usuarioResolucao", us.nome AS "resolvidoPor"`;
@@ -117,29 +117,22 @@ export async function registrarOcorrencia(
 
   const gravidade = dados.gravidade ?? GRAVIDADE_PADRAO[dados.tipo];
   const poligonoValido = dados.poligono && dados.poligono.length >= 3 ? dados.poligono : null;
-  const centroide = poligonoValido
-    ? {
-        lat: Number((poligonoValido.reduce((acc, p) => acc + p.lat, 0) / poligonoValido.length).toFixed(6)),
-        lng: Number((poligonoValido.reduce((acc, p) => acc + p.lng, 0) / poligonoValido.length).toFixed(6)),
-      }
-    : null;
 
-  const latitudeFinal = dados.latitude ?? centroide?.lat ?? null;
-  const longitudeFinal = dados.longitude ?? centroide?.lng ?? null;
-
+  // Com polígono, o banco monta a geometria PostGIS, rejeita bordas que se
+  // cruzam e posiciona o rótulo dentro da área (ST_PointOnSurface).
   const registrada = await consultarUm<{ id: number }>(
     `INSERT INTO ocorrencia_infraestrutura (
-       id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, poligono_risco
+       id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, area_risco
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) RETURNING id`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, fn_area_risco_de_vertices($8::jsonb)) RETURNING id`,
     [
       idAbrigo,
       ctx.usuario.id,
       dados.tipo,
       gravidade,
       dados.descricao ?? null,
-      latitudeFinal,
-      longitudeFinal,
+      poligonoValido ? null : (dados.latitude ?? null),
+      poligonoValido ? null : (dados.longitude ?? null),
       poligonoValido ? JSON.stringify(poligonoValido) : null,
     ],
   );

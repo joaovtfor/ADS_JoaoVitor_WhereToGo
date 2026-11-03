@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { exigirPermissao, type Contexto } from "@/lib/auth/rbac";
+import { exigirPermissao, pode, type Contexto } from "@/lib/auth/rbac";
 import { auditar } from "@/lib/auditoria";
 import { comTransacao, consultar, consultarUm, type Executor } from "@/lib/db";
 import { erros } from "@/lib/http";
@@ -17,6 +17,7 @@ import {
 import {
   STATUS_NECESSIDADE,
   TIPOS_MOVIMENTACAO,
+  TIPOS_MOVIMENTACAO_ESTORNAVEIS,
   TIPOS_MOVIMENTACAO_MANUAL,
   type StatusNecessidade,
   type TipoMovimentacao,
@@ -101,6 +102,10 @@ export const esquemaFiltroHistorico = z.object({
   ate: dataHoraQuery.optional(),
 });
 
+export const esquemaEstorno = z.object({
+  observacao: textoOpcional(500),
+});
+
 export const esquemaTransferenciaEstoque = z.object({
   idAbrigoDestino: esquemaId,
   idItem: esquemaId,
@@ -160,12 +165,14 @@ function inserirMovimentacao(
     quantidade: number;
     observacao: string | null;
     idAbrigoContraparte?: number;
+    idMovimentacaoEstornada?: number;
   },
 ) {
   return consultarUm<MovimentacaoRegistrada>(
     `INSERT INTO movimentacao_estoque
-            (id_abrigo, id_item, id_usuario, tipo_movimentacao, quantidade, observacao, id_abrigo_contraparte)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (id_abrigo, id_item, id_usuario, tipo_movimentacao, quantidade, observacao, id_abrigo_contraparte,
+             id_movimentacao_estornada)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, tipo_movimentacao AS tipo, quantidade, quantidade_resultante AS "quantidadeResultante",
                data_hora AS "dataHora", observacao`,
     [
@@ -176,12 +183,24 @@ function inserirMovimentacao(
       dados.quantidade,
       dados.observacao,
       dados.idAbrigoContraparte ?? null,
+      dados.idMovimentacaoEstornada ?? null,
     ],
     client,
   ) as Promise<MovimentacaoRegistrada>;
 }
 
 const formatarDelta = (n: number) => (n > 0 ? `+${n}` : String(n));
+
+/** Status após a movimentação (o trigger pode ter promovido ou revertido a urgência automática). */
+async function statusAposMovimentacao(client: PoolClient, idAbrigo: number, idItem: number): Promise<StatusNecessidade> {
+  const linha = await consultarUm<{ status: StatusNecessidade }>(
+    `SELECT s.codigo AS status FROM estoque_abrigo e JOIN status_necessidade s ON s.id = e.id_status_necessidade
+      WHERE e.id_abrigo = $1 AND e.id_item = $2`,
+    [idAbrigo, idItem],
+    client,
+  );
+  return linha?.status ?? "NORMAL";
+}
 
 // -----------------------------------------------------------------------------
 // Casos de uso
@@ -253,7 +272,10 @@ export async function movimentarEstoque(
         client,
       );
       quantidade = dados.quantidadeFinal - (atual?.quantidade ?? 0);
-      if (quantidade === 0) return { item, movimentacao: null, quantidadeAtual: dados.quantidadeFinal };
+      if (quantidade === 0) {
+        const statusNecessidade = await statusAposMovimentacao(client, idAbrigo, idItem);
+        return { item, movimentacao: null, quantidadeAtual: dados.quantidadeFinal, statusNecessidade };
+      }
     }
 
     if (quantidade > 0 && !item.ativo) {
@@ -268,7 +290,8 @@ export async function movimentarEstoque(
       quantidade,
       observacao: dados.observacao ?? null,
     });
-    return { item, movimentacao, quantidadeAtual: movimentacao.quantidadeResultante };
+    const statusNecessidade = await statusAposMovimentacao(client, idAbrigo, idItem);
+    return { item, movimentacao, quantidadeAtual: movimentacao.quantidadeResultante, statusNecessidade };
   });
 
   if (resultado.movimentacao) {
@@ -293,7 +316,80 @@ export async function movimentarEstoque(
     item: resultado.item.nome,
     unidadeMedida: resultado.item.unidadeMedida,
     quantidadeAtual: resultado.quantidadeAtual,
+    statusNecessidade: resultado.statusNecessidade,
     movimentacao: resultado.movimentacao,
+  };
+}
+
+/**
+ * "Desfazer" do Fast-CRUD: lança um ESTORNO com a quantidade oposta, vinculado à
+ * movimentação original (que permanece no histórico, imutável). Doações e
+ * consumo não ficam inflados por lançamentos desfeitos. Cada movimentação só
+ * pode ser estornada uma vez; quem não pode ajustar estoque só estorna as próprias.
+ */
+export async function estornarMovimentacao(
+  ctx: Contexto,
+  idAbrigo: number,
+  idMovimentacao: number,
+  dados: z.infer<typeof esquemaEstorno>,
+) {
+  exigirPermissao(ctx.usuario, "estoque:movimentar", idAbrigo);
+
+  const resultado = await comTransacao(async (client) => {
+    await exigirAbrigoAtivo(idAbrigo, client);
+    const original = await consultarUm<{ idItem: number; idUsuario: number; tipo: TipoMovimentacao; quantidade: number }>(
+      `SELECT id_item AS "idItem", id_usuario AS "idUsuario", tipo_movimentacao AS tipo, quantidade
+         FROM movimentacao_estoque WHERE id = $1 AND id_abrigo = $2`,
+      [idMovimentacao, idAbrigo],
+      client,
+    );
+    if (!original) throw erros.naoEncontrado("Movimentação");
+    if (original.idUsuario !== ctx.usuario.id && !pode(ctx.usuario, "estoque:ajustar")) {
+      throw erros.semPermissao("Voluntários só podem desfazer os próprios lançamentos.");
+    }
+    if (!(TIPOS_MOVIMENTACAO_ESTORNAVEIS as readonly string[]).includes(original.tipo)) {
+      throw erros.conflito(
+        "ESTORNO_INVALIDO",
+        "Apenas entradas, saídas e perdas podem ser desfeitas. Use um ajuste de inventário.",
+      );
+    }
+
+    const item = await buscarItem(original.idItem, client);
+    const movimentacao = await inserirMovimentacao(client, {
+      idAbrigo,
+      idItem: original.idItem,
+      idUsuario: ctx.usuario.id,
+      tipo: "ESTORNO",
+      quantidade: -original.quantidade,
+      observacao: dados.observacao ?? `Estorno da movimentação #${idMovimentacao} (${original.tipo})`,
+      idMovimentacaoEstornada: idMovimentacao,
+    });
+    const statusNecessidade = await statusAposMovimentacao(client, idAbrigo, original.idItem);
+    return { item, original, movimentacao, statusNecessidade };
+  });
+
+  const mov = resultado.movimentacao;
+  auditar(ctx, {
+    acao: "ESTOQUE_ESTORNADO",
+    descricao: `${formatarDelta(mov.quantidade)} ${resultado.item.nome} (estorno de ${resultado.original.tipo})`,
+    idAbrigo,
+    detalhes: {
+      idMovimentacao: mov.id,
+      idMovimentacaoEstornada: idMovimentacao,
+      idItem: resultado.original.idItem,
+      quantidade: mov.quantidade,
+      quantidadeResultante: mov.quantidadeResultante,
+    },
+  });
+
+  return {
+    idAbrigo,
+    idItem: resultado.original.idItem,
+    item: resultado.item.nome,
+    unidadeMedida: resultado.item.unidadeMedida,
+    quantidadeAtual: mov.quantidadeResultante,
+    statusNecessidade: resultado.statusNecessidade,
+    movimentacao: mov,
   };
 }
 
@@ -321,6 +417,9 @@ export async function classificarItem(
 
     const status = dados.statusNecessidade ?? antes?.statusNecessidade ?? "NORMAL";
     const minima = dados.quantidadeMinima ?? antes?.quantidadeMinima ?? 0;
+    // Status escolhido pela equipe vira decisão manual (não é revertido na
+    // reposição). Só o mínimo mudando: o trigger reavalia a urgência automática.
+    const statusManual = dados.statusNecessidade !== undefined;
 
     const depois = await consultarUm<{
       quantidade: number;
@@ -333,13 +432,14 @@ export async function classificarItem(
          VALUES ($1, $2, (SELECT id FROM status_necessidade WHERE codigo = $3), $4)
          ON CONFLICT (id_abrigo, id_item) DO UPDATE
             SET id_status_necessidade = EXCLUDED.id_status_necessidade,
-                quantidade_minima = EXCLUDED.quantidade_minima
+                quantidade_minima = EXCLUDED.quantidade_minima,
+                urgente_automatico = CASE WHEN $5 THEN FALSE ELSE estoque_abrigo.urgente_automatico END
          RETURNING quantidade, quantidade_minima, id_status_necessidade, atualizado_em
        )
        SELECT r.quantidade, r.quantidade_minima AS "quantidadeMinima", s.codigo AS "statusNecessidade",
               r.atualizado_em AS "atualizadoEm"
          FROM registro r JOIN status_necessidade s ON s.id = r.id_status_necessidade`,
-      [idAbrigo, idItem, status, minima],
+      [idAbrigo, idItem, status, minima, statusManual],
       client,
     );
     return { item, antes, depois: depois! };
@@ -387,7 +487,9 @@ export async function listarMovimentacoes(
               m.data_hora AS "dataHora", m.observacao,
               m.id_item AS "idItem", i.nome_micro AS item, i.unidade_medida AS "unidadeMedida",
               m.id_usuario AS "idUsuario", u.nome AS usuario,
-              m.id_abrigo_contraparte AS "idAbrigoContraparte", ac.nome AS "abrigoContraparte"
+              m.id_abrigo_contraparte AS "idAbrigoContraparte", ac.nome AS "abrigoContraparte",
+              m.id_movimentacao_estornada AS "idMovimentacaoEstornada",
+              EXISTS (SELECT 1 FROM movimentacao_estoque est WHERE est.id_movimentacao_estornada = m.id) AS estornada
          FROM movimentacao_estoque m
          JOIN item i ON i.id = m.id_item
          JOIN usuario u ON u.id = m.id_usuario

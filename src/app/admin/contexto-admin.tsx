@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, ErroClienteApi, mensagemErro } from "@/lib/cliente-api";
+import { ROTULO_PAPEL, ROTULO_STATUS_INFRA } from "./rotulos";
 
 export type PapelUsuario = "ADMIN" | "COORDENADOR" | "VOLUNTARIO";
 export type NivelOcupacao = "VERDE" | "AMARELO" | "VERMELHO";
@@ -148,11 +149,6 @@ const CORES_INFRA: Record<StatusInfraestrutura, string> = {
   CRITICO: "bg-rose-950/70 text-rose-200 border-rose-600/60",
 };
 
-const ROTULO_PAPEL: Record<PapelUsuario, string> = {
-  ADMIN: "Administração Geral",
-  COORDENADOR: "Coordenador",
-  VOLUNTARIO: "Voluntário",
-};
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -201,7 +197,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       } catch (err) {
         if (!ativo) return;
         if (err instanceof ErroClienteApi && err.status === 401) {
-          window.location.assign(new URL("/login", window.location.origin).href);
+          window.location.assign(new URL("/login?sessao=expirada", window.location.origin).href);
           return;
         }
         setErroFatal(mensagemErro(err));
@@ -344,7 +340,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 </span>
                 <div>
                   <span className="font-bold text-white leading-none block">WhereToGo</span>
-                  <span className="text-[11px] text-slate-400">{ROTULO_PAPEL[usuario.papel]}</span>
+                  <span className="text-xs text-slate-400">{ROTULO_PAPEL[usuario.papel]}</span>
                 </div>
               </Link>
 
@@ -382,15 +378,15 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 {!ehEscopoGlobal && abrigoAtivo && (
                   <>
                     <span
-                      className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
+                      className={`rounded-full border px-2.5 py-0.5 text-xs font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
                     >
                       Vagas: {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima} (
                       {abrigoAtivo.ocupacao.percentual}%)
                     </span>
                     <span
-                      className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${CORES_INFRA[abrigoAtivo.statusInfraestrutura]}`}
+                      className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${CORES_INFRA[abrigoAtivo.statusInfraestrutura]}`}
                     >
-                      Infra: {abrigoAtivo.statusInfraestrutura}
+                      Infra: {ROTULO_STATUS_INFRA[abrigoAtivo.statusInfraestrutura]}
                     </span>
                   </>
                 )}
@@ -400,7 +396,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2">
               <div className="text-right hidden sm:block mr-1">
                 <p className="text-xs font-semibold text-white leading-tight">{usuario.nome}</p>
-                <p className="text-[11px] text-amber-400">{ROTULO_PAPEL[usuario.papel]}</p>
+                <p className="text-xs text-amber-400">{ROTULO_PAPEL[usuario.papel]}</p>
               </div>
               <button
                 type="button"
@@ -458,7 +454,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
               {!ehEscopoGlobal && abrigoAtivo && (
                 <span
-                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
+                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
                 >
                   {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima}
                 </span>
@@ -527,7 +523,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   key={aba.href}
                   href={aba.href}
                   prefetch={false}
-                  className={`min-h-13 flex-1 flex flex-col items-center justify-center rounded-xl py-1 px-1.5 text-[11px] font-semibold transition ${
+                  className={`min-h-13 flex-1 flex flex-col items-center justify-center rounded-xl py-1 px-1.5 text-xs font-semibold transition ${
                     ativa
                       ? "bg-amber-500/15 text-amber-300"
                       : "text-slate-400 hover:text-slate-200"

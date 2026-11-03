@@ -8,13 +8,13 @@ import {
   type MotivoBloqueio,
 } from "@/lib/auth/acesso";
 import { obterPerfilGoogle } from "@/lib/auth/google";
-import { assinarToken } from "@/lib/auth/jwt";
+import { assinarToken, type TokenAssinado } from "@/lib/auth/jwt";
 import { ROTA_INICIAL_POR_PAPEL, type Contexto, type Papel } from "@/lib/auth/rbac";
 import { compararSenha, gerarHashSenha } from "@/lib/auth/senha";
 import { auditar, registrarAuditoria } from "@/lib/auditoria";
 import { consultar, consultarUm } from "@/lib/db";
 import { ErroApi, erros } from "@/lib/http";
-import { limitadorEmailLogin, limitadorLogin } from "@/lib/limitador";
+import { limitadorEmailLogin, limitadorGoogle, limitadorIpLogin, limitadorLogin } from "@/lib/limitador";
 import { z } from "@/lib/validacao";
 
 /** Senha: mínimo 8 caracteres; máximo 72 bytes (limite do bcrypt). */
@@ -74,6 +74,7 @@ export async function login(dados: z.infer<typeof esquemaLogin>, ip: string | nu
   const espera = Math.max(
     limitadorLogin.segundosBloqueado(chaveLimite),
     limitadorEmailLogin.segundosBloqueado(dados.email),
+    ip ? limitadorIpLogin.segundosBloqueado(ip) : 0,
   );
   if (espera > 0) {
     registrarAuditoria({
@@ -93,6 +94,7 @@ export async function login(dados: z.infer<typeof esquemaLogin>, ip: string | nu
   if (!usuario || !senhaConfere) {
     limitadorLogin.registrarFalha(chaveLimite);
     limitadorEmailLogin.registrarFalha(dados.email);
+    if (ip) limitadorIpLogin.registrarFalha(ip);
     registrarAuditoria({
       acao: "LOGIN_FALHA",
       descricao: `Tentativa de login malsucedida para ${dados.email}`,
@@ -120,7 +122,7 @@ export async function login(dados: z.infer<typeof esquemaLogin>, ip: string | nu
   limitadorLogin.limpar(chaveLimite);
   limitadorEmailLogin.limpar(dados.email);
   const sessao = paraSessao(usuario);
-  const { token, expiraEm } = await assinarToken(sessao);
+  const { token, expiraEm } = await assinarToken(sessao, usuario.versaoSessao);
   const abrigo = sessao.idAbrigo
     ? await consultarUm<{ nome: string }>("SELECT nome FROM abrigo WHERE id = $1", [sessao.idAbrigo])
     : null;
@@ -164,7 +166,9 @@ export type ResultadoAutenticacaoGoogle =
 /**
  * Autenticação e auto-cadastro via Google One Tap (RF01 / RF11):
  * - Se o usuário já existe e está ativo: vincula `google_sub` (se necessário) e autentica com 1 toque.
- * - Se o usuário já existe mas está inativo (pendente de aprovação): retorna `PENDENTE_APROVACAO`.
+ * - Se o usuário já existe e aguarda aprovação: retorna `PENDENTE_APROVACAO`.
+ * - Se o usuário já existe e foi desativado: nega o acesso (403 `USUARIO_INATIVO`), sem
+ *   vincular a conta Google nem devolvê-lo à fila de aprovação.
  * - Se o usuário ainda não existe:
  *   - Sem `idAbrigo`: retorna `REQUER_ABRIGO` para o usuário escolher em qual abrigo vai atuar.
  *   - Com `idAbrigo`: cria registro `VOLUNTARIO` com `ativo = FALSE` aguardando aprovação de Coordenador/Admin.
@@ -173,7 +177,18 @@ export async function autenticarComGoogle(
   dados: z.infer<typeof esquemaLoginGoogle>,
   ip: string | null,
 ): Promise<ResultadoAutenticacaoGoogle> {
-  const perfil = await obterPerfilGoogle(dados);
+  const espera = ip ? limitadorGoogle.segundosBloqueado(ip) : 0;
+  if (espera > 0) {
+    throw erros.muitasTentativas(`Muitas solicitações via Google. Tente novamente em ${Math.ceil(espera / 60)} minuto(s).`);
+  }
+
+  let perfil: Awaited<ReturnType<typeof obterPerfilGoogle>>;
+  try {
+    perfil = await obterPerfilGoogle(dados);
+  } catch (erro) {
+    if (ip) limitadorGoogle.registrarFalha(ip);
+    throw erro;
+  }
 
   const porSub = await buscarUsuarioAcessoPorGoogleSub(perfil.sub);
   const existente = porSub ?? (await buscarUsuarioAcessoPorEmail(perfil.email));
@@ -186,6 +201,20 @@ export async function autenticarComGoogle(
       );
     }
 
+    const bloqueio = existente.pendenteAprovacao ? null : motivoBloqueio(existente);
+    if (bloqueio) {
+      registrarAuditoria({
+        acao: "LOGIN_BLOQUEADO",
+        descricao: `Login via Google negado para ${existente.email}: ${bloqueio}`,
+        idUsuario: existente.id,
+        idAbrigo: existente.idAbrigo,
+        detalhes: { motivo: bloqueio },
+        ip,
+      });
+      throw new ErroApi(403, bloqueio, MENSAGENS_BLOQUEIO[bloqueio]);
+    }
+
+    // Só vincula a conta Google a usuários liberados (ou ao próprio auto-cadastro pendente).
     if (!existente.googleSub) {
       await consultar("UPDATE usuario SET google_sub = $1 WHERE id = $2", [perfil.sub, existente.id]);
     }
@@ -194,10 +223,10 @@ export async function autenticarComGoogle(
       ? await consultarUm<{ nome: string }>("SELECT nome FROM abrigo WHERE id = $1", [existente.idAbrigo])
       : null;
 
-    if (!existente.ativo) {
+    if (existente.pendenteAprovacao) {
       registrarAuditoria({
         acao: "LOGIN_GOOGLE_PENDENTE",
-        descricao: `Tentativa de acesso via Google de usuário pendente/inativo: ${existente.email}`,
+        descricao: `Tentativa de acesso via Google de usuário pendente de aprovação: ${existente.email}`,
         idUsuario: existente.id,
         idAbrigo: existente.idAbrigo,
         ip,
@@ -216,21 +245,8 @@ export async function autenticarComGoogle(
       };
     }
 
-    const bloqueio = motivoBloqueio(existente);
-    if (bloqueio) {
-      registrarAuditoria({
-        acao: "LOGIN_BLOQUEADO",
-        descricao: `Login via Google negado para ${existente.email}: ${bloqueio}`,
-        idUsuario: existente.id,
-        idAbrigo: existente.idAbrigo,
-        detalhes: { motivo: bloqueio },
-        ip,
-      });
-      throw new ErroApi(403, bloqueio, MENSAGENS_BLOQUEIO[bloqueio]);
-    }
-
     const sessao = paraSessao(existente);
-    const { token, expiraEm } = await assinarToken(sessao);
+    const { token, expiraEm } = await assinarToken(sessao, existente.versaoSessao);
 
     registrarAuditoria({
       acao: "LOGIN_SUCESSO",
@@ -272,12 +288,14 @@ export async function autenticarComGoogle(
     throw erros.conflito("ABRIGO_INATIVO", "Não é possível solicitar vínculo a um abrigo desativado.");
   }
 
+  // Cada auto-cadastro gera um hash bcrypt: conta no limite por IP.
+  if (ip) limitadorGoogle.registrarFalha(ip);
   const nomeNormalizado = perfil.nome.trim().slice(0, 150) || perfil.email.split("@")[0];
   const senhaAleatoriaHash = await gerarHashSenha(`${randomUUID()}-${randomUUID()}`);
 
   const criado = await consultarUm<{ id: number }>(
-    `INSERT INTO usuario (id_papel, id_abrigo, nome, email, senha_hash, google_sub, ativo)
-     VALUES ((SELECT id FROM papel_usuario WHERE nome = 'VOLUNTARIO'), $1, $2, $3, $4, $5, FALSE)
+    `INSERT INTO usuario (id_papel, id_abrigo, nome, email, senha_hash, google_sub, ativo, aprovado_em)
+     VALUES ((SELECT id FROM papel_usuario WHERE nome = 'VOLUNTARIO'), $1, $2, $3, $4, $5, FALSE, NULL)
      RETURNING id`,
     [abrigo.id, nomeNormalizado, perfil.email, senhaAleatoriaHash, perfil.sub],
   );
@@ -323,7 +341,11 @@ export async function obterPerfil(ctx: Contexto) {
   };
 }
 
-export async function alterarSenha(ctx: Contexto, dados: z.infer<typeof esquemaAlterarSenha>): Promise<void> {
+/**
+ * Troca da própria senha. Incrementa a versão de sessão (revogando os tokens
+ * já emitidos, ex.: um cookie roubado) e devolve um token novo para a sessão atual.
+ */
+export async function alterarSenha(ctx: Contexto, dados: z.infer<typeof esquemaAlterarSenha>): Promise<TokenAssinado> {
   const usuario = await buscarUsuarioAcessoPorId(ctx.usuario.id);
   if (!usuario || !(await compararSenha(dados.senhaAtual, usuario.senhaHash))) {
     throw erros.regraDeNegocio("SENHA_ATUAL_INCORRETA", "A senha atual está incorreta.");
@@ -332,6 +354,11 @@ export async function alterarSenha(ctx: Contexto, dados: z.infer<typeof esquemaA
     throw erros.regraDeNegocio("SENHA_REPETIDA", "A nova senha deve ser diferente da atual.");
   }
 
-  await consultar("UPDATE usuario SET senha_hash = $1 WHERE id = $2", [await gerarHashSenha(dados.novaSenha), ctx.usuario.id]);
+  const atualizado = await consultarUm<{ versaoSessao: number }>(
+    `UPDATE usuario SET senha_hash = $1, versao_sessao = versao_sessao + 1 WHERE id = $2
+     RETURNING versao_sessao AS "versaoSessao"`,
+    [await gerarHashSenha(dados.novaSenha), ctx.usuario.id],
+  );
   auditar(ctx, { acao: "SENHA_ALTERADA", descricao: `Senha alterada por ${ctx.usuario.email}`, idAbrigo: ctx.usuario.idAbrigo });
+  return assinarToken(ctx.usuario, atualizado!.versaoSessao);
 }

@@ -7,10 +7,11 @@ import {
   esquemaRegistrarAbrigado,
   listarAbrigados,
   listarTransferencias,
+  obterAbrigado,
   registrarEntrada as registrarEntradaService,
   transferirAbrigado,
 } from "@/modules/abrigados/abrigados.service";
-import { capturarErro, contexto, criarAbrigo, criarCenario, criarUsuario } from "./fixtures";
+import { capturarErro, contexto, criarAbrigo, criarCenario, criarUsuario, logsDoUsuario } from "./fixtures";
 
 /** Mesmo fluxo da rota: valida/normaliza o corpo com o schema antes do service. */
 const registrarEntrada = async (ctx: Contexto, idAbrigo: number, corpo: unknown) =>
@@ -42,7 +43,15 @@ describe("RF12 - Abrigados (acolhimento e transferências)", () => {
   it("não aceita a mesma pessoa (CPF) presente duas vezes e preserva histórico na reentrada", async () => {
     const { abrigo, voluntario, coordenador } = await criarCenario();
     const { abrigado } = await registrarEntrada(voluntario, abrigo.id, { nomeCompleto: "Pessoa CPF", cpf: CPF_A });
-    expect(abrigado.cpf).toBe("52998224725");
+    // LGPD: o voluntário recebe o CPF mascarado; coordenador vê o completo.
+    expect(abrigado.cpf).toBe("***.982.247-**");
+    expect((await obterAbrigado(coordenador, abrigado.id)).cpf).toBe("52998224725");
+    expect((await listarAbrigados(voluntario, abrigo.id, { status: "PRESENTE", busca: "529.982" }, { pagina: 1, tamanho: 10 })).itens).toHaveLength(1);
+
+    // Logs imutáveis guardam só o id: nem nome nem CPF.
+    const logs = await logsDoUsuario(voluntario.usuario.id);
+    expect(logs.at(-1)?.descricao).toBe(`Entrada do abrigado #${abrigado.id} em "${abrigo.nome}"`);
+    expect(JSON.stringify(logs)).not.toMatch(/Pessoa CPF|52998224725/);
 
     const duplicado = await capturarErro(registrarEntrada(voluntario, abrigo.id, { nomeCompleto: "Outra", cpf: CPF_A }));
     expect(duplicado.codigo).toBe("ABRIGADO_JA_PRESENTE");

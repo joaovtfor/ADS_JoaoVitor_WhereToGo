@@ -2,6 +2,7 @@ import { exigirPermissao, type Contexto } from "@/lib/auth/rbac";
 import { auditar } from "@/lib/auditoria";
 import { comTransacao, consultar, consultarUm } from "@/lib/db";
 import { erros } from "@/lib/http";
+import { MENSAGEM_CHAVE_PIX_INVALIDA, normalizarChavePix } from "@/lib/pix";
 import { escaparIlike, montarAtualizacao } from "@/lib/sql";
 import { booleanoQuery, textoObrigatorio, textoOpcional, z } from "@/lib/validacao";
 import type { StatusInfraestrutura } from "../dominio";
@@ -11,11 +12,30 @@ import { resumirOcupacao } from "./ocupacao";
 // Validação
 // -----------------------------------------------------------------------------
 
+/**
+ * Chave PIX oficial do abrigo: formato validado e normalizado (CPF/CNPJ só com
+ * dígitos, e-mail em minúsculas) para o BR Code gerado no mapa ser aceito pelos bancos.
+ */
+const chavePix = z
+  .string()
+  .trim()
+  .max(140)
+  .transform((valor, ctx) => {
+    if (valor === "") return null;
+    const normalizada = normalizarChavePix(valor);
+    if (!normalizada) {
+      ctx.addIssue({ code: "custom", message: MENSAGEM_CHAVE_PIX_INVALIDA });
+      return z.NEVER;
+    }
+    return normalizada.chave;
+  })
+  .nullish();
+
 const camposAbrigo = {
   nome: textoObrigatorio(150),
   endereco: textoObrigatorio(255),
   telefone: textoOpcional(20),
-  chavePix: textoOpcional(140),
+  chavePix,
   titularPix: textoOpcional(150),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
@@ -34,6 +54,16 @@ export const esquemaAtualizarAbrigo = z
   .object({ ...camposAbrigo, ativo: z.boolean() })
   .partial()
   .refine((d) => Object.values(d).some((v) => v !== undefined), "Informe ao menos um campo para atualizar.");
+
+/** Botões "+1/-1" da triagem em massa: variação relativa, somada no banco. */
+export const esquemaAjusteTriagem = z.object({
+  delta: z
+    .number()
+    .int()
+    .min(-1000)
+    .max(1000)
+    .refine((v) => v !== 0, "O ajuste não pode ser zero."),
+});
 
 export const esquemaFiltroAbrigos = z.object({
   ativo: booleanoQuery.optional(),
@@ -221,6 +251,47 @@ export async function atualizarAbrigo(ctx: Contexto, id: number, dados: z.infer<
   return apresentar(atualizado.depois);
 }
 
+/**
+ * RF04 - fila de triagem em massa (+N / -N). Soma a variação no próprio banco,
+ * sob o mesmo lock do abrigo: dois coordenadores (ou duas abas) tocando "+1" ao
+ * mesmo tempo resultam em +2. Enviar o total calculado no navegador perdia um dos toques.
+ */
+export async function ajustarNaoTriados(ctx: Contexto, id: number, dados: z.infer<typeof esquemaAjusteTriagem>) {
+  exigirPermissao(ctx.usuario, "abrigo:editar-operacao", id);
+
+  const { antes, depois } = await comTransacao(async (client) => {
+    const atual = await consultarUm<LinhaAbrigo>(`SELECT ${COLUNAS_ABRIGO} FROM abrigo a WHERE a.id = $1 FOR UPDATE`, [id], client);
+    if (!atual) throw erros.naoEncontrado("Abrigo");
+    if (!atual.ativo) throw erros.conflito("ABRIGO_INATIVO", `O abrigo "${atual.nome}" está desativado.`);
+
+    const naoTriados = atual.acolhidosNaoTriados + dados.delta;
+    if (naoTriados < 0) {
+      throw erros.conflito("NAO_TRIADOS_INVALIDO", "Não há acolhidos suficientes na fila de triagem para remover.");
+    }
+    if (dados.delta > 0 && atual.lotacaoAtual + dados.delta > atual.capacidadeMaxima) {
+      throw erros.conflito(
+        "ABRIGO_LOTADO",
+        `O abrigo "${atual.nome}" está lotado (${atual.lotacaoAtual}/${atual.capacidadeMaxima}).`,
+      );
+    }
+
+    const linha = await consultarUm<LinhaAbrigo>(
+      `UPDATE abrigo SET acolhidos_nao_triados = acolhidos_nao_triados + $2 WHERE id = $1 RETURNING ${COLUNAS_RETORNO}`,
+      [id, dados.delta],
+      client,
+    );
+    return { antes: atual, depois: linha! };
+  });
+
+  auditar(ctx, {
+    acao: "TRIAGEM_AJUSTADA",
+    descricao: `Fila de triagem: ${antes.acolhidosNaoTriados} -> ${depois.acolhidosNaoTriados} (${dados.delta > 0 ? "+" : ""}${dados.delta})`,
+    idAbrigo: id,
+    detalhes: { delta: dados.delta, de: antes.acolhidosNaoTriados, para: depois.acolhidosNaoTriados },
+  });
+  return apresentar(depois);
+}
+
 /** RF04 - Dashboard de triagem do coordenador. */
 export async function obterDashboard(ctx: Contexto, id: number) {
   exigirPermissao(ctx.usuario, "abrigo:dashboard", id);
@@ -281,7 +352,7 @@ export async function obterDashboard(ctx: Contexto, id: number) {
       [id],
     ),
     consultar(
-      `SELECT id, tipo, gravidade, descricao, latitude, longitude, poligono_risco AS poligono, data_registro AS "dataRegistro"
+      `SELECT id, tipo, gravidade, descricao, latitude, longitude, fn_vertices_area_risco(area_risco) AS poligono, data_registro AS "dataRegistro"
          FROM ocorrencia_infraestrutura
         WHERE id_abrigo = $1 AND data_resolucao IS NULL
         ORDER BY gravidade DESC, data_registro`,

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin, type AbrigoAdmin, type PapelUsuario } from "../contexto-admin";
+import { ROTULO_PAPEL } from "../rotulos";
 
 const SeletorPontoMapa = dynamic(() => import("@/components/seletor-ponto-mapa"), {
   ssr: false,
@@ -24,8 +25,12 @@ interface UsuarioLista {
   abrigo: string;
   ativo: boolean;
   possuiGoogle?: boolean;
+  /** Auto-cadastro via Google nunca aprovado. Inativo e não pendente = desativado pela gestão. */
+  pendenteAprovacao: boolean;
   criadoEm: string;
 }
+
+const TAMANHO_PAGINA_USUARIOS = 50;
 
 interface PaginaUsuarios {
   itens: UsuarioLista[];
@@ -95,6 +100,11 @@ export default function PaginaAdminGeral() {
 
   // --- Estado: Usuários ------------------------------------------------------
   const [usuarios, setUsuarios] = useState<UsuarioLista[]>([]);
+  const [pendentes, setPendentes] = useState<UsuarioLista[]>([]);
+  const [paginaUsuarios, setPaginaUsuarios] = useState(1);
+  const [paginacaoUsuarios, setPaginacaoUsuarios] = useState({ total: 0, totalPaginas: 1 });
+  const [buscaUsuarios, setBuscaUsuarios] = useState("");
+  const [buscaUsuariosAplicada, setBuscaUsuariosAplicada] = useState("");
   const [usuarioEditando, setUsuarioEditando] = useState<UsuarioLista | null>(null);
   const [nomeUsuario, setNomeUsuario] = useState("");
   const [emailUsuario, setEmailUsuario] = useState("");
@@ -117,14 +127,32 @@ export default function PaginaAdminGeral() {
   const [filtroDe, setFiltroDe] = useState("");
   const [filtroAte, setFiltroAte] = useState("");
 
+  // Lista paginada (antes eram só os 100 primeiros: acima disso contas e pedidos
+  // sumiam da tela) + fila de aprovação carregada à parte, sempre completa.
   const carregarUsuarios = useCallback(async () => {
     try {
-      const res = await api<PaginaUsuarios>("/api/usuarios?tamanho=100");
-      setUsuarios(res.itens);
+      const params = new URLSearchParams({ pagina: String(paginaUsuarios), tamanho: String(TAMANHO_PAGINA_USUARIOS) });
+      if (buscaUsuariosAplicada) params.set("busca", buscaUsuariosAplicada);
+      const [pagina, fila] = await Promise.all([
+        api<PaginaUsuarios>(`/api/usuarios?${params.toString()}`),
+        api<PaginaUsuarios>("/api/usuarios?pendente=true&tamanho=200"),
+      ]);
+      setUsuarios(pagina.itens);
+      setPaginacaoUsuarios({ total: pagina.paginacao.total, totalPaginas: pagina.paginacao.totalPaginas });
+      setPendentes(fila.itens);
     } catch (err) {
       setErro(mensagemErro(err));
     }
-  }, []);
+  }, [paginaUsuarios, buscaUsuariosAplicada]);
+
+  // Busca com espera de 300 ms após a digitação (DESIGN.md §5).
+  useEffect(() => {
+    const temporizador = window.setTimeout(() => {
+      setBuscaUsuariosAplicada(buscaUsuarios.trim());
+      setPaginaUsuarios(1);
+    }, 300);
+    return () => window.clearTimeout(temporizador);
+  }, [buscaUsuarios]);
 
   const carregarCatalogo = useCallback(async () => {
     try {
@@ -420,15 +448,15 @@ export default function PaginaAdminGeral() {
           }`}
         >
           <span>👥 {ehAdmin ? "Equipe e Acessos" : "Voluntários do Abrigo"}</span>
-          {usuarios.some((u) => !u.ativo && u.possuiGoogle) && (
+          {pendentes.length > 0 && (
             <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums ${
+              className={`rounded-full px-2 py-0.5 text-xs font-black tabular-nums ${
                 aba === "usuarios"
                   ? "bg-slate-950 text-amber-300"
                   : "bg-amber-500 text-slate-950"
               }`}
             >
-              {usuarios.filter((u) => !u.ativo && u.possuiGoogle).length} pendente(s)
+              {pendentes.length} pendente(s)
             </span>
           )}
         </button>
@@ -525,7 +553,7 @@ export default function PaginaAdminGeral() {
                   <span className="text-xs font-semibold text-slate-300">
                     Localização Geográfica no Mapa *
                   </span>
-                  <span className="text-[11px] text-amber-300 font-semibold">
+                  <span className="text-xs text-amber-300 font-semibold">
                     Clique no mapa para definir
                   </span>
                 </div>
@@ -542,7 +570,7 @@ export default function PaginaAdminGeral() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-400 mb-1">
                       Latitude *
                     </label>
                     <input
@@ -555,7 +583,7 @@ export default function PaginaAdminGeral() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                    <label className="block text-xs font-medium text-slate-400 mb-1">
                       Longitude *
                     </label>
                     <input
@@ -611,7 +639,7 @@ export default function PaginaAdminGeral() {
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-white">{a.nome}</h3>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                           a.ativo ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-400"
                         }`}
                       >
@@ -646,19 +674,19 @@ export default function PaginaAdminGeral() {
 
                     {a.ativo && confirmarAbrigoId === a.id ? (
                       <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-950/50 px-2 py-1">
-                        <span className="text-[11px] text-rose-200 font-semibold">Arquivar?</span>
+                        <span className="text-xs text-rose-200 font-semibold">Arquivar?</span>
                         <button
                           type="button"
                           disabled={enviando}
                           onClick={() => alternarAtivoAbrigo(a)}
-                          className="rounded bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-slate-950 cursor-pointer"
+                          className="rounded bg-rose-500 px-2 py-0.5 text-xs font-bold text-slate-950 cursor-pointer"
                         >
                           Sim
                         </button>
                         <button
                           type="button"
                           onClick={() => setConfirmarAbrigoId(null)}
-                          className="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300 cursor-pointer"
+                          className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300 cursor-pointer"
                         >
                           Não
                         </button>
@@ -790,25 +818,23 @@ export default function PaginaAdminGeral() {
 
           <section className="lg:col-span-8 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-5">
             {/* Fila de Aprovação 1-Clique de Auto-Cadastro via Google One Tap */}
-            {usuarios.some((u) => !u.ativo && u.possuiGoogle) && (
+            {pendentes.length > 0 && (
               <div className="rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                      Fila de Aprovação Rápida
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                      Fila de aprovação
                     </span>
                     <h3 className="text-sm sm:text-base font-bold text-white">
-                      Solicitações de Acesso via Google One Tap
+                      Pedidos de acesso feitos com a conta Google
                     </h3>
                   </div>
                   <span className="rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-black text-slate-950 tabular-nums">
-                    {usuarios.filter((u) => !u.ativo && u.possuiGoogle).length}
+                    {pendentes.length}
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {usuarios
-                    .filter((u) => !u.ativo && u.possuiGoogle)
-                    .map((u) => (
+                  {pendentes.map((u) => (
                       <div
                         key={u.id}
                         className="rounded-xl border border-slate-800 bg-slate-950/90 p-3 flex flex-wrap items-center justify-between gap-3"
@@ -816,7 +842,7 @@ export default function PaginaAdminGeral() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-bold text-white truncate">{u.nome}</p>
-                            <span className="rounded bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 text-[10px] font-bold text-sky-300">
+                            <span className="rounded bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 text-xs font-bold text-sky-300">
                               Google One Tap
                             </span>
                           </div>
@@ -838,7 +864,19 @@ export default function PaginaAdminGeral() {
               </div>
             )}
 
-            <h2 className="text-base sm:text-lg font-bold text-white">Contas Registradas ({usuarios.length})</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base sm:text-lg font-bold text-white tabular-nums">
+                Contas registradas ({paginacaoUsuarios.total})
+              </h2>
+              <input
+                type="search"
+                value={buscaUsuarios}
+                onChange={(e) => setBuscaUsuarios(e.target.value)}
+                placeholder="Buscar por nome ou e-mail..."
+                aria-label="Buscar contas por nome ou e-mail"
+                className="h-12 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-base text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none sm:h-10 sm:w-64 sm:text-sm"
+              />
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -859,7 +897,7 @@ export default function PaginaAdminGeral() {
                           <div className="flex items-center gap-2">
                             <p className="font-semibold text-white">{u.nome}</p>
                             {u.possuiGoogle && (
-                              <span className="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-bold text-sky-300">
+                              <span className="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-xs font-bold text-sky-300">
                                 Google
                               </span>
                             )}
@@ -867,8 +905,8 @@ export default function PaginaAdminGeral() {
                           <p className="text-xs text-slate-400">{u.email}</p>
                         </td>
                         <td className="py-3 pr-3">
-                          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs font-mono text-amber-300">
-                            {u.papel}
+                          <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-amber-300">
+                            {ROTULO_PAPEL[u.papel] ?? u.papel}
                           </span>
                           <p className="text-xs text-slate-400 mt-1">{u.abrigo ?? "Global (Sem abrigo)"}</p>
                         </td>
@@ -877,12 +915,12 @@ export default function PaginaAdminGeral() {
                             className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
                               u.ativo
                                 ? "bg-emerald-500/20 text-emerald-300"
-                                : u.possuiGoogle
+                                : u.pendenteAprovacao
                                   ? "bg-amber-500/20 text-amber-300"
                                   : "bg-rose-500/20 text-rose-300"
                             }`}
                           >
-                            {u.ativo ? "ATIVO" : u.possuiGoogle ? "PENDENTE" : "INATIVO"}
+                            {u.ativo ? "Ativo" : u.pendenteAprovacao ? "Aguardando aprovação" : "Desativado"}
                           </span>
                         </td>
                         <td className="py-3 text-right">
@@ -899,19 +937,19 @@ export default function PaginaAdminGeral() {
 
                               {u.ativo && confirmarUsuarioId === u.id ? (
                                 <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-950/50 px-2 py-0.5">
-                                  <span className="text-[11px] text-rose-200 font-semibold">Revogar?</span>
+                                  <span className="text-xs text-rose-200 font-semibold">Revogar?</span>
                                   <button
                                     type="button"
                                     disabled={enviando}
                                     onClick={() => alternarAtivoUsuario(u)}
-                                    className="rounded bg-rose-500 px-1.5 py-0.5 text-[11px] font-bold text-slate-950 cursor-pointer"
+                                    className="rounded bg-rose-500 px-1.5 py-0.5 text-xs font-bold text-slate-950 cursor-pointer"
                                   >
                                     Sim
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setConfirmarUsuarioId(null)}
-                                    className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300 cursor-pointer"
+                                    className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300 cursor-pointer"
                                   >
                                     Não
                                   </button>
@@ -929,7 +967,7 @@ export default function PaginaAdminGeral() {
                                       : "bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
                                   }`}
                                 >
-                                  {u.ativo ? "Desativar" : "✓ Aprovar / Ativar"}
+                                  {u.ativo ? "Desativar" : u.pendenteAprovacao ? "✓ Aprovar" : "Reativar"}
                                 </button>
                               )}
                             </div>
@@ -941,6 +979,30 @@ export default function PaginaAdminGeral() {
                 </tbody>
               </table>
             </div>
+
+            {paginacaoUsuarios.totalPaginas > 1 && (
+              <nav aria-label="Páginas da lista de contas" className="flex items-center justify-between gap-2 border-t border-slate-800 pt-3">
+                <button
+                  type="button"
+                  disabled={paginaUsuarios <= 1}
+                  onClick={() => setPaginaUsuarios((p) => Math.max(1, p - 1))}
+                  className="min-h-12 rounded-xl border border-slate-700 bg-slate-950 px-4 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-40 sm:min-h-10"
+                >
+                  ← Anterior
+                </button>
+                <span className="text-xs text-slate-400 tabular-nums">
+                  Página {paginaUsuarios} de {paginacaoUsuarios.totalPaginas}
+                </span>
+                <button
+                  type="button"
+                  disabled={paginaUsuarios >= paginacaoUsuarios.totalPaginas}
+                  onClick={() => setPaginaUsuarios((p) => Math.min(paginacaoUsuarios.totalPaginas, p + 1))}
+                  className="min-h-12 rounded-xl border border-slate-700 bg-slate-950 px-4 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-40 sm:min-h-10"
+                >
+                  Próxima →
+                </button>
+              </nav>
+            )}
           </section>
         </div>
       )}
@@ -1065,7 +1127,7 @@ export default function PaginaAdminGeral() {
             <div className="flex flex-wrap items-end gap-2">
               {ehAdmin && (
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-0.5">Abrigo</label>
+                  <label className="block text-xs text-slate-400 mb-0.5">Abrigo</label>
                   <select
                     value={filtroIdAbrigoAudit}
                     onChange={(e) => setFiltroIdAbrigoAudit(e.target.value)}
@@ -1081,7 +1143,7 @@ export default function PaginaAdminGeral() {
                 </div>
               )}
               <div>
-                <label className="block text-[11px] text-slate-400 mb-0.5">Tipo de Ação</label>
+                <label className="block text-xs text-slate-400 mb-0.5">Tipo de Ação</label>
                 <input
                   type="text"
                   value={filtroAcao}
@@ -1091,7 +1153,7 @@ export default function PaginaAdminGeral() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-0.5">De (data)</label>
+                <label className="block text-xs text-slate-400 mb-0.5">De (data)</label>
                 <input
                   type="date"
                   value={filtroDe}
@@ -1100,7 +1162,7 @@ export default function PaginaAdminGeral() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-0.5">Até (data)</label>
+                <label className="block text-xs text-slate-400 mb-0.5">Até (data)</label>
                 <input
                   type="date"
                   value={filtroAte}
@@ -1136,14 +1198,14 @@ export default function PaginaAdminGeral() {
                       {new Date(l.dataHora).toLocaleString("pt-BR")}
                     </td>
                     <td className="py-2.5 pr-3">
-                      <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-amber-300">
+                      <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-xs text-amber-300">
                         {l.acao}
                       </span>
                     </td>
                     <td className="py-2.5 pr-3 text-slate-200">
                       <p>{l.descricao}</p>
                       {l.detalhes && Object.keys(l.detalhes).length > 0 && (
-                        <p className="mt-0.5 text-[11px] font-mono text-slate-400 break-all">
+                        <p className="mt-0.5 text-xs font-mono text-slate-400 break-all">
                           {JSON.stringify(l.detalhes)}
                         </p>
                       )}

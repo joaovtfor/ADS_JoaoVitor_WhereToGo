@@ -16,6 +16,7 @@ Em cenários de desastres naturais e emergências climáticas, usuários operam 
 2. **Ergonomia "Thumb-First" (Uma Mão / Zero Teclado)**
    - Voluntários frequentemente seguram pranchetas, caixas de mantimentos ou lanternas com uma das mãos.
    - Ações recorrentes devem estar na zona de alcance do polegar, com alvos de toque mínimos de **$48 \times 48\text{px}$** e espaçamento mínimo de **$8\text{px}$** entre botões adjacentes para evitar toques acidentais.
+   - Em telas de toque (`pointer: coarse`), `src/app/globals.css` garante o mínimo de 48 px em todo `button`, `select` e `input`, mesmo quando a classe do componente define um tamanho menor.
 3. **Divulgação Progressiva (*Progressive Disclosure*)**
    - Mostrar no card principal **apenas os dados e botões usados em 90% das operações**.
    - Controles administrativos secundários (ajustar estoque mínimo, transferir entre abrigos, bloquear item) devem ficar agrupados em uma área secundária recolhível ou modal dedicado, reduzindo a poluição visual.
@@ -47,9 +48,9 @@ Em cenários de desastres naturais e emergências climáticas, usuários operam 
 
 | Estado Semântico | Cor Base | Fundo de Badge / Alerta | Borda | Texto | Aplicação no Sistema |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Seguro / Normal / Operacional** | Esmeralda | `bg-emerald-950/60` | `border-emerald-700/60` | `text-emerald-300` | Abrigo com vagas (`< 80%`), infraestrutura operacional, estoque acima do mínimo, check-in ativo. |
-| **Atenção / Parcial / Urgente** | Âmbar | `bg-amber-950/60` | `border-amber-600/60` | `text-amber-300` | Lotação em alerta (`80%–99%`), infraestrutura parcial, insumo em falta (`URGENTE`). |
-| **Crítico / Interditado / Lotado** | Rosa/Vermelho | `bg-rose-950/60` | `border-rose-600/60` | `text-rose-300` | Abrigo lotado (`100%`), via interditada, infraestrutura inoperante, item bloqueado ou ação destrutiva. |
+| **Seguro / Normal / Operacional** | Esmeralda | `bg-emerald-950/60` | `border-emerald-700/60` | `text-emerald-300` | Abrigo com vagas (lotação `< 70%`), infraestrutura operacional, estoque acima do mínimo, check-in ativo. |
+| **Atenção / Parcial / Urgente** | Âmbar | `bg-amber-950/60` | `border-amber-600/60` | `text-amber-300` | Lotação em alerta (`70%–90%`), infraestrutura parcial, insumo em falta (`URGENTE`). |
+| **Crítico / Interditado / Lotado** | Rosa/Vermelho | `bg-rose-950/60` | `border-rose-600/60` | `text-rose-300` | Abrigo crítico ou lotado (`> 90%`), via interditada, infraestrutura inoperante, item bloqueado ou ação destrutiva. |
 | **Ação Primária / Institucional** | Azul | `bg-blue-600` (sólido) | `border-blue-500` | `text-white` | CTAs primários ("Salvar", "Concluir Check-in", aba ativa, foco de inputs `focus:border-blue-500`). |
 | **Transferência / Logística** | Violeta/Ciano | `bg-indigo-950/60` | `border-indigo-700/60` | `text-indigo-300` | Indicadores de transferência entre abrigos (`TRANSFERIDO`) ou escopo global administrativo. |
 
@@ -124,8 +125,8 @@ O card de item de estoque é dividido em **duas zonas claras**:
   - **Painel de Detalhes:** Sidebar lateral esquerda no Desktop (`w-96`) e **Bottom Sheet deslizante** no Mobile.
 - **Marcadores (Pinos) Acessíveis:**
   - Verde (Círculo): Abrigo com vagas e operacional.
-  - Âmbar (Triângulo/Alerta): Abrigo acima de 80% da capacidade ou com restrição parcial.
-  - Vermelho (Octógono/Bloqueio): Abrigo lotado (100%) ou ponto de interdição viária (`ocorrencias_abrigos`).
+  - Âmbar (Triângulo/Alerta): Abrigo com 70% a 90% da capacidade ou com restrição parcial.
+  - Vermelho (Quadrado/Bloqueio): Abrigo acima de 90% da capacidade (ou lotado) ou ponto de interdição viária.
 - **Ação Direta para o Cidadão:**
   - Cada card de abrigo destaca no máximo **3 informações críticas** à primeira vista:
     1. Distância aproximada + Botão **"Traçar Rota Segura"**.

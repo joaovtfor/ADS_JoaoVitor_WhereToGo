@@ -263,17 +263,18 @@ export async function executarSeed({ connectionString, senha, log = console.log 
         );
         if (rows[0].total > 0) continue;
 
+        // Área de risco: o rótulo é posicionado dentro do polígono pelo banco (ST_PointOnSurface).
         await client.query(
-          `INSERT INTO ocorrencia_infraestrutura (id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, poligono_risco)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+          `INSERT INTO ocorrencia_infraestrutura (id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, area_risco)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, fn_area_risco_de_vertices($8::jsonb))`,
           [
             idAbrigo,
             responsavel(chave),
             tipo,
             gravidade,
             descricao,
-            coordenadas?.[0] ?? null,
-            coordenadas?.[1] ?? null,
+            poligono ? null : (coordenadas?.[0] ?? null),
+            poligono ? null : (coordenadas?.[1] ?? null),
             poligono ? JSON.stringify(poligono) : null,
           ],
         );

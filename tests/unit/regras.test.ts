@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { assinarToken, verificarToken } from "@/lib/auth/jwt";
 import { exigirPermissao, pode, PERMISSOES, type Papel, type UsuarioSessao } from "@/lib/auth/rbac";
 import { motivoBloqueio } from "@/lib/auth/acesso";
+import { revogarToken, tokenRevogado } from "@/lib/auth/revogacao";
 import { COOKIE_SESSAO } from "@/lib/auth/sessao";
 import { cpfValido, normalizarCpf } from "@/lib/cpf";
-import { ErroApi, traduzirErroBanco, validar } from "@/lib/http";
+import { ErroApi, lerCorpo, obterIp, traduzirErroBanco, validar } from "@/lib/http";
+import { z } from "@/lib/validacao";
 import { LimitadorTentativas } from "@/lib/limitador";
 import { montarAtualizacao } from "@/lib/sql";
 import { linksNavegacao, resumirOcupacao } from "@/modules/abrigos/ocupacao";
@@ -95,8 +97,8 @@ describe("Proxy de borda Next.js 16 (RF01 / RNF05)", () => {
   });
 
   it("redireciona /admin para a rota inicial do papel e isola VOLUNTARIO no Fast-CRUD", async () => {
-    const { token: tokenVol } = await assinarToken(usuario("VOLUNTARIO", 1));
-    const { token: tokenCoord } = await assinarToken(usuario("COORDENADOR", 1));
+    const { token: tokenVol } = await assinarToken(usuario("VOLUNTARIO", 1), 0);
+    const { token: tokenCoord } = await assinarToken(usuario("COORDENADOR", 1), 0);
 
     const raizCoord = await proxy(
       new NextRequest("http://localhost:3000/admin", {
@@ -122,12 +124,52 @@ describe("Proxy de borda Next.js 16 (RF01 / RNF05)", () => {
 });
 
 describe("JWT", () => {
-  it("assina e valida as claims de RBAC", async () => {
+  it("assina e valida as claims de RBAC e de revogação", async () => {
     const sessao = usuario("COORDENADOR", 7);
-    const { token, expiraEm } = await assinarToken(sessao);
+    const { token, expiraEm } = await assinarToken(sessao, 3);
     expect(expiraEm.getTime()).toBeGreaterThan(Date.now());
-    expect(await verificarToken(token)).toEqual(sessao);
+
+    const claims = await verificarToken(token);
+    expect(claims).toMatchObject({ ...sessao, versaoSessao: 3, expiraEm });
+    expect(claims?.jti).toMatch(/^[0-9a-f-]{36}$/);
     expect(await verificarToken(`${token}x`)).toBeNull();
+  });
+
+  it("gera um jti diferente a cada login e revoga só o token encerrado", async () => {
+    const a = await verificarToken((await assinarToken(usuario("ADMIN"), 0)).token);
+    const b = await verificarToken((await assinarToken(usuario("ADMIN"), 0)).token);
+    expect(a!.jti).not.toBe(b!.jti);
+
+    revogarToken(a!.jti!, a!.expiraEm);
+    expect(tokenRevogado(a!.jti!)).toBe(true);
+    expect(tokenRevogado(b!.jti!)).toBe(false);
+    // Depois de expirar, o token já seria recusado pelo JWT: a revogação deixa de importar.
+    expect(tokenRevogado(a!.jti!, a!.expiraEm.getTime() + 1)).toBe(false);
+  });
+});
+
+describe("Requisição HTTP", () => {
+  const comXff = (xff: string) => new Request("http://localhost/api", { headers: { "x-forwarded-for": xff } });
+
+  it("usa o IP acrescentado pelo proxy confiável, não o primeiro valor do X-Forwarded-For", () => {
+    expect(obterIp(comXff("6.6.6.6, 200.1.2.3"))).toBe("200.1.2.3");
+    expect(obterIp(comXff("200.1.2.3"))).toBe("200.1.2.3");
+    expect(obterIp(new Request("http://localhost/api", { headers: { "x-real-ip": "10.0.0.9" } }))).toBe("10.0.0.9");
+    expect(obterIp(new Request("http://localhost/api"))).toBeNull();
+  });
+
+  const post = (corpo: string, headers: Record<string, string> = { "content-type": "application/json" }) =>
+    new Request("http://localhost/api", { method: "POST", body: corpo, headers });
+  const esquema = z.object({ a: z.number() });
+
+  it("exige Content-Type JSON e limita o tamanho do corpo", async () => {
+    await expect(lerCorpo(post('{"a":1}'), esquema)).resolves.toEqual({ a: 1 });
+    await expect(lerCorpo(post('{"a":1}', {}), esquema)).rejects.toMatchObject({ status: 415 });
+    await expect(lerCorpo(post("{"), esquema)).rejects.toMatchObject({ status: 400 });
+    await expect(lerCorpo(post(`{"a":1,"b":"${"x".repeat(300 * 1024)}"}`), esquema)).rejects.toMatchObject({
+      status: 413,
+      codigo: "CORPO_GRANDE_DEMAIS",
+    });
   });
 });
 

@@ -5,6 +5,9 @@ const esquemaEnv = z.object({
   JWT_SECRET: z.string().min(32, "JWT_SECRET deve ter pelo menos 32 caracteres"),
   JWT_EXPIRES_IN: z.string().min(1).default("8h"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  // O dashboard abre 6 consultas em paralelo: com 10 conexões, poucas abas
+  // abertas esgotavam o pool e as requisições caíam em timeout.
+  DB_POOL_MAX: z.coerce.number().int().min(2).max(100).default(20),
 });
 
 export type Env = z.infer<typeof esquemaEnv>;

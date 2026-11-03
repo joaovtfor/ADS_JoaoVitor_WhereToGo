@@ -1,4 +1,6 @@
+import { revalidateTag } from "next/cache";
 import { connection, type NextRequest } from "next/server";
+import { TAG_DADOS_PUBLICOS } from "./cache";
 import { z } from "./validacao";
 
 /** Erro de negócio/HTTP com código estável para o frontend. */
@@ -25,6 +27,10 @@ export const erros = {
   regraDeNegocio: (codigo: string, mensagem: string, detalhes?: unknown) =>
     new ErroApi(422, codigo, mensagem, detalhes),
   muitasTentativas: (mensagem: string) => new ErroApi(429, "MUITAS_TENTATIVAS", mensagem),
+  corpoGrandeDemais: (limiteKb: number) =>
+    new ErroApi(413, "CORPO_GRANDE_DEMAIS", `O corpo da requisição excede o limite de ${limiteKb} KB.`),
+  tipoNaoSuportado: () =>
+    new ErroApi(415, "TIPO_NAO_SUPORTADO", "Cabeçalho Content-Type deve ser application/json."),
 };
 
 // -----------------------------------------------------------------------------
@@ -69,6 +75,7 @@ const MENSAGENS_UNICIDADE: Record<string, [codigo: string, mensagem: string]> = 
   item_nome_uk: ["ITEM_DUPLICADO", "Já existe um item com este nome."],
   categoria_item_nome_uk: ["CATEGORIA_DUPLICADA", "Já existe uma categoria com este nome."],
   categoria_item_slug_uk: ["CATEGORIA_DUPLICADA", "Já existe uma categoria com este slug."],
+  movimentacao_estoque_estornada_uk: ["JA_ESTORNADA", "Esta movimentação já foi estornada."],
   ocorrencia_infraestrutura_ativa_uk: [
     "OCORRENCIA_JA_ATIVA",
     "Já existe uma ocorrência ativa deste tipo para o abrigo. Resolva-a antes de registrar outra.",
@@ -88,6 +95,11 @@ const MENSAGENS_CHECK: Record<string, [status: number, codigo: string, mensagem:
   ],
   abrigo_lotacao_ck: [409, "LOTACAO_INVALIDA", "A lotação do abrigo não pode ficar negativa."],
   abrigo_nao_triados_ck: [409, "NAO_TRIADOS_INVALIDO", "O contador de acolhidos não triados não pode ficar negativo."],
+  ocorrencia_infraestrutura_area_risco_valida_ck: [
+    422,
+    "POLIGONO_INVALIDO",
+    "A área de risco precisa de ao menos 3 pontos que não estejam alinhados nem repetidos (área mínima de 100 m²).",
+  ],
 };
 
 export function traduzirErroBanco(erro: unknown): ErroApi | null {
@@ -119,6 +131,8 @@ export function traduzirErroBanco(erro: unknown): ErroApi | null {
       return erros.regraDeNegocio("VINCULO_INVALIDO", erro.message);
     case "WTG03":
       return erros.conflito("TRANSFERENCIA_INVALIDA", erro.message);
+    case "WTG04":
+      return erros.conflito("ESTORNO_INVALIDO", erro.message);
     default:
       return null;
   }
@@ -140,6 +154,29 @@ export function normalizarErro(erro: unknown): ErroApi {
 type ContextoRota<P> = { params: Promise<P> };
 
 /**
+ * Respostas da API sem política de cache explícita não podem ser guardadas por
+ * navegador nem proxy: a maioria carrega dados internos da sessão. As rotas
+ * públicas definem a própria política (`CACHE_PUBLICO`).
+ */
+function aplicarCachePadrao(resposta: Response): Response {
+  if (!resposta.headers.has("Cache-Control")) {
+    resposta.headers.set("Cache-Control", "private, no-store");
+  }
+  return resposta;
+}
+
+/**
+ * Escrita bem-sucedida (estoque, lotação, ocorrências, abrigos, catálogo...)
+ * invalida o cache das rotas públicas: a próxima leitura do mapa busca no
+ * banco (RF03 - reflexo imediato). Login/logout não alteram dados públicos.
+ */
+function invalidarDadosPublicos(req: NextRequest, resposta: Response): void {
+  if (req.method === "GET" || req.method === "HEAD" || !resposta.ok) return;
+  if (req.nextUrl.pathname.startsWith("/api/auth/")) return;
+  revalidateTag(TAG_DADOS_PUBLICOS, { expire: 0 });
+}
+
+/**
  * Envolve um Route Handler: garante execução no momento da requisição (nunca
  * pré-renderizado no build com Cache Components) e converte erros no envelope
  * `{ "erro": { codigo, mensagem, detalhes? } }`.
@@ -152,9 +189,11 @@ export function rota<P extends Record<string, string> = Record<string, string>>(
     // interromper a pré-renderização - essa rejeição precisa chegar ao Next.
     await connection();
     try {
-      return await handler(req, contexto);
+      const resposta = await handler(req, contexto);
+      invalidarDadosPublicos(req, resposta);
+      return aplicarCachePadrao(resposta);
     } catch (erro) {
-      return responderErro(normalizarErro(erro));
+      return aplicarCachePadrao(responderErro(normalizarErro(erro)));
     }
   };
 }
@@ -173,15 +212,46 @@ export function validar<S extends z.ZodType>(schema: S, dados: unknown): z.infer
   return resultado.data;
 }
 
-export async function lerCorpo<S extends z.ZodType>(req: Request, schema: S): Promise<z.infer<S>> {
-  const contentType = req.headers.get("content-type");
-  if (contentType && !contentType.toLowerCase().includes("application/json")) {
-    throw erros.requisicaoInvalida("Cabeçalho Content-Type deve ser application/json.");
+/**
+ * Limite do corpo JSON. O maior payload legítimo é um polígono de área de
+ * risco (até 50 vértices, poucos KB); 256 KB deixa folga sem permitir que um
+ * corpo gigante esgote a memória do servidor na leitura ou na validação.
+ */
+const LIMITE_CORPO_BYTES = 256 * 1024;
+
+/** Lê o corpo como texto, abortando assim que passar do limite (vale também para corpo chunked). */
+async function lerTextoLimitado(req: Request, limiteBytes: number): Promise<string> {
+  const declarado = Number(req.headers.get("content-length"));
+  if (declarado > limiteBytes) throw erros.corpoGrandeDemais(limiteBytes / 1024);
+  if (!req.body) return "";
+
+  const leitor = req.body.getReader();
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limiteBytes) {
+      await leitor.cancel().catch(() => undefined);
+      throw erros.corpoGrandeDemais(limiteBytes / 1024);
+    }
+    partes.push(value);
   }
+  return Buffer.concat(partes).toString("utf8");
+}
+
+export async function lerCorpo<S extends z.ZodType>(req: Request, schema: S): Promise<z.infer<S>> {
+  // Content-Type obrigatório: um POST "simples" (text/plain) de outro site não
+  // chega aos handlers, reforçando o SameSite do cookie contra CSRF.
+  const contentType = req.headers.get("content-type");
+  if (!contentType?.toLowerCase().includes("application/json")) throw erros.tipoNaoSuportado();
+
   let json: unknown;
   try {
-    json = await req.json();
-  } catch {
+    json = JSON.parse(await lerTextoLimitado(req, LIMITE_CORPO_BYTES));
+  } catch (erro) {
+    if (erro instanceof ErroApi) throw erro;
     throw erros.requisicaoInvalida("O corpo da requisição deve ser um JSON válido.");
   }
   return validar(schema, json);
@@ -206,11 +276,27 @@ export async function lerParametros<S extends z.ZodType>(
 // -----------------------------------------------------------------------------
 
 /**
- * IP de origem. Atrás de proxy reverso (Apache/.htaccess, Vercel, Render) o IP
- * real vem em X-Forwarded-For; o primeiro valor é o cliente original.
+ * Quantos proxies confiáveis ficam na frente da aplicação (padrão: 1, o Apache
+ * do .htaccess). Cada proxy ACRESCENTA o IP de quem o chamou ao fim do
+ * X-Forwarded-For; o início da lista é escrito pelo próprio cliente.
+ */
+function proxiesConfiaveis(): number {
+  const valor = Number(process.env.PROXIES_CONFIAVEIS ?? 1);
+  return Number.isInteger(valor) && valor >= 0 ? valor : 1;
+}
+
+/**
+ * IP de origem para o limitador de tentativas e a auditoria. Usa a entrada do
+ * X-Forwarded-For gravada pelo proxy confiável mais externo (contando do fim),
+ * nunca o primeiro valor, que o cliente pode forjar livremente.
  */
 export function obterIp(req: Request): string | null {
-  const encaminhado = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const cadeia = (req.headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const saltos = proxiesConfiaveis();
+  const encaminhado = saltos > 0 && cadeia.length > 0 ? cadeia[Math.max(0, cadeia.length - saltos)] : undefined;
   const ip = encaminhado || req.headers.get("x-real-ip")?.trim();
   return ip ? ip.slice(0, 45) : null;
 }

@@ -46,6 +46,13 @@ export async function api<T>(caminho: string, opcoes: RequestInit = {}): Promise
     json = null;
   }
 
+  // Sessão expirada, revogada (logout/troca de senha) ou usuário desativado no
+  // meio do uso: volta ao login em vez de mostrar erros em cada tela. As rotas
+  // /api/auth/* tratam o próprio 401 (ex.: senha errada no login).
+  if (resposta.status === 401 && !caminho.startsWith("/api/auth/") && typeof window !== "undefined") {
+    window.location.assign(new URL("/login?sessao=expirada", window.location.origin).href);
+  }
+
   if (!resposta.ok) {
     const codigo = json?.erro?.codigo ?? "ERRO_HTTP";
     const mensagem = json?.erro?.mensagem ?? `Falha na comunicação com o servidor (HTTP ${resposta.status}).`;

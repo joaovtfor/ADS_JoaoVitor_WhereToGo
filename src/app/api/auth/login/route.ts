@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { COOKIE_SESSAO } from "@/lib/auth/sessao";
+import { definirCookieSessao } from "@/lib/auth/sessao";
 import { lerCorpo, obterIp, rota } from "@/lib/http";
 import { esquemaLogin, login } from "@/modules/auth/auth.service";
 
@@ -9,12 +9,6 @@ export const POST = rota(async (req) => {
   const resultado = await login(dados, obterIp(req));
 
   const resposta = NextResponse.json({ dados: resultado }, { headers: { "Cache-Control": "no-store" } });
-  resposta.cookies.set(COOKIE_SESSAO, resultado.token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    expires: resultado.expiraEm,
-  });
+  definirCookieSessao(resposta, resultado.token, resultado.expiraEm);
   return resposta;
 });

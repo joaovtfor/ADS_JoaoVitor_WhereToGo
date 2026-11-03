@@ -12,6 +12,10 @@ const esquemaClaims = z.object({
   email: z.string(),
   papel: z.enum(PAPEIS),
   idAbrigo: z.number().int().positive().nullable(),
+  // Tokens emitidos antes da migration 0006 não têm `ver`/`jti`: valem como versão 0.
+  ver: z.number().int().nonnegative().default(0),
+  jti: z.string().max(64).optional(),
+  exp: z.number(),
 });
 
 function chave(): Uint8Array {
@@ -23,18 +27,30 @@ export interface TokenAssinado {
   expiraEm: Date;
 }
 
-/** Gera o JWT de sessão com as claims de RBAC (id, nome, e-mail, papel e abrigo). */
-export async function assinarToken(usuario: UsuarioSessao): Promise<TokenAssinado> {
+/** Claims do JWT de sessão: usuário + dados para revogação (versão e id do token). */
+export interface ClaimsSessao extends UsuarioSessao {
+  versaoSessao: number;
+  jti: string | null;
+  expiraEm: Date;
+}
+
+/**
+ * Gera o JWT de sessão com as claims de RBAC (id, nome, e-mail, papel e abrigo),
+ * a versão de sessão do usuário (`ver`) e um id único (`jti`) para o logout.
+ */
+export async function assinarToken(usuario: UsuarioSessao, versaoSessao: number): Promise<TokenAssinado> {
   const token = await new SignJWT({
     nome: usuario.nome,
     email: usuario.email,
     papel: usuario.papel,
     idAbrigo: usuario.idAbrigo,
+    ver: versaoSessao,
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(String(usuario.id))
     .setIssuer(EMISSOR)
     .setAudience(AUDIENCIA)
+    .setJti(crypto.randomUUID())
     .setIssuedAt()
     .setExpirationTime(env().JWT_EXPIRES_IN)
     .sign(chave());
@@ -44,7 +60,7 @@ export async function assinarToken(usuario: UsuarioSessao): Promise<TokenAssinad
 }
 
 /** Valida assinatura, emissor, audiência e expiração. Retorna `null` se inválido. */
-export async function verificarToken(token: string): Promise<UsuarioSessao | null> {
+export async function verificarToken(token: string): Promise<ClaimsSessao | null> {
   try {
     const { payload } = await jwtVerify(token, chave(), {
       issuer: EMISSOR,
@@ -58,6 +74,9 @@ export async function verificarToken(token: string): Promise<UsuarioSessao | nul
       email: claims.email,
       papel: claims.papel,
       idAbrigo: claims.idAbrigo,
+      versaoSessao: claims.ver,
+      jti: claims.jti ?? null,
+      expiraEm: new Date(claims.exp * 1000),
     };
   } catch {
     return null;

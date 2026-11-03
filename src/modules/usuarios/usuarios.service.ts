@@ -34,12 +34,14 @@ export const esquemaFiltroUsuarios = z.object({
   papel: z.enum(PAPEIS).optional(),
   idAbrigo: esquemaId.optional(),
   ativo: booleanoQuery.optional(),
+  /** Auto-cadastros via Google aguardando aprovação (fila de aprovação). */
+  pendente: booleanoQuery.optional(),
   busca: z.string().trim().max(150).optional(),
 });
 
 const COLUNAS_USUARIO = `
   u.id, u.nome, u.email, p.nome AS papel, u.id_abrigo AS "idAbrigo", a.nome AS abrigo, u.ativo,
-  (u.google_sub IS NOT NULL) AS "possuiGoogle",
+  (u.google_sub IS NOT NULL) AS "possuiGoogle", (u.aprovado_em IS NULL) AS "pendenteAprovacao",
   u.criado_em AS "criadoEm", u.atualizado_em AS "atualizadoEm"`;
 
 const FROM_USUARIO = `
@@ -56,6 +58,8 @@ export interface Usuario {
   abrigo: string | null;
   ativo: boolean;
   possuiGoogle: boolean;
+  /** Nunca aprovado (auto-cadastro via Google). Inativo e não pendente = desativado. */
+  pendenteAprovacao: boolean;
   criadoEm: Date;
   atualizadoEm: Date;
 }
@@ -86,12 +90,14 @@ export async function listarUsuarios(ctx: Contexto, filtros: z.infer<typeof esqu
   const where = `($1::int IS NULL OR u.id_abrigo = $1)
     AND ($2::text IS NULL OR p.nome = $2)
     AND ($3::boolean IS NULL OR u.ativo = $3)
-    AND ($4::text IS NULL OR u.nome ILIKE '%' || $4 || '%' OR u.email ILIKE '%' || $4 || '%')`;
-  const parametros = [idAbrigo, filtros.papel ?? null, filtros.ativo ?? null, termo];
+    AND ($4::text IS NULL OR u.nome ILIKE '%' || $4 || '%' OR u.email ILIKE '%' || $4 || '%')
+    AND ($5::boolean IS NULL OR (u.aprovado_em IS NULL) = $5)`;
+  const parametros = [idAbrigo, filtros.papel ?? null, filtros.ativo ?? null, termo, filtros.pendente ?? null];
 
   const [itens, total] = await Promise.all([
     consultar<Usuario>(
-      `SELECT ${COLUNAS_USUARIO} ${FROM_USUARIO} WHERE ${where} ORDER BY u.ativo ASC, u.nome ASC LIMIT $5 OFFSET $6`,
+      `SELECT ${COLUNAS_USUARIO} ${FROM_USUARIO} WHERE ${where}
+        ORDER BY (u.aprovado_em IS NULL) DESC, u.ativo ASC, u.nome ASC LIMIT $6 OFFSET $7`,
       [...parametros, paginacao.tamanho, offset(paginacao)],
     ),
     consultarUm<{ total: number }>(`SELECT count(*) AS total ${FROM_USUARIO} WHERE ${where}`, parametros),
@@ -194,8 +200,13 @@ export async function atualizarUsuario(ctx: Contexto, id: number, dados: z.infer
     };
     if (dados.nome !== undefined) definir("nome", dados.nome);
     if (dados.email !== undefined) definir("email", dados.email);
-    if (dados.senha !== undefined) definir("senha_hash", await gerarHashSenha(dados.senha));
+    if (dados.senha !== undefined) {
+      definir("senha_hash", await gerarHashSenha(dados.senha));
+      // Senha redefinida pela gestão: derruba as sessões abertas do usuário.
+      sets.push("versao_sessao = versao_sessao + 1");
+    }
     if (dados.ativo !== undefined) definir("ativo", dados.ativo);
+    if (dados.ativo === true) sets.push("aprovado_em = COALESCE(aprovado_em, now())");
     if (dados.papel !== undefined) definir("id_papel", dados.papel, "(SELECT id FROM papel_usuario WHERE nome = $n)");
     if (dados.papel !== undefined || dados.idAbrigo !== undefined) definir("id_abrigo", idAbrigoFinal);
 

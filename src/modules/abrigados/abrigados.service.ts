@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
-import { exigirPermissao, type Contexto } from "@/lib/auth/rbac";
+import { exigirPermissao, pode, type Contexto } from "@/lib/auth/rbac";
 import { auditar } from "@/lib/auditoria";
-import { cpfValido, normalizarCpf } from "@/lib/cpf";
+import { cpfValido, mascararCpf, normalizarCpf } from "@/lib/cpf";
 import { comTransacao, consultar, consultarUm, type Executor } from "@/lib/db";
 import { erros } from "@/lib/http";
 import { escaparIlike, montarAtualizacao } from "@/lib/sql";
@@ -74,6 +74,16 @@ export interface Abrigado {
   statusAcolhimento: StatusAcolhimento;
   criadoEm: Date;
   atualizadoEm: Date;
+}
+
+/**
+ * LGPD (minimização): o CPF completo fica com quem edita cadastros e transfere
+ * pessoas (COORDENADOR/ADMIN). O voluntário vê a versão mascarada; a busca
+ * por CPF continua funcionando no servidor.
+ */
+function protegerDados<T extends Pick<Abrigado, "cpf">>(ctx: Contexto, abrigado: T): T {
+  if (!abrigado.cpf || pode(ctx.usuario, "abrigado:editar")) return abrigado;
+  return { ...abrigado, cpf: mascararCpf(abrigado.cpf) };
 }
 
 function buscarAbrigado(id: number, executor?: Executor, bloquear = false): Promise<Abrigado | null> {
@@ -149,11 +159,15 @@ export async function listarAbrigados(
     ),
     consultarUm<{ total: number }>(`SELECT count(*) AS total FROM abrigado ab WHERE ${where}`, parametros),
   ]);
-  return montarPagina(itens, total?.total ?? 0, paginacao);
+  return montarPagina(
+    itens.map((abrigado) => protegerDados(ctx, abrigado)),
+    total?.total ?? 0,
+    paginacao,
+  );
 }
 
-export function obterAbrigado(ctx: Contexto, id: number): Promise<Abrigado> {
-  return obterComPermissao(ctx, id, "abrigado:ver");
+export async function obterAbrigado(ctx: Contexto, id: number): Promise<Abrigado> {
+  return protegerDados(ctx, await obterComPermissao(ctx, id, "abrigado:ver"));
 }
 
 /**
@@ -199,13 +213,15 @@ export async function registrarEntrada(ctx: Contexto, idAbrigo: number, dados: z
     return { abrigado: (await buscarAbrigado(novo!.id, client))!, reentrada, abrigo };
   });
 
+  // Logs são imutáveis: guardam só o id do abrigado, nunca nome ou CPF, para que
+  // um pedido de eliminação de dados (LGPD) possa ser atendido na tabela abrigado.
   auditar(ctx, {
     acao: "ABRIGADO_REGISTRADO",
-    descricao: `${reentrada ? "Reentrada" : "Entrada"} de ${abrigado.nomeCompleto} em "${abrigo.nome}"`,
+    descricao: `${reentrada ? "Reentrada" : "Entrada"} do abrigado #${abrigado.id} em "${abrigo.nome}"`,
     idAbrigo,
     detalhes: { idAbrigado: abrigado.id, reentrada },
   });
-  return { abrigado, reentrada };
+  return { abrigado: protegerDados(ctx, abrigado), reentrada };
 }
 
 const COLUNAS_EDITAVEIS = { nomeCompleto: "nome_completo", cpf: "cpf", dataNascimento: "data_nascimento" };
@@ -223,7 +239,7 @@ export async function atualizarAbrigado(ctx: Contexto, id: number, dados: z.infe
 
   auditar(ctx, {
     acao: "ABRIGADO_ATUALIZADO",
-    descricao: `Cadastro de ${atualizado.nomeCompleto} atualizado`,
+    descricao: `Cadastro do abrigado #${id} atualizado`,
     idAbrigo: atual.idAbrigoAtual,
     detalhes: { idAbrigado: id, campos: Object.keys(dados).filter((c) => dados[c as keyof typeof dados] !== undefined) },
   });
@@ -248,7 +264,7 @@ export async function desligarAbrigado(ctx: Contexto, id: number, dados: z.infer
 
   auditar(ctx, {
     acao: "ABRIGADO_DESLIGADO",
-    descricao: `Saída de ${desligado.nomeCompleto} de "${desligado.abrigoAtual}"`,
+    descricao: `Saída do abrigado #${id} de "${desligado.abrigoAtual}"`,
     idAbrigo: atual.idAbrigoAtual,
     detalhes: { idAbrigado: id, motivo: dados.motivo ?? null },
   });
@@ -299,7 +315,7 @@ export async function transferirAbrigado(ctx: Contexto, id: number, dados: z.inf
 
   auditar(ctx, {
     acao: "ABRIGADO_TRANSFERIDO",
-    descricao: `${resultado.abrigado.nomeCompleto} transferido(a) de "${resultado.transferencia.origem.nome}" para "${resultado.transferencia.destino.nome}"`,
+    descricao: `Abrigado #${id} transferido(a) de "${resultado.transferencia.origem.nome}" para "${resultado.transferencia.destino.nome}"`,
     idAbrigo: resultado.transferencia.origem.id,
     detalhes: {
       idAbrigado: id,

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
+import { ROTULO_TIPO_MOVIMENTACAO } from "../rotulos";
 
 interface ItemEstoque {
   idItem: number;
@@ -33,7 +34,10 @@ interface MovimentacaoEstoque {
   usuario: string;
   idAbrigoContraparte: number | null;
   abrigoContraparte: string | null;
+  /** Já foi desfeita (existe um ESTORNO apontando para ela). */
+  estornada: boolean;
 }
+
 
 interface PaginaMovimentacoes {
   itens: MovimentacaoEstoque[];
@@ -42,6 +46,8 @@ interface PaginaMovimentacoes {
 
 interface ToqueRecente {
   uid: string;
+  /** Movimentação gravada no servidor (o "Desfazer" estorna exatamente ela). */
+  idMovimentacao: number;
   idItem: number;
   nomeItem: string;
   unidadeMedida: string;
@@ -49,6 +55,12 @@ interface ToqueRecente {
   tipo: string;
   horario: string;
   desfeito: boolean;
+}
+
+interface RespostaMovimento {
+  quantidadeAtual: number;
+  statusNecessidade: ItemEstoque["statusNecessidade"];
+  movimentacao: { id: number } | null;
 }
 
 interface FeedbackCard {
@@ -110,6 +122,9 @@ export default function PaginaInventario() {
   const [feedbackPorItem, setFeedbackPorItem] = useState<Record<number, FeedbackCard>>({});
   const [toquesRecentes, setToquesRecentes] = useState<ToqueRecente[]>([]);
   const filasPorItemRef = useRef<Map<number, Promise<void>>>(new Map());
+  // Envios ainda na fila por item: o saldo do servidor só substitui o otimista
+  // quando a fila esvazia (senão o número "pisca" 13 -> 11 -> 12 -> 13).
+  const pendentesPorItemRef = useRef<Map<number, number>>(new Map());
 
   // Modal de Lote Rápido Touch (sem necessidade de teclado virtual)
   const [itemLote, setItemLote] = useState<ItemEstoque | null>(null);
@@ -171,15 +186,15 @@ export default function PaginaInventario() {
     void Promise.resolve().then(carregarHistorico);
   }, [mostrarHistorico, carregarHistorico]);
 
-  function aplicarSaldoNoEstado(idItem: number, novaQtd: number) {
+  /** Saldo otimista (status estimado) ou confirmado pelo servidor (status real, que pode ter voltado a NORMAL). */
+  function aplicarSaldoNoEstado(idItem: number, novaQtd: number, statusServidor?: ItemEstoque["statusNecessidade"]) {
     setItens((atual) =>
       atual.map((i) => {
         if (i.idItem !== idItem) return i;
         const qtdSegura = Math.max(0, novaQtd);
         const novoStatus =
-          i.statusNecessidade === "NORMAL" && qtdSegura < i.quantidadeMinima
-            ? "URGENTE"
-            : i.statusNecessidade;
+          statusServidor ??
+          (i.statusNecessidade === "NORMAL" && qtdSegura < i.quantidadeMinima ? "URGENTE" : i.statusNecessidade);
         return {
           ...i,
           quantidade: qtdSegura,
@@ -199,21 +214,6 @@ export default function PaginaInventario() {
     if (delta < 0 && item.quantidade + delta < 0) return;
 
     vibrarToque(12);
-    setErro(null);
-
-    // 1. Atualização Otimista Instantânea (0ms de espera no toque)
-    aplicarSaldoNoEstado(item.idItem, item.quantidade + delta);
-    setFeedbackPorItem((prev) => {
-      const atual = prev[item.idItem] ?? { pendentes: 0, ultimoDelta: null };
-      return {
-        ...prev,
-        [item.idItem]: {
-          pendentes: atual.pendentes + 1,
-          ultimoDelta: (atual.ultimoDelta ?? 0) + delta,
-        },
-      };
-    });
-
     const tipoMovimento =
       delta > 0 ? "ENTRADA_DOACAO" : modoSaida === "PERDA" ? "PERDA" : "SAIDA_CONSUMO";
 
@@ -225,77 +225,98 @@ export default function PaginaInventario() {
       corpo.observacao = opcoes.observacao;
     }
 
-    // 2. Fila sequencial por item para suportar toques repetidos em redes 3G degradadas
+    enfileirarMovimento(
+      item,
+      delta,
+      () => api<RespostaMovimento>(`/api/abrigos/${idAbrigoAtivo}/estoque/${item.idItem}/movimentacoes`, {
+        method: "POST",
+        body: JSON.stringify(corpo),
+      }),
+      (res) => {
+        if (opcoes?.registrarNoTopo === false || !res.movimentacao) return;
+        const novoToque: ToqueRecente = {
+          uid: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          idMovimentacao: res.movimentacao.id,
+          idItem: item.idItem,
+          nomeItem: item.nome,
+          unidadeMedida: item.unidadeMedida,
+          delta,
+          tipo: tipoMovimento,
+          horario: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+          desfeito: false,
+        };
+        setToquesRecentes((ant) => [novoToque, ...ant.slice(0, 4)]);
+      },
+    );
+  }
+
+  /**
+   * Fila sequencial por item (toques repetidos em 3G chegam na ordem certa) com
+   * atualização otimista: o número muda no toque e o saldo do servidor só é
+   * aplicado quando não há mais envios pendentes daquele item.
+   */
+  function enfileirarMovimento(
+    item: ItemEstoque,
+    deltaOtimista: number,
+    enviar: () => Promise<RespostaMovimento>,
+    aoConfirmar?: (res: RespostaMovimento) => void,
+  ) {
+    setErro(null);
+    aplicarSaldoNoEstado(item.idItem, item.quantidade + deltaOtimista);
+    setFeedbackPorItem((prev) => {
+      const atual = prev[item.idItem] ?? { pendentes: 0, ultimoDelta: null };
+      return { ...prev, [item.idItem]: { pendentes: atual.pendentes + 1, ultimoDelta: (atual.ultimoDelta ?? 0) + deltaOtimista } };
+    });
+
+    const pendentes = pendentesPorItemRef.current;
+    pendentes.set(item.idItem, (pendentes.get(item.idItem) ?? 0) + 1);
+    const restantes = () => {
+      const valor = Math.max(0, (pendentes.get(item.idItem) ?? 1) - 1);
+      pendentes.set(item.idItem, valor);
+      return valor;
+    };
+
     const filaAnterior = filasPorItemRef.current.get(item.idItem) ?? Promise.resolve();
     const novaPromessa = filaAnterior
       .then(async () => {
-        const res = await api<{ quantidadeAtual: number }>(
-          `/api/abrigos/${idAbrigoAtivo}/estoque/${item.idItem}/movimentacoes`,
-          {
-            method: "POST",
-            body: JSON.stringify(corpo),
-          },
-        );
-        aplicarSaldoNoEstado(item.idItem, res.quantidadeAtual);
-
-        if (opcoes?.registrarNoTopo !== false) {
-          const novoToque: ToqueRecente = {
-            uid: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            idItem: item.idItem,
-            nomeItem: item.nome,
-            unidadeMedida: item.unidadeMedida,
-            delta,
-            tipo: tipoMovimento,
-            horario: new Date().toLocaleTimeString("pt-BR", {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            }),
-            desfeito: false,
-          };
-          setToquesRecentes((ant) => [novoToque, ...ant.slice(0, 4)]);
-        }
-
+        const res = await enviar();
+        if (restantes() === 0) aplicarSaldoNoEstado(item.idItem, res.quantidadeAtual, res.statusNecessidade);
+        aoConfirmar?.(res);
         if (mostrarHistorico) await carregarHistorico();
       })
       .catch(async (err) => {
+        restantes();
         setErro(mensagemErro(err));
         await carregar();
       })
       .finally(() => {
         setFeedbackPorItem((prev) => {
-          const atual = prev[item.idItem] ?? { pendentes: 1, ultimoDelta: delta };
-          const restam = Math.max(0, atual.pendentes - 1);
-          return {
-            ...prev,
-            [item.idItem]: {
-              pendentes: restam,
-              ultimoDelta: atual.ultimoDelta,
-            },
-          };
+          const atual = prev[item.idItem] ?? { pendentes: 1, ultimoDelta: deltaOtimista };
+          return { ...prev, [item.idItem]: { pendentes: Math.max(0, atual.pendentes - 1), ultimoDelta: atual.ultimoDelta } };
         });
       });
 
     filasPorItemRef.current.set(item.idItem, novaPromessa);
   }
 
+  /** Estorna a movimentação original (tipo ESTORNO), sem inflar doações ou consumo. */
   function desfazerToque(toque: ToqueRecente) {
-    if (toque.desfeito || somenteLeitura) return;
+    if (toque.desfeito || somenteLeitura || !idAbrigoAtivo) return;
     const itemAtual = itens.find((i) => i.idItem === toque.idItem);
     if (!itemAtual) return;
-    const inverso = -toque.delta;
-    if (inverso < 0 && itemAtual.quantidade + inverso < 0) {
-      setErro("Saldo atual insuficiente para estornar este lançamento.");
+    if (itemAtual.quantidade - toque.delta < 0) {
+      setErro("Saldo atual insuficiente para desfazer este lançamento.");
       return;
     }
 
-    setToquesRecentes((ant) =>
-      ant.map((t) => (t.uid === toque.uid ? { ...t, desfeito: true } : t)),
+    vibrarToque(12);
+    setToquesRecentes((ant) => ant.map((t) => (t.uid === toque.uid ? { ...t, desfeito: true } : t)));
+    enfileirarMovimento(itemAtual, -toque.delta, () =>
+      api<RespostaMovimento>(`/api/abrigos/${idAbrigoAtivo}/movimentacoes/${toque.idMovimentacao}/estorno`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
     );
-    movimentarRapido(itemAtual, inverso, {
-      observacao: `Estorno de toque rápido (${toque.delta > 0 ? `+${toque.delta}` : toque.delta})`,
-      registrarNoTopo: false,
-    });
     setAviso(`Lançamento de ${toque.nomeItem} (${toque.delta > 0 ? `+${toque.delta}` : toque.delta}) desfeito.`);
   }
 
@@ -490,7 +511,7 @@ export default function PaginaInventario() {
       {toquesRecentes.length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Recentes:
             </span>
             {toquesRecentes.map((t) => (
@@ -508,12 +529,12 @@ export default function PaginaInventario() {
                   {t.delta > 0 ? `+${t.delta}` : t.delta}
                 </span>
                 <span className="font-medium">{t.nomeItem}</span>
-                <span className="text-[10px] text-slate-400">{t.horario}</span>
+                <span className="text-xs text-slate-400">{t.horario}</span>
                 {!t.desfeito && !somenteLeitura && (
                   <button
                     type="button"
                     onClick={() => desfazerToque(t)}
-                    className="ml-1 rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 hover:bg-slate-700 cursor-pointer"
+                    className="ml-1 rounded-md bg-slate-800 px-1.5 py-0.5 text-xs font-bold text-amber-300 hover:bg-slate-700 cursor-pointer"
                     title="Desfazer este lançamento"
                   >
                     ↩ Desfazer
@@ -525,7 +546,7 @@ export default function PaginaInventario() {
           <button
             type="button"
             onClick={() => setToquesRecentes([])}
-            className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
+            className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
           >
             Limpar
           </button>
@@ -567,7 +588,7 @@ export default function PaginaInventario() {
                 key={f.id}
                 type="button"
                 onClick={() => setFiltroStatus(f.id)}
-                className={`min-h-11 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-bold transition cursor-pointer ${
+                className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-bold transition cursor-pointer ${
                   filtroStatus === f.id
                     ? "bg-sky-500 text-slate-950"
                     : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -584,7 +605,7 @@ export default function PaginaInventario() {
           <button
             type="button"
             onClick={() => setCategoriaAtiva("TODAS")}
-            className={`min-h-11 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+            className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
               categoriaAtiva === "TODAS"
                 ? "bg-amber-500 text-slate-950"
                 : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -597,7 +618,7 @@ export default function PaginaInventario() {
               key={c.slug}
               type="button"
               onClick={() => setCategoriaAtiva(c.slug)}
-              className={`min-h-11 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+              className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
                 categoriaAtiva === c.slug
                   ? "bg-amber-500 text-slate-950"
                   : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
@@ -642,14 +663,14 @@ export default function PaginaInventario() {
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <span className="text-[11px] font-semibold text-slate-400 uppercase">
+                      <span className="text-xs font-semibold text-slate-400 uppercase">
                         {ICONES_CATEGORIA[item.categoriaSlug] ?? "📦"} {item.categoria}
                       </span>
                       <h3 className="text-base font-bold text-white leading-snug">{item.nome}</h3>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span
-                        className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
                           item.statusNecessidade === "URGENTE"
                             ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
                             : item.statusNecessidade === "BLOQUEADO"
@@ -660,11 +681,11 @@ export default function PaginaInventario() {
                         {item.statusNecessidade}
                       </span>
                       {sincronizando ? (
-                        <span className="text-[10px] tabular-nums text-amber-300 animate-pulse">
+                        <span className="text-xs tabular-nums text-amber-300 animate-pulse">
                           ⟳ Salvando ({fb.pendentes})...
                         </span>
                       ) : fb?.ultimoDelta ? (
-                        <span className="text-[10px] tabular-nums text-emerald-400">
+                        <span className="text-xs tabular-nums text-emerald-400">
                           ✓ {fb.ultimoDelta > 0 ? `+${fb.ultimoDelta}` : fb.ultimoDelta} salvo
                         </span>
                       ) : null}
@@ -768,7 +789,7 @@ export default function PaginaInventario() {
                 {podeClassificar && expandido && (
                   <div className="pt-3 border-t border-slate-800 space-y-2.5 animate-fadeIn">
                     <div>
-                      <p className="text-[11px] font-medium text-slate-400 mb-1.5">
+                      <p className="text-xs font-medium text-slate-400 mb-1.5">
                         Visibilidade para doações no mapa público:
                       </p>
                       <div className="grid grid-cols-3 gap-1.5">
@@ -778,7 +799,7 @@ export default function PaginaInventario() {
                             type="button"
                             disabled={desabilitadoClassificacao || item.statusNecessidade === st}
                             onClick={() => classificarStatus(item, st)}
-                            className={`min-h-9 rounded-lg py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-40 ${
+                            className={`min-h-9 rounded-lg py-1 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
                               item.statusNecessidade === st
                                 ? "bg-amber-500 text-slate-950"
                                 : "border border-slate-700 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800"
@@ -1074,12 +1095,11 @@ export default function PaginaInventario() {
                 className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white"
               >
                 <option value="">Todos os tipos</option>
-                <option value="ENTRADA_DOACAO">ENTRADA_DOACAO</option>
-                <option value="SAIDA_CONSUMO">SAIDA_CONSUMO</option>
-                <option value="PERDA">PERDA</option>
-                <option value="AJUSTE">AJUSTE</option>
-                <option value="TRANSFERENCIA_ENTRADA">TRANSFERENCIA_ENTRADA</option>
-                <option value="TRANSFERENCIA_SAIDA">TRANSFERENCIA_SAIDA</option>
+                {Object.entries(ROTULO_TIPO_MOVIMENTACAO).map(([tipo, rotulo]) => (
+                  <option key={tipo} value={tipo}>
+                    {rotulo}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1110,9 +1130,10 @@ export default function PaginaInventario() {
                       </td>
                       <td className="py-2.5 pr-3 font-semibold text-white">{m.item}</td>
                       <td className="py-2.5 pr-3">
-                        <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-amber-300">
-                          {m.tipo}
+                        <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-amber-300">
+                          {ROTULO_TIPO_MOVIMENTACAO[m.tipo] ?? m.tipo}
                         </span>
+                        {m.estornada && <span className="ml-1.5 text-xs text-slate-400">(desfeita)</span>}
                       </td>
                       <td className="py-2.5 pr-3 tabular-nums">
                         <span className={m.quantidade > 0 ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>

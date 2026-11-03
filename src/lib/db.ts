@@ -19,7 +19,7 @@ export function pool(): Pool {
   if (!globalComPool.__wheretogoPool) {
     const novoPool = new Pool({
       connectionString: env().DATABASE_URL,
-      max: 10,
+      max: env().DB_POOL_MAX,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
       application_name: "wheretogo-app",

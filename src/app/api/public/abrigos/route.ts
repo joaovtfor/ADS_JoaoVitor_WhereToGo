@@ -1,5 +1,6 @@
 import { lerQuery, responder, rota } from "@/lib/http";
-import { CACHE_PUBLICO, esquemaFiltroMapa, listarAbrigosPublicos, paraGeoJson } from "@/modules/publico/publico.service";
+import { listarAbrigosPublicosEmCache } from "@/modules/publico/publico.cache";
+import { CACHE_PUBLICO, esquemaFiltroMapa, paraGeoJson } from "@/modules/publico/publico.service";
 
 /**
  * RF06 / RF08 - abrigos ativos para o mapa público (sem login - RNF02).
@@ -7,7 +8,7 @@ import { CACHE_PUBLICO, esquemaFiltroMapa, listarAbrigosPublicos, paraGeoJson } 
  */
 export const GET = rota(async (req) => {
   const filtros = lerQuery(req, esquemaFiltroMapa);
-  const abrigos = await listarAbrigosPublicos(filtros);
+  const abrigos = await listarAbrigosPublicosEmCache(filtros);
 
   if (filtros.formato === "geojson") {
     return Response.json(paraGeoJson(abrigos), {

@@ -49,3 +49,15 @@ export const limitadorLogin = new LimitadorTentativas(10, 15 * 60 * 1000);
 /** Proteção complementar por conta (e-mail) contra rotação/spoofing de X-Forwarded-For. */
 export const limitadorEmailLogin = new LimitadorTentativas(25, 15 * 60 * 1000);
 
+/**
+ * Falhas de login por IP, qualquer que seja o e-mail: barra a varredura com
+ * e-mails aleatórios, que escapa dos limites acima e consome CPU com bcrypt.
+ */
+export const limitadorIpLogin = new LimitadorTentativas(50, 15 * 60 * 1000);
+
+/**
+ * Google One Tap: credenciais inválidas e auto-cadastros por IP (cada
+ * auto-cadastro gera um hash bcrypt). Logins de contas existentes não contam.
+ */
+export const limitadorGoogle = new LimitadorTentativas(30, 15 * 60 * 1000);
+

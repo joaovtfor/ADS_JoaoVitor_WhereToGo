@@ -317,7 +317,7 @@ export default function SeletorPontoMapa({
         aria-label="Mapa interativo para seleção de coordenadas ou área de risco"
         className={`w-full ${alturaClasse} z-0 cursor-crosshair`}
       />
-      <div className="pointer-events-none absolute bottom-2 right-2 z-[400] rounded-lg border border-slate-700/90 bg-slate-950/90 px-2.5 py-1 text-[10px] font-semibold text-amber-300 shadow backdrop-blur">
+      <div className="pointer-events-none absolute bottom-2 right-2 z-[400] rounded-lg border border-slate-700/90 bg-slate-950/90 px-2.5 py-1 text-xs font-semibold text-amber-300 shadow backdrop-blur">
         {modo === "poligono"
           ? `🔺 Clique no mapa para adicionar marcadores (${poligono.length}/3 mín.) • Arraste para ajustar`
           : "👆 Clique no mapa ou arraste o pino 📍"}

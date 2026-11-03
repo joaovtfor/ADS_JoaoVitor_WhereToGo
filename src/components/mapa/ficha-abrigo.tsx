@@ -1,0 +1,295 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CartaoPix } from "./cartao-pix";
+import {
+  formatarHorario,
+  obterEstiloInfra,
+  obterEstiloNivel,
+  resumoParaCompartilhar,
+  ROTULO_OCORRENCIA,
+  type AbrigoMapa,
+  type DetalheAbrigoPublico,
+} from "./tipos";
+
+interface PropriedadesFichaAbrigo {
+  abrigo: AbrigoMapa;
+  categoriaSlug: string | null;
+  itemFiltroId: number | null;
+  posicaoNaLista: { indice: number; total: number };
+  onNavegar: (direcao: -1 | 1) => void;
+  onFechar: () => void;
+}
+
+/** Detalhes do card (rotas, PIX, ocorrências): carregados ao abrir, com cancelamento ao trocar de abrigo. */
+function useDetalheAbrigo(id: number) {
+  const [resultado, setResultado] = useState<{ id: number; dados: DetalheAbrigoPublico | null } | null>(null);
+
+  useEffect(() => {
+    const controlador = new AbortController();
+    fetch(`/api/public/abrigos/${id}`, { signal: controlador.signal })
+      .then(async (resposta) => (resposta.ok ? ((await resposta.json()) as { dados: DetalheAbrigoPublico }).dados : null))
+      .then((dados) => setResultado({ id, dados }))
+      .catch(() => {
+        // Sem rede: a ficha segue com os dados da listagem (rotas montadas abaixo).
+        if (!controlador.signal.aborted) setResultado({ id, dados: null });
+      });
+    return () => controlador.abort();
+  }, [id]);
+
+  const doAbrigoAtual = resultado?.id === id ? resultado : null;
+  return { detalhe: doAbrigoAtual?.dados ?? null, carregando: doAbrigoAtual === null };
+}
+
+async function compartilhar(abrigo: AbrigoMapa): Promise<boolean> {
+  const url = new URL(window.location.origin);
+  url.searchParams.set("abrigo", String(abrigo.id));
+  const texto = resumoParaCompartilhar(abrigo, url.toString());
+
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share({ title: `WhereToGo • ${abrigo.nome}`, text: texto, url: url.toString() });
+      return false;
+    } catch {
+      // Compartilhamento cancelado ou indisponível: copia o resumo.
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Aba lateral (desktop) / folha inferior (celular) com os detalhes do abrigo selecionado. */
+export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaLista, onNavegar, onFechar }: PropriedadesFichaAbrigo) {
+  const { detalhe, carregando } = useDetalheAbrigo(abrigo.id);
+  const [resumoCopiado, setResumoCopiado] = useState(false);
+  const estiloNivel = obterEstiloNivel(abrigo.ocupacao.nivel);
+  const estiloInfra = obterEstiloInfra(abrigo.statusInfraestrutura);
+  const { ocupacao } = abrigo;
+
+  const rotas = detalhe?.rotas ?? {
+    googleMaps: `https://www.google.com/maps/dir/?api=1&destination=${abrigo.latitude},${abrigo.longitude}`,
+    waze: `https://waze.com/ul?ll=${abrigo.latitude},${abrigo.longitude}&navigate=yes`,
+  };
+
+  useEffect(() => {
+    if (!resumoCopiado) return;
+    const temporizador = window.setTimeout(() => setResumoCopiado(false), 3000);
+    return () => window.clearTimeout(temporizador);
+  }, [resumoCopiado]);
+
+  return (
+    <aside
+      role="dialog"
+      aria-label={`Detalhes do abrigo ${abrigo.nome}`}
+      className="pointer-events-auto absolute inset-x-0 bottom-0 z-[500] flex max-h-[88%] flex-col overflow-hidden rounded-t-3xl border border-slate-700/90 bg-slate-950/95 shadow-[0_24px_60px_rgba(0,0,0,0.85)] backdrop-blur-xl sm:inset-x-auto sm:top-3 sm:right-3 sm:bottom-3 sm:max-h-none sm:w-[400px] sm:rounded-3xl md:w-[420px]"
+    >
+      <div className="flex shrink-0 justify-center pt-2.5 pb-1">
+        <span className="h-1.5 w-11 rounded-full bg-slate-700/80" />
+      </div>
+
+      <header className="shrink-0 border-b border-slate-800/90 px-4 pt-1 pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full border px-3 py-1 text-xs font-bold tabular-nums ${estiloNivel.badge}`}>
+              {estiloNivel.simbolo} {ocupacao.vagasDisponiveis > 0 ? `${ocupacao.vagasDisponiveis} vagas livres` : "Abrigo lotado"}
+            </span>
+            {abrigo.destaque && (
+              <span className="rounded-full border border-sky-500/40 bg-sky-500/15 px-3 py-1 text-xs font-bold text-sky-300">
+                ⭐ Precisa da sua doação
+              </span>
+            )}
+            {abrigo.distanciaKm !== null && (
+              <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold text-sky-300 tabular-nums">
+                📍 {abrigo.distanciaKm.toFixed(1)} km
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar detalhes do abrigo"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white sm:h-9 sm:w-9"
+          >
+            ✕
+          </button>
+        </div>
+
+        <h2 className="mt-2 text-lg font-bold leading-snug text-white">{abrigo.nome}</h2>
+        <p className="mt-0.5 text-sm text-slate-400">{abrigo.endereco}</p>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <a
+            href={rotas.googleMaps}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-2xl bg-amber-500 px-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-amber-400"
+          >
+            🗺️ Google Maps
+          </a>
+          <a
+            href={rotas.waze}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-2xl border border-slate-700 bg-slate-900 px-3 text-sm font-bold text-slate-100 transition hover:bg-slate-800"
+          >
+            🚗 Ir com Waze
+          </a>
+        </div>
+
+        {(abrigo.statusInfraestrutura !== "NORMAL" || abrigo.emAreaDeRisco) && (
+          <p role="alert" className="mt-2 rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs font-semibold text-rose-200">
+            ⚠️ <strong>Atenção no deslocamento:</strong>{" "}
+            {abrigo.emAreaDeRisco
+              ? "o abrigo fica dentro de uma área de risco demarcada."
+              : "há alerta de acesso ou infraestrutura neste abrigo."}{" "}
+            Confira os detalhes abaixo antes de sair.
+          </p>
+        )}
+
+        {abrigo.telefone && (
+          <a
+            href={`tel:${abrigo.telefone.replace(/\D/g, "")}`}
+            className="mt-2 inline-flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/70 px-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+          >
+            📞 Ligar para o abrigo: {abrigo.telefone}
+          </a>
+        )}
+
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void compartilhar(abrigo).then(setResumoCopiado)}
+            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/80 px-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
+          >
+            {resumoCopiado ? "✅ Resumo copiado!" : "📤 Compartilhar"}
+          </button>
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(resumoParaCompartilhar(abrigo))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/15 px-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/25"
+          >
+            💬 WhatsApp
+          </a>
+        </div>
+      </header>
+
+      <div className="flex-1 space-y-3.5 overflow-y-auto p-4">
+        <section className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/75 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Lotação agora</h3>
+            <span className="text-xs text-slate-400 tabular-nums">Atualizado às {formatarHorario(abrigo.atualizadoEm)}</span>
+          </div>
+          <div className="flex items-baseline justify-between tabular-nums">
+            <p>
+              <span className="text-2xl font-extrabold text-white">{ocupacao.lotacaoAtual}</span>
+              <span className="text-sm text-slate-400"> / {ocupacao.capacidadeMaxima} acolhidos</span>
+            </p>
+            <span className="text-sm font-bold text-slate-200">{ocupacao.percentual}% ocupado</span>
+          </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-800">
+            <div className={`h-full transition-all ${estiloNivel.barra}`} style={{ width: `${Math.min(100, ocupacao.percentual)}%` }} />
+          </div>
+        </section>
+
+        <section className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/75 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Acesso e infraestrutura</h3>
+            <span className={`rounded-lg border px-2 py-0.5 text-xs font-bold ${estiloInfra.classe}`}>
+              {estiloInfra.icone} {estiloInfra.rotulo}
+            </span>
+          </div>
+          {detalhe && detalhe.ocorrenciasAtivas.length > 0 ? (
+            <ul className="space-y-1.5 pt-1">
+              {detalhe.ocorrenciasAtivas.map((oc) => (
+                <li key={oc.id} className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+                  <p className="font-bold">
+                    {oc.tipo === "AREA_RISCO" ? "🔺" : "⚠️"} {ROTULO_OCORRENCIA[oc.tipo] ?? oc.tipo}
+                  </p>
+                  {oc.descricao && <p className="mt-0.5 text-xs text-rose-300/90">{oc.descricao}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-300">
+              {carregando && abrigo.ocorrenciasAtivas.length > 0
+                ? "Carregando ocorrências..."
+                : "Nenhuma interdição de via ou falta de energia/água neste abrigo."}
+            </p>
+          )}
+        </section>
+
+        <section className="space-y-2.5 rounded-2xl border border-slate-800 bg-slate-900/75 p-4">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Doação de suprimentos</h3>
+          {abrigo.necessidades.urgentes.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-sm font-bold text-rose-300">🚨 Precisa com urgência:</p>
+              <ul className="flex flex-wrap gap-1.5">
+                {abrigo.necessidades.urgentes.map((item) => {
+                  const bateFiltro =
+                    (categoriaSlug !== null && item.categoria === categoriaSlug) || (itemFiltroId !== null && item.id === itemFiltroId);
+                  return (
+                    <li
+                      key={item.id}
+                      className={`rounded-xl border px-2.5 py-1 text-sm font-bold ${
+                        bateFiltro
+                          ? "border-sky-400 bg-sky-500/25 text-sky-200 ring-1 ring-sky-400/50"
+                          : "border-rose-500/40 bg-rose-500/15 text-rose-200"
+                      }`}
+                    >
+                      {bateFiltro ? "⭐ " : ""}
+                      {item.nome}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">Nenhum item em falta no momento.</p>
+          )}
+
+          {abrigo.necessidades.bloqueados.length > 0 && (
+            <div className="space-y-1.5 border-t border-slate-800 pt-2">
+              <p className="text-sm font-bold text-amber-300">🛑 Estoque cheio (evite enviar agora):</p>
+              <ul className="flex flex-wrap gap-1.5">
+                {abrigo.necessidades.bloqueados.map((item) => (
+                  <li key={item.id} className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-slate-400 line-through">
+                    {item.nome}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        <CartaoPix pix={detalhe?.pix ?? null} carregando={carregando} />
+      </div>
+
+      {posicaoNaLista.total > 1 && (
+        <nav aria-label="Navegar entre abrigos" className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-800/90 bg-slate-950 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={() => onNavegar(-1)}
+            className="min-h-12 rounded-xl border border-slate-800 bg-slate-900 px-4 text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white sm:min-h-10"
+          >
+            ← Anterior
+          </button>
+          <span className="text-xs font-bold text-slate-400 tabular-nums">
+            {posicaoNaLista.indice + 1} de {posicaoNaLista.total}
+          </span>
+          <button
+            type="button"
+            onClick={() => onNavegar(1)}
+            className="min-h-12 rounded-xl border border-slate-800 bg-slate-900 px-4 text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white sm:min-h-10"
+          >
+            Próximo →
+          </button>
+        </nav>
+      )}
+    </aside>
+  );
+}

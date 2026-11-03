@@ -1,5 +1,6 @@
 import { consultar, consultarUm } from "@/lib/db";
 import { erros } from "@/lib/http";
+import { extrairCidade, gerarPayloadPixBrCode } from "@/lib/pix";
 import { booleanoQuery, z } from "@/lib/validacao";
 import { linksNavegacao, resumirOcupacao } from "../abrigos/ocupacao";
 import { DESCRICAO_TIPO_OCORRENCIA, type Gravidade, type StatusInfraestrutura, type TipoOcorrencia } from "../dominio";
@@ -9,8 +10,8 @@ import type { PontoPoligono } from "../ocorrencias/ocorrencias.service";
 // usuários) nem quantidades de estoque — apenas o necessário para o mapa.
 
 /**
- * Cache curto em CDN (RNF01: menos tráfego em redes degradadas) sem atrasar
- * mudanças de status de forma perceptível (RF03 - reflexo imediato).
+ * Cache HTTP para uma eventual CDN/proxy. O cache que vale no deploy atual
+ * (Docker + Apache, sem CDN) é o do servidor: ver `publico.cache.ts`.
  */
 export const CACHE_PUBLICO = { "Cache-Control": "public, max-age=0, s-maxage=10, stale-while-revalidate=30" };
 
@@ -57,7 +58,7 @@ interface ItemNecessidade {
   categoria: string;
 }
 
-interface LinhaAbrigoPublico {
+export interface LinhaAbrigoPublico {
   id: number;
   nome: string;
   endereco: string;
@@ -75,6 +76,7 @@ interface LinhaAbrigoPublico {
   bloqueados: ItemNecessidade[];
   necessidadesAtualizadasEm: Date | null;
   ocorrencias: { tipo: TipoOcorrencia; gravidade: Gravidade }[];
+  emAreaDeRisco: boolean;
 }
 
 const SQL_ABRIGOS_PUBLICOS = `
@@ -88,7 +90,13 @@ const SQL_ABRIGOS_PUBLICOS = `
          COALESCE(n.urgentes, '[]') AS urgentes,
          COALESCE(n.bloqueados, '[]') AS bloqueados,
          n.atualizado_em AS "necessidadesAtualizadasEm",
-         COALESCE(o.ocorrencias, '[]') AS ocorrencias
+         COALESCE(o.ocorrencias, '[]') AS ocorrencias,
+         -- Abrigo dentro de alguma área de risco ativa (de qualquer abrigo), via índice GiST.
+         EXISTS (
+           SELECT 1 FROM ocorrencia_infraestrutura r
+            WHERE r.area_risco IS NOT NULL AND r.data_resolucao IS NULL
+              AND ST_Covers(r.area_risco, a.localizacao)
+         ) AS "emAreaDeRisco"
     FROM abrigo a
     LEFT JOIN LATERAL (
       SELECT json_agg(json_build_object('id', i.id, 'nome', i.nome_micro, 'categoria', c.slug) ORDER BY i.nome_micro)
@@ -111,8 +119,11 @@ const SQL_ABRIGOS_PUBLICOS = `
 
 function apresentarResumo(linha: LinhaAbrigoPublico, filtros: FiltroMapa) {
   const temFiltro = Boolean(filtros.necessidade?.length || filtros.item?.length);
+  // Categoria E item quando os dois vêm (o mapa escolhe a categoria e depois o
+  // item dentro dela); dentro de cada lista, qualquer valor serve.
   const atendeFiltro = (item: ItemNecessidade) =>
-    Boolean(filtros.necessidade?.includes(item.categoria) || filtros.item?.includes(item.id));
+    (!filtros.necessidade?.length || filtros.necessidade.includes(item.categoria)) &&
+    (!filtros.item?.length || filtros.item.includes(item.id));
 
   return {
     id: linha.id,
@@ -124,6 +135,7 @@ function apresentarResumo(linha: LinhaAbrigoPublico, filtros: FiltroMapa) {
     ocupacao: resumirOcupacao(linha.lotacaoAtual, linha.capacidadeMaxima),
     statusInfraestrutura: linha.statusInfraestrutura,
     ocorrenciasAtivas: linha.ocorrencias,
+    emAreaDeRisco: linha.emAreaDeRisco,
     necessidades: { urgentes: linha.urgentes, bloqueados: linha.bloqueados },
     // RF08: destaca quem precisa URGENTE do que o doador tem; BLOQUEADO nunca é destacado.
     destaque: temFiltro ? linha.urgentes.some(atendeFiltro) : null,
@@ -137,19 +149,29 @@ function apresentarResumo(linha: LinhaAbrigoPublico, filtros: FiltroMapa) {
 
 export type AbrigoPublico = ReturnType<typeof apresentarResumo>;
 
+/** Linhas do mapa (com distância e raio via PostGIS quando há lat/lng). */
+export function consultarLinhasAbrigosPublicos(
+  filtros: Pick<FiltroMapa, "lat" | "lng" | "raioKm">,
+): Promise<LinhaAbrigoPublico[]> {
+  return consultar<LinhaAbrigoPublico>(
+    `${SQL_ABRIGOS_PUBLICOS}
+       AND ($3::float8 IS NULL
+            OR ST_DWithin(a.localizacao, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3 * 1000))`,
+    [filtros.lat ?? null, filtros.lng ?? null, filtros.raioKm ?? null],
+  );
+}
+
 /**
  * RF06 / RF08 - abrigos ativos para o mapa. Com filtro de necessidade, os que
  * precisam URGENTE dos itens vêm primeiro (`destaque: true`); com lat/lng,
  * ordena por proximidade (PostGIS) e aceita raio máximo.
  */
 export async function listarAbrigosPublicos(filtros: FiltroMapa): Promise<AbrigoPublico[]> {
-  const linhas = await consultar<LinhaAbrigoPublico>(
-    `${SQL_ABRIGOS_PUBLICOS}
-       AND ($3::float8 IS NULL
-            OR ST_DWithin(a.localizacao, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3 * 1000))`,
-    [filtros.lat ?? null, filtros.lng ?? null, filtros.raioKm ?? null],
-  );
+  return montarListaAbrigosPublicos(await consultarLinhasAbrigosPublicos(filtros), filtros);
+}
 
+/** Filtros de necessidade, destaque e ordenação (em memória, sobre as linhas do banco). */
+export function montarListaAbrigosPublicos(linhas: LinhaAbrigoPublico[], filtros: FiltroMapa): AbrigoPublico[] {
   const abrigos = linhas
     .map((linha) => apresentarResumo(linha, filtros))
     .filter((abrigo) => !filtros.somenteDestaque || abrigo.destaque);
@@ -164,8 +186,15 @@ export async function listarAbrigosPublicos(filtros: FiltroMapa): Promise<Abrigo
 
 /** RF07 - card do abrigo: lotação, contato, PIX oficial, rotas e alertas. */
 export async function obterAbrigoPublico(id: number) {
+  const abrigo = await buscarAbrigoPublico(id);
+  if (!abrigo) throw erros.naoEncontrado("Abrigo");
+  return abrigo;
+}
+
+/** Card do abrigo ou `null` (abrigo inexistente ou desativado). */
+export async function buscarAbrigoPublico(id: number) {
   const linha = await consultarUm<LinhaAbrigoPublico>(`${SQL_ABRIGOS_PUBLICOS} AND a.id = $3`, [null, null, id]);
-  if (!linha) throw erros.naoEncontrado("Abrigo");
+  if (!linha) return null;
 
   const ocorrencias = await consultar<{
     id: number;
@@ -177,7 +206,8 @@ export async function obterAbrigoPublico(id: number) {
     poligono: PontoPoligono[] | null;
     dataRegistro: Date;
   }>(
-    `SELECT id, tipo, gravidade, descricao, latitude, longitude, poligono_risco AS poligono, data_registro AS "dataRegistro"
+    `SELECT id, tipo, gravidade, descricao, latitude, longitude, fn_vertices_area_risco(area_risco) AS poligono,
+            data_registro AS "dataRegistro"
        FROM ocorrencia_infraestrutura
       WHERE id_abrigo = $1 AND data_resolucao IS NULL
       ORDER BY gravidade DESC, data_registro`,
@@ -195,8 +225,17 @@ export async function obterAbrigoPublico(id: number) {
     ocupacao: resumo.ocupacao,
     statusInfraestrutura: resumo.statusInfraestrutura,
     necessidades: resumo.necessidades,
+    emAreaDeRisco: resumo.emAreaDeRisco,
     atualizadoEm: resumo.atualizadoEm,
-    pix: linha.chavePix ? { chave: linha.chavePix, titular: linha.titularPix } : null,
+    // BR Code ("copia e cola") montado no servidor a partir da chave oficial e
+    // da cidade do endereço; o QR é desenhado no navegador a partir dele.
+    pix: linha.chavePix
+      ? {
+          chave: linha.chavePix,
+          titular: linha.titularPix,
+          brCode: gerarPayloadPixBrCode(linha.chavePix, linha.titularPix, extrairCidade(linha.endereco)),
+        }
+      : null,
     rotas: linksNavegacao(linha.latitude, linha.longitude),
     ocorrenciasAtivas: ocorrencias.map((o) => ({ ...o, descricaoTipo: DESCRICAO_TIPO_OCORRENCIA[o.tipo] })),
   };
@@ -232,8 +271,8 @@ export async function listarAlertasPublicos() {
   }>(
     `SELECT o.id, o.tipo, o.gravidade, o.descricao,
             COALESCE(o.latitude, a.latitude) AS latitude, COALESCE(o.longitude, a.longitude) AS longitude,
-            o.poligono_risco AS poligono,
-            (o.latitude IS NOT NULL OR o.poligono_risco IS NOT NULL) AS "localizacaoPropria",
+            fn_vertices_area_risco(o.area_risco) AS poligono,
+            (o.latitude IS NOT NULL OR o.area_risco IS NOT NULL) AS "localizacaoPropria",
             o.data_registro AS "dataRegistro",
             a.id AS "idAbrigo", a.nome AS abrigo
        FROM ocorrencia_infraestrutura o

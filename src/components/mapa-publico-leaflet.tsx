@@ -3,54 +3,7 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useRef } from "react";
-
-export type NivelOcupacaoPublico = "VERDE" | "AMARELO" | "VERMELHO";
-export type StatusInfraPublico = "NORMAL" | "ALERTA" | "CRITICO";
-
-export interface ItemNecessidadePublico {
-  id: number;
-  nome: string;
-  categoria: string;
-}
-
-export interface AbrigoMapa {
-  id: number;
-  nome: string;
-  endereco: string;
-  telefone: string | null;
-  latitude: number;
-  longitude: number;
-  ocupacao: {
-    capacidadeMaxima: number;
-    lotacaoAtual: number;
-    vagasDisponiveis: number;
-    percentual: number;
-    nivel: NivelOcupacaoPublico;
-  };
-  statusInfraestrutura: StatusInfraPublico;
-  ocorrenciasAtivas: Array<{ tipo: string; gravidade: "ALERTA" | "CRITICO" }>;
-  necessidades: {
-    urgentes: ItemNecessidadePublico[];
-    bloqueados: ItemNecessidadePublico[];
-  };
-  destaque: boolean | null;
-  distanciaKm: number | null;
-  atualizadoEm: string;
-}
-
-export interface AlertaMapa {
-  id: number;
-  tipo: string;
-  descricaoTipo: string;
-  gravidade: "ALERTA" | "CRITICO";
-  descricao: string | null;
-  latitude: number;
-  longitude: number;
-  poligono?: Array<{ lat: number; lng: number }> | null;
-  localizacaoPropria: boolean;
-  dataRegistro: string;
-  abrigo: { id: number; nome: string };
-}
+import type { AbrigoMapa, AlertaMapa } from "./mapa/tipos";
 
 interface PropriedadesMapaLeaflet {
   abrigos: AbrigoMapa[];
@@ -101,12 +54,19 @@ function criarIconeAbrigo(abrigo: AbrigoMapa, selecionado: boolean): L.DivIcon {
             rotuloVagas: vagasDisponiveis > 0 ? `${vagasDisponiveis} vagas` : "LOTADO",
           };
 
+  // Selo das ocorrências ativas do abrigo (inclusive as sem local próprio, que
+  // não ganham marcador separado no mapa).
+  const resumoOcorrencias = abrigo.ocorrenciasAtivas.map((o) => o.tipo.replaceAll("_", " ").toLowerCase()).join(", ");
   const alertaInfra =
     abrigo.statusInfraestrutura === "CRITICO"
-      ? `<span style="position:absolute;top:-6px;right:-6px;background:#e11d48;color:#fff;border:2px solid #020617;border-radius:9999px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;" title="Alerta crítico de infraestrutura">!</span>`
+      ? `<span style="position:absolute;top:-6px;right:-6px;background:#e11d48;color:#fff;border:2px solid #020617;border-radius:9999px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;" title="Alerta crítico: ${escaparHtml(resumoOcorrencias)}">!</span>`
       : abrigo.statusInfraestrutura === "ALERTA"
-        ? `<span style="position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#020617;border:2px solid #020617;border-radius:9999px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;" title="Atenção na infraestrutura">⚡</span>`
+        ? `<span style="position:absolute;top:-6px;right:-6px;background:#f59e0b;color:#020617;border:2px solid #020617;border-radius:9999px;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;" title="Atenção: ${escaparHtml(resumoOcorrencias)}">⚡</span>`
         : "";
+
+  const seloAreaRisco = abrigo.emAreaDeRisco
+    ? `<span style="position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);background:#9f1239;color:#fff;border:1.5px solid #fda4af;border-radius:9999px;padding:0 6px;font-size:9px;font-weight:900;white-space:nowrap;" title="Este abrigo está dentro de uma área de risco demarcada">🔺 ÁREA DE RISCO</span>`
+    : "";
 
   // RF08: Destaca abrigos que precisam URGENTE do item filtrado e atenua a opacidade dos demais
   const atenuadoPorFiltro = abrigo.destaque === false && !selecionado;
@@ -130,6 +90,7 @@ function criarIconeAbrigo(abrigo: AbrigoMapa, selecionado: boolean): L.DivIcon {
         <span style="font-size:10px;line-height:1;">${paleta.simbolo}</span>
         <span style="font-variant-numeric:tabular-nums;">${escaparHtml(paleta.rotuloVagas)}</span>
         ${alertaInfra}
+        ${seloAreaRisco}
       </div>
       <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid ${paleta.fundo};margin-top:-1px;" />
     </div>
@@ -234,6 +195,9 @@ export default function MapaPublicoLeaflet({
     L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
       maxZoom: 19,
       subdomains: ["a", "b", "c"],
+      // Requisição CORS (o servidor HOT envia Access-Control-Allow-Origin: *):
+      // permite que o service worker guarde os tiles vistos para uso offline.
+      crossOrigin: true,
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> • Estilo <a href="https://www.hotosm.org/" target="_blank" rel="noopener noreferrer">Humanitarian (HOT)</a>',
     }).addTo(mapa);
@@ -349,10 +313,9 @@ export default function MapaPublicoLeaflet({
             .addTo(grupoAlertas);
         }
 
-        // Marcador central da Área de Risco no centroide do polígono
-        const centroLat = alerta.poligono.reduce((acc, p) => acc + p.lat, 0) / alerta.poligono.length;
-        const centroLng = alerta.poligono.reduce((acc, p) => acc + p.lng, 0) / alerta.poligono.length;
-        const marcadorCentro = L.marker([centroLat, centroLng], {
+        // Rótulo da Área de Risco: ponto calculado pelo PostGIS (ST_PointOnSurface),
+        // sempre dentro do polígono, mesmo quando ele é côncavo.
+        const marcadorCentro = L.marker([alerta.latitude, alerta.longitude], {
           icon: criarIconeCentroAreaRisco(alerta),
           zIndexOffset: 350,
         });
@@ -364,13 +327,12 @@ export default function MapaPublicoLeaflet({
         continue;
       }
 
-      // Caso 2: Alerta pontual (exibe ocorrências com coordenada própria ou críticas)
-      if (!alerta.localizacaoPropria && alerta.gravidade !== "CRITICO") continue;
-      // Desloca levemente quando compartilha a mesma coordenada do abrigo para não sobrepor o pino principal
-      const lat = alerta.localizacaoPropria ? alerta.latitude : alerta.latitude + 0.0012;
-      const lng = alerta.localizacaoPropria ? alerta.longitude : alerta.longitude + 0.0012;
+      // Caso 2: Alerta pontual com local próprio (ex.: ponto da via bloqueada).
+      // Sem local próprio, o alerta já aparece como selo no pino do abrigo:
+      // desenhá-lo deslocado ~130 m indicaria um lugar que ninguém informou.
+      if (!alerta.localizacaoPropria) continue;
 
-      const marcadorAlerta = L.marker([lat, lng], {
+      const marcadorAlerta = L.marker([alerta.latitude, alerta.longitude], {
         icon: criarIconeAlerta(alerta),
         zIndexOffset: 300,
       });
@@ -484,37 +446,26 @@ export default function MapaPublicoLeaflet({
       {/* Barra Inferior Esquerda: Enquadramento + Legenda Semafórica Acessível (RF06 RN3 + DESIGN.md) */}
       <div
         aria-label="Legenda de ocupação dos abrigos"
-        className="pointer-events-auto absolute bottom-3 left-14 z-[400] flex flex-wrap items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-950/90 px-3 py-2 text-[11px] font-semibold text-slate-200 shadow-lg backdrop-blur"
+        className="pointer-events-auto absolute right-3 bottom-3 left-14 z-[400] flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-800 bg-slate-950/90 px-2 py-1.5 text-xs font-semibold text-slate-200 shadow-lg backdrop-blur sm:right-auto sm:px-3 sm:py-2"
       >
         <button
           type="button"
           onClick={enquadrarTodos}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-slate-800 cursor-pointer"
+          className="min-h-12 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs font-bold text-amber-300 hover:bg-slate-800 cursor-pointer sm:min-h-8"
         >
-          🗺️ Centralizar Mapa
+          🗺️ Ver todos
         </button>
-        <span className="hidden sm:inline-block h-3.5 w-px bg-slate-800" />
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          <span>● Livre (&lt;70%)</span>
+        {/* No celular, só símbolo + rótulo curto; as faixas de lotação aparecem a partir do tablet. */}
+        <span className="text-emerald-300">
+          ● Livre<span className="hidden sm:inline"> (&lt;70%)</span>
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
-          <span>▲ Atenção (70–90%)</span>
+        <span className="text-amber-300">
+          ▲ Atenção<span className="hidden sm:inline"> (70–90%)</span>
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-500" />
-          <span>■ Crítico/Lotado (&gt;90%)</span>
+        <span className="text-rose-300">
+          ■ Lotado<span className="hidden sm:inline"> (&gt;90%)</span>
         </span>
-        {mostrarAlertas && (
-          <>
-            <span className="hidden sm:inline-block h-3.5 w-px bg-slate-800" />
-            <span className="inline-flex items-center gap-1.5 text-rose-300">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm border border-rose-400 bg-rose-500/40" />
-              <span>🔺 Área de Risco</span>
-            </span>
-          </>
-        )}
+        {mostrarAlertas && <span className="text-rose-300">🔺 Risco</span>}
       </div>
     </div>
   );

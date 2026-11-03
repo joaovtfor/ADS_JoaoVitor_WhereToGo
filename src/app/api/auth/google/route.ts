@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { modoGoogleSimuladoHabilitado, obterGoogleClientId } from "@/lib/auth/google";
-import { COOKIE_SESSAO } from "@/lib/auth/sessao";
+import { definirCookieSessao } from "@/lib/auth/sessao";
 import { lerCorpo, obterIp, responder, rota } from "@/lib/http";
 import { autenticarComGoogle, esquemaLoginGoogle } from "@/modules/auth/auth.service";
 
@@ -28,13 +28,7 @@ export const POST = rota(async (req) => {
       { dados: resultado },
       { status: 200, headers: { "Cache-Control": "no-store" } },
     );
-    resposta.cookies.set(COOKIE_SESSAO, resultado.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      expires: resultado.expiraEm,
-    });
+    definirCookieSessao(resposta, resultado.token, resultado.expiraEm);
     return resposta;
   }
 

@@ -7,11 +7,16 @@ export interface UsuarioAcesso extends UsuarioSessao {
   abrigoAtivo: boolean | null;
   senhaHash: string;
   googleSub: string | null;
+  /** Comparada com a claim `ver` do JWT: incrementá-la revoga as sessões já emitidas. */
+  versaoSessao: number;
+  /** Auto-cadastro via Google ainda não aprovado (diferente de conta desativada). */
+  pendenteAprovacao: boolean;
 }
 
 const SELECT_USUARIO_ACESSO = `
   SELECT u.id, u.nome, u.email, u.ativo, u.senha_hash AS "senhaHash",
-         u.google_sub AS "googleSub", u.id_abrigo AS "idAbrigo", p.nome AS papel, a.ativo AS "abrigoAtivo"
+         u.google_sub AS "googleSub", u.id_abrigo AS "idAbrigo", p.nome AS papel, a.ativo AS "abrigoAtivo",
+         u.versao_sessao AS "versaoSessao", (u.aprovado_em IS NULL) AS "pendenteAprovacao"
     FROM usuario u
     JOIN papel_usuario p ON p.id = u.id_papel
     LEFT JOIN abrigo a ON a.id = u.id_abrigo`;

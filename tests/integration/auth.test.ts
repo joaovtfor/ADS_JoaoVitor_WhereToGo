@@ -99,6 +99,27 @@ describe("RF01 - Autenticação e RBAC", () => {
     await expect(login({ email: usuario.email, senha: "NovaSenha@2026" }, null)).resolves.toBeDefined();
   });
 
+  it("trocar a senha revoga os tokens antigos e devolve um novo para a sessão atual", async () => {
+    const usuario = await criarUsuario("ADMIN", null);
+    const { token: antigo } = await login({ email: usuario.email, senha: SENHA_TESTE }, null);
+
+    const { token: novo } = await alterarSenha(contexto(usuario), { senhaAtual: SENHA_TESTE, novaSenha: "Trocada@2026" });
+
+    expect(await obterUsuario(requisicaoCom(antigo))).toBeNull();
+    expect(await obterUsuario(requisicaoCom(novo))).toMatchObject({ id: usuario.id });
+  });
+
+  it("senha redefinida pela gestão derruba as sessões abertas do usuário", async () => {
+    const abrigo = await criarAbrigo();
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+    const voluntario = await criarUsuario("VOLUNTARIO", abrigo.id);
+    const { token } = await login({ email: voluntario.email, senha: SENHA_TESTE }, null);
+
+    await atualizarUsuario(coordenador, voluntario.id, { senha: "Redefinida@2026" });
+
+    expect(await obterUsuario(requisicaoCom(token))).toBeNull();
+  });
+
   it("realiza auto-cadastro via Google One Tap com aprovação pelo Coordenador e login 1-toque", async () => {
     const abrigo = await criarAbrigo({ nome: "Abrigo Google One Tap" });
     const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
@@ -134,6 +155,25 @@ describe("RF01 - Autenticação e RBAC", () => {
     expect(passo3.status).toBe("AUTENTICADO");
     if (passo3.status !== "AUTENTICADO") throw new Error("Esperado AUTENTICADO");
     expect(passo3.redirecionarPara).toBe("/admin/inventario");
+  });
+
+  it("voluntário desativado não volta para a fila de aprovação ao entrar com o Google", async () => {
+    const abrigo = await criarAbrigo();
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+    const voluntario = await criarUsuario("VOLUNTARIO", abrigo.id);
+    await atualizarUsuario(coordenador, voluntario.id, { ativo: false });
+
+    const erro = await capturarErro(
+      autenticarComGoogle({ credencialSimulada: { nome: "Desligado", email: voluntario.email } }, "10.0.0.7"),
+    );
+    expect(erro).toMatchObject({ status: 403, codigo: "USUARIO_INATIVO" });
+
+    const [linha] = await consultar<{ google_sub: string | null; aprovado_em: Date | null }>(
+      "SELECT google_sub, aprovado_em FROM usuario WHERE id = $1",
+      [voluntario.id],
+    );
+    expect(linha).toMatchObject({ google_sub: null });
+    expect(linha.aprovado_em).not.toBeNull();
   });
 
   it("permite pré-cadastro sem senha pelo Coordenador para entrada direta via Google One Tap", async () => {

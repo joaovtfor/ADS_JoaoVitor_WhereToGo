@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin, type NivelOcupacao, type StatusInfraestrutura } from "../contexto-admin";
+import { ROTULO_TIPO_MOVIMENTACAO } from "../rotulos";
 
 interface DadosDashboard {
   abrigo: {
@@ -113,20 +114,34 @@ export default function PaginaDashboard() {
 
   useEffect(() => {
     void Promise.resolve().then(carregar);
+    // Atualiza sozinho a cada 30 s com a aba visível: lotação, estoque crítico e
+    // alertas mudam pela ação de voluntários em outros aparelhos.
+    const intervalo = window.setInterval(() => {
+      if (document.visibilityState === "visible") void carregar();
+    }, 30_000);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") void carregar();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      window.clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
   }, [carregar]);
 
   async function ajustarNaoTriados(delta: number) {
     if (!dados || !idAbrigoAtivo) return;
-    const novoValor = Math.max(0, dados.acolhidos.naoTriados + delta);
     setProcessando(true);
     setErro(null);
     try {
-      await api(`/api/abrigos/${idAbrigoAtivo}`, {
-        method: "PATCH",
-        body: JSON.stringify({ acolhidosNaoTriados: novoValor }),
+      // Envia só a variação: o banco soma, então toques simultâneos de dois
+      // coordenadores (ou duas abas) não se sobrescrevem.
+      const abrigo = await api<{ acolhidosNaoTriados: number }>(`/api/abrigos/${idAbrigoAtivo}/triagem`, {
+        method: "POST",
+        body: JSON.stringify({ delta }),
       });
       await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`Fila de triagem ajustada para ${novoValor} pessoa(s).`);
+      setAviso(`Fila de triagem: ${abrigo.acolhidosNaoTriados} pessoa(s) aguardando cadastro.`);
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -374,22 +389,22 @@ export default function PaginaDashboard() {
 
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-[11px] text-slate-400">Lotação Total</p>
+                <p className="text-xs text-slate-400">Lotação Total</p>
                 <p className="text-xl font-black text-white tabular-nums">
                   {ocupacao.lotacaoAtual}
                   <span className="text-xs font-normal text-slate-400">/{ocupacao.capacidadeMaxima}</span>
                 </p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-[11px] text-slate-400">Vagas Livres</p>
+                <p className="text-xs text-slate-400">Vagas Livres</p>
                 <p className="text-xl font-black text-emerald-400 tabular-nums">{ocupacao.vagasDisponiveis}</p>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-[11px] text-slate-400">Cadastrados</p>
+                <p className="text-xs text-slate-400">Cadastrados</p>
                 <p className="text-xl font-black text-sky-300 tabular-nums">{acolhidos.presentes}</p>
               </div>
               <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3">
-                <p className="text-[11px] text-amber-300">Aguardando Cadastro</p>
+                <p className="text-xs text-amber-300">Aguardando Cadastro</p>
                 <p className="text-xl font-black text-amber-300 tabular-nums">{acolhidos.naoTriados}</p>
               </div>
             </div>
@@ -401,7 +416,7 @@ export default function PaginaDashboard() {
               <p className="text-xs font-bold text-slate-200">
                 Chegadas em Massa (Reserva Rápida de Vagas)
               </p>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-xs text-slate-400">
                 Reserva vagas imediatamente no mapa público enquanto as famílias aguardam o check-in nominal.
               </p>
             </div>
@@ -481,7 +496,7 @@ export default function PaginaDashboard() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`rounded px-2 py-0.5 text-[10px] font-black ${
+                          className={`rounded px-2 py-0.5 text-xs font-black ${
                             oc.gravidade === "CRITICO" ? "bg-rose-500 text-slate-950" : "bg-amber-400 text-slate-950"
                           }`}
                         >
@@ -621,7 +636,7 @@ export default function PaginaDashboard() {
                               type="button"
                               disabled={somenteLeitura || processando || item.statusNecessidade === st}
                               onClick={() => alterarStatusItem(item.idItem, st)}
-                              className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-40 ${
+                              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
                                 item.statusNecessidade === st
                                   ? "bg-amber-500 text-slate-950"
                                   : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
@@ -654,8 +669,8 @@ export default function PaginaDashboard() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{m.item}</p>
-                    <p className="text-[11px] text-slate-400 truncate">
-                      {m.usuario} • {m.tipo}
+                    <p className="text-xs text-slate-400 truncate">
+                      {m.usuario} • {ROTULO_TIPO_MOVIMENTACAO[m.tipo] ?? m.tipo}
                     </p>
                   </div>
                   <div className="text-right shrink-0 tabular-nums">
@@ -666,7 +681,7 @@ export default function PaginaDashboard() {
                     >
                       {m.quantidade > 0 ? `+${m.quantidade}` : m.quantidade}
                     </span>
-                    <p className="text-[11px] text-slate-500">Saldo: {m.quantidadeResultante}</p>
+                    <p className="text-xs text-slate-500">Saldo: {m.quantidadeResultante}</p>
                   </div>
                 </li>
               ))}

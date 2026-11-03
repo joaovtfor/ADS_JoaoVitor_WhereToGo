@@ -10,12 +10,16 @@ export const TIPOS_MOVIMENTACAO = [
   "TRANSFERENCIA_ENTRADA",
   "TRANSFERENCIA_SAIDA",
   "AJUSTE",
+  "ESTORNO",
 ] as const;
 export type TipoMovimentacao = (typeof TIPOS_MOVIMENTACAO)[number];
 
-/** Tipos aceitos no endpoint de movimentação; transferências têm endpoint próprio. */
+/** Tipos aceitos no endpoint de movimentação; transferências e estornos têm endpoints próprios. */
 export const TIPOS_MOVIMENTACAO_MANUAL = ["ENTRADA_DOACAO", "SAIDA_CONSUMO", "PERDA", "AJUSTE"] as const;
 export type TipoMovimentacaoManual = (typeof TIPOS_MOVIMENTACAO_MANUAL)[number];
+
+/** Tipos que o "Desfazer" do Fast-CRUD pode estornar. */
+export const TIPOS_MOVIMENTACAO_ESTORNAVEIS = ["ENTRADA_DOACAO", "SAIDA_CONSUMO", "PERDA"] as const;
 
 export const DESCRICAO_TIPO_MOVIMENTACAO: Record<TipoMovimentacao, string> = {
   ENTRADA_DOACAO: "Entrada por doação",
@@ -24,6 +28,7 @@ export const DESCRICAO_TIPO_MOVIMENTACAO: Record<TipoMovimentacao, string> = {
   TRANSFERENCIA_ENTRADA: "Entrada por transferência de outro abrigo",
   TRANSFERENCIA_SAIDA: "Saída por transferência para outro abrigo",
   AJUSTE: "Ajuste de inventário (contagem física)",
+  ESTORNO: "Estorno de lançamento (desfazer)",
 };
 
 export const TIPOS_OCORRENCIA = [
