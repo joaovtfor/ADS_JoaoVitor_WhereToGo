@@ -26,9 +26,13 @@ export interface AbrigoMapa {
   longitude: number;
   ocupacao: OcupacaoPublica;
   statusInfraestrutura: StatusInfraPublico;
+  aceitaPets: boolean;
+  acessivelPcd: boolean;
   ocorrenciasAtivas: Array<{ tipo: string; gravidade: "ALERTA" | "CRITICO" }>;
   /** Dentro de uma área de risco ativa (PostGIS ST_Covers). */
   emAreaDeRisco: boolean;
+  /** Trajeto em linha reta entre o usuário e o abrigo cruza algum polígono de área de risco (PostGIS ST_Intersects). */
+  rotaCruzaAreaRisco?: boolean;
   necessidades: {
     urgentes: ItemNecessidadePublico[];
     bloqueados: ItemNecessidadePublico[];
@@ -73,12 +77,21 @@ export interface DetalheAbrigoPublico {
   }>;
 }
 
-export type FiltroRapido = "TODOS" | "COM_VAGAS" | "INFRA_NORMAL" | "PRECISA_DOACOES" | "DESTAQUE";
+export type FiltroRapido =
+  | "TODOS"
+  | "COM_VAGAS"
+  | "INFRA_NORMAL"
+  | "PRECISA_DOACOES"
+  | "ACEITA_PETS"
+  | "ACESSIVEL_PCD"
+  | "DESTAQUE";
 
 export const PILULAS_FILTRO: ReadonlyArray<{ id: FiltroRapido; rotulo: string }> = [
   { id: "TODOS", rotulo: "Todos" },
   { id: "COM_VAGAS", rotulo: "🟢 Com vagas" },
   { id: "PRECISA_DOACOES", rotulo: "🚨 Precisa de doações" },
+  { id: "ACEITA_PETS", rotulo: "🐾 Aceita pets" },
+  { id: "ACESSIVEL_PCD", rotulo: "♿ Acessível PCD" },
   { id: "INFRA_NORMAL", rotulo: "🛣️ Acesso normal" },
   { id: "DESTAQUE", rotulo: "⭐ Prioritários" },
 ];
@@ -147,12 +160,52 @@ export function formatarHorario(iso: string): string {
   return Number.isNaN(data.getTime()) ? "" : data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Selo de atualização recente (Freshness Badge): indica a confiabilidade temporal
+ * do último reporte de lotação/estoque do abrigo ou alerta.
+ */
+export function obterSeloAtualizacao(iso: string): { icone: string; rotulo: string; classe: string } {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0 || ms <= 2 * 60_000) {
+    return {
+      icone: "🟢",
+      rotulo: "Atualizado agora",
+      classe: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+    };
+  }
+  const minutos = Math.round(ms / 60_000);
+  if (minutos <= 30) {
+    return {
+      icone: "🟢",
+      rotulo: `Há ${minutos} min`,
+      classe: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+    };
+  }
+  const horas = Math.max(1, Math.round(minutos / 60));
+  if (horas <= 6) {
+    return {
+      icone: "🟡",
+      rotulo: `Há ${horas}h`,
+      classe: "border-amber-500/40 bg-amber-500/15 text-amber-300",
+    };
+  }
+  return {
+    icone: "🟠",
+    rotulo: horas < 24 ? `Há ${horas}h` : `Há ${Math.floor(horas / 24)}d`,
+    classe: "border-orange-500/40 bg-orange-500/15 text-orange-300",
+  };
+}
+
 /** Texto de resumo para compartilhar (WhatsApp, área de transferência). */
 export function resumoParaCompartilhar(abrigo: AbrigoMapa, link?: string): string {
   const urgentes =
     abrigo.necessidades.urgentes.length > 0
       ? `\n🚨 Precisa de: ${abrigo.necessidades.urgentes.map((i) => i.nome).join(", ")}`
       : "";
+  const tags = [abrigo.aceitaPets ? "🐾 Aceita pets" : null, abrigo.acessivelPcd ? "♿ Acessível PCD" : null]
+    .filter(Boolean)
+    .join(" • ");
+  const linhaTags = tags ? `\n✨ Perfil: ${tags}` : "";
   const vagas = `${abrigo.ocupacao.vagasDisponiveis} (${abrigo.ocupacao.lotacaoAtual}/${abrigo.ocupacao.capacidadeMaxima})`;
-  return `📍 *${abrigo.nome}*\n🏠 ${abrigo.endereco}\n🟢 Vagas livres: ${vagas}${urgentes}${link ? `\n🔗 Mapa ao vivo: ${link}` : ""}`;
+  return `📍 *${abrigo.nome}*\n🏠 ${abrigo.endereco}\n🟢 Vagas livres: ${vagas}${linhaTags}${urgentes}${link ? `\n🔗 Mapa ao vivo: ${link}` : ""}`;
 }

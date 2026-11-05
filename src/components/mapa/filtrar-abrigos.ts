@@ -37,6 +37,10 @@ function atendeFiltroRapido(abrigo: AbrigoMapa, filtro: FiltroRapido): boolean {
       return abrigo.statusInfraestrutura === "NORMAL";
     case "PRECISA_DOACOES":
       return abrigo.necessidades.urgentes.length > 0;
+    case "ACEITA_PETS":
+      return abrigo.aceitaPets === true;
+    case "ACESSIVEL_PCD":
+      return abrigo.acessivelPcd === true;
     default:
       return true;
   }

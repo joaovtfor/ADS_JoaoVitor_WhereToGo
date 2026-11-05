@@ -94,16 +94,14 @@ export function BarraFiltros(props: PropriedadesBarraFiltros) {
           >
             🚧 Alertas no mapa ({alertas.total})
           </button>
-          {alertas.total > 0 && (
-            <button
-              type="button"
-              aria-pressed={alertas.painelAberto}
-              onClick={alertas.onAlternarPainel}
-              className={`${PILULA} ${alertas.painelAberto ? "bg-rose-500 text-slate-950" : "border border-rose-500/30 bg-slate-900/90 text-rose-200 hover:bg-slate-800"}`}
-            >
-              🔺 Ver vias e riscos
-            </button>
-          )}
+          <button
+            type="button"
+            aria-pressed={alertas.painelAberto}
+            onClick={alertas.onAlternarPainel}
+            className={`${PILULA} ${alertas.painelAberto ? "bg-rose-500 text-slate-950" : "border border-rose-500/30 bg-slate-900/90 text-rose-200 hover:bg-slate-800"}`}
+          >
+            🔺 Ver vias / Reportar
+          </button>
         </div>
 
         {props.temFiltroAtivo && (

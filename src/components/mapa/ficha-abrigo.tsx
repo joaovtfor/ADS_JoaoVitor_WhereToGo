@@ -6,6 +6,7 @@ import {
   formatarHorario,
   obterEstiloInfra,
   obterEstiloNivel,
+  obterSeloAtualizacao,
   resumoParaCompartilhar,
   ROTULO_OCORRENCIA,
   type AbrigoMapa,
@@ -68,6 +69,7 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
   const [resumoCopiado, setResumoCopiado] = useState(false);
   const estiloNivel = obterEstiloNivel(abrigo.ocupacao.nivel);
   const estiloInfra = obterEstiloInfra(abrigo.statusInfraestrutura);
+  const seloAtualizacao = obterSeloAtualizacao(abrigo.atualizadoEm);
   const { ocupacao } = abrigo;
 
   const rotas = detalhe?.rotas ?? {
@@ -93,9 +95,12 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
 
       <header className="shrink-0 border-b border-slate-800/90 px-4 pt-1 pb-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className={`rounded-full border px-3 py-1 text-xs font-bold tabular-nums ${estiloNivel.badge}`}>
               {estiloNivel.simbolo} {ocupacao.vagasDisponiveis > 0 ? `${ocupacao.vagasDisponiveis} vagas livres` : "Abrigo lotado"}
+            </span>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-bold tabular-nums ${seloAtualizacao.classe}`}>
+              {seloAtualizacao.icone} {seloAtualizacao.rotulo}
             </span>
             {abrigo.destaque && (
               <span className="rounded-full border border-sky-500/40 bg-sky-500/15 px-3 py-1 text-xs font-bold text-sky-300">
@@ -121,6 +126,21 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
         <h2 className="mt-2 text-lg font-bold leading-snug text-white">{abrigo.nome}</h2>
         <p className="mt-0.5 text-sm text-slate-400">{abrigo.endereco}</p>
 
+        {(abrigo.aceitaPets || abrigo.acessivelPcd) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {abrigo.aceitaPets && (
+              <span className="rounded-lg border border-teal-500/40 bg-teal-500/15 px-2.5 py-0.5 text-xs font-bold text-teal-200">
+                🐾 Aceita pets
+              </span>
+            )}
+            {abrigo.acessivelPcd && (
+              <span className="rounded-lg border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-0.5 text-xs font-bold text-indigo-200">
+                ♿ Acessível PCD
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 grid grid-cols-2 gap-2">
           <a
             href={rotas.googleMaps}
@@ -139,6 +159,12 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
             🚗 Ir com Waze
           </a>
         </div>
+
+        {abrigo.rotaCruzaAreaRisco && (
+          <p role="alert" className="mt-2 rounded-xl border border-rose-500/60 bg-rose-950/70 px-3 py-2 text-xs font-semibold text-rose-100">
+            🔺 <strong>Rota cruza Área de Risco (PostGIS):</strong> o trajeto direto da sua localização até este abrigo atravessa um perímetro de risco demarcado. Redobre a atenção e siga desvios seguros.
+          </p>
+        )}
 
         {(abrigo.statusInfraestrutura !== "NORMAL" || abrigo.emAreaDeRisco) && (
           <p role="alert" className="mt-2 rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs font-semibold text-rose-200">

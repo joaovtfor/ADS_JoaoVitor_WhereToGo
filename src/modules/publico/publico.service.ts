@@ -1,13 +1,22 @@
 import { consultar, consultarUm } from "@/lib/db";
 import { erros } from "@/lib/http";
 import { extrairCidade, gerarPayloadPixBrCode } from "@/lib/pix";
-import { booleanoQuery, z } from "@/lib/validacao";
+import { escaparIlike } from "@/lib/sql";
+import { booleanoQuery, esquemaId, textoObrigatorio, textoOpcional, z } from "@/lib/validacao";
 import { linksNavegacao, resumirOcupacao } from "../abrigos/ocupacao";
-import { DESCRICAO_TIPO_OCORRENCIA, type Gravidade, type StatusInfraestrutura, type TipoOcorrencia } from "../dominio";
+import {
+  DESCRICAO_TIPO_OCORRENCIA,
+  GRAVIDADE_PADRAO,
+  GRAVIDADES,
+  TIPOS_OCORRENCIA,
+  type Gravidade,
+  type StatusInfraestrutura,
+  type TipoOcorrencia,
+} from "../dominio";
 import type { PontoPoligono } from "../ocorrencias/ocorrencias.service";
 
-// API pública (RNF02): sem login. Nunca expõe dados pessoais (abrigados,
-// usuários) nem quantidades de estoque — apenas o necessário para o mapa.
+// API pública (RNF02): sem login. Nunca expõe dados pessoais sensíveis completos
+// (CPF inteiro, usuários) nem quantidades de estoque — apenas o necessário para o mapa.
 
 /**
  * Cache HTTP para uma eventual CDN/proxy. O cache que vale no deploy atual
@@ -39,6 +48,8 @@ export const esquemaFiltroMapa = z
       .pipe(z.array(z.string().regex(/^[1-9]\d{0,9}$/, "Id de item inválido.").transform(Number)).max(20))
       .optional(),
     somenteDestaque: booleanoQuery.optional(),
+    aceitaPets: booleanoQuery.optional(),
+    acessivelPcd: booleanoQuery.optional(),
     formato: z.enum(["json", "geojson"]).default("json"),
   })
   .refine((d) => (d.lat === undefined) === (d.lng === undefined), {
@@ -68,6 +79,8 @@ export interface LinhaAbrigoPublico {
   capacidadeMaxima: number;
   lotacaoAtual: number;
   statusInfraestrutura: StatusInfraestrutura;
+  aceitaPets: boolean;
+  acessivelPcd: boolean;
   atualizadoEm: Date;
   chavePix: string | null;
   titularPix: string | null;
@@ -77,12 +90,15 @@ export interface LinhaAbrigoPublico {
   necessidadesAtualizadasEm: Date | null;
   ocorrencias: { tipo: TipoOcorrencia; gravidade: Gravidade }[];
   emAreaDeRisco: boolean;
+  rotaCruzaAreaRisco: boolean;
 }
 
 const SQL_ABRIGOS_PUBLICOS = `
   SELECT a.id, a.nome, a.endereco, a.telefone, a.latitude, a.longitude,
          a.capacidade_maxima AS "capacidadeMaxima", a.lotacao_atual AS "lotacaoAtual",
-         a.status_infraestrutura AS "statusInfraestrutura", a.atualizado_em AS "atualizadoEm",
+         a.status_infraestrutura AS "statusInfraestrutura",
+         a.aceita_pets AS "aceitaPets", a.acessivel_pcd AS "acessivelPcd",
+         a.atualizado_em AS "atualizadoEm",
          a.chave_pix AS "chavePix", a.titular_pix AS "titularPix",
          CASE WHEN $1::float8 IS NULL THEN NULL
               ELSE round((ST_Distance(a.localizacao, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) / 1000)::numeric, 2)
@@ -91,12 +107,26 @@ const SQL_ABRIGOS_PUBLICOS = `
          COALESCE(n.bloqueados, '[]') AS bloqueados,
          n.atualizado_em AS "necessidadesAtualizadasEm",
          COALESCE(o.ocorrencias, '[]') AS ocorrencias,
-         -- Abrigo dentro de alguma área de risco ativa (de qualquer abrigo), via índice GiST.
+         -- Abrigo dentro de alguma área de risco ativa aprovada (de qualquer abrigo), via índice GiST.
          EXISTS (
            SELECT 1 FROM ocorrencia_infraestrutura r
-            WHERE r.area_risco IS NOT NULL AND r.data_resolucao IS NULL
+            WHERE r.area_risco IS NOT NULL AND r.data_resolucao IS NULL AND r.status_validacao = 'APROVADA'
               AND ST_Covers(r.area_risco, a.localizacao)
-         ) AS "emAreaDeRisco"
+         ) AS "emAreaDeRisco",
+         -- Trajeto em linha reta entre o usuário ($2, $1) e o abrigo cruza algum polígono de área de risco (PostGIS ST_Intersects).
+         CASE WHEN $1::float8 IS NULL THEN FALSE
+              ELSE EXISTS (
+                SELECT 1 FROM ocorrencia_infraestrutura r
+                 WHERE r.area_risco IS NOT NULL AND r.data_resolucao IS NULL AND r.status_validacao = 'APROVADA'
+                   AND ST_Intersects(
+                     r.area_risco::geometry,
+                     ST_MakeLine(
+                       ST_SetSRID(ST_MakePoint($2, $1), 4326),
+                       ST_SetSRID(ST_MakePoint(a.longitude, a.latitude), 4326)
+                     )
+                   )
+              )
+         END AS "rotaCruzaAreaRisco"
     FROM abrigo a
     LEFT JOIN LATERAL (
       SELECT json_agg(json_build_object('id', i.id, 'nome', i.nome_micro, 'categoria', c.slug) ORDER BY i.nome_micro)
@@ -113,7 +143,7 @@ const SQL_ABRIGOS_PUBLICOS = `
     LEFT JOIN LATERAL (
       SELECT json_agg(json_build_object('tipo', oc.tipo, 'gravidade', oc.gravidade) ORDER BY oc.data_registro) AS ocorrencias
         FROM ocorrencia_infraestrutura oc
-       WHERE oc.id_abrigo = a.id AND oc.data_resolucao IS NULL
+       WHERE oc.id_abrigo = a.id AND oc.data_resolucao IS NULL AND oc.status_validacao = 'APROVADA'
     ) o ON TRUE
    WHERE a.ativo`;
 
@@ -134,8 +164,11 @@ function apresentarResumo(linha: LinhaAbrigoPublico, filtros: FiltroMapa) {
     longitude: linha.longitude,
     ocupacao: resumirOcupacao(linha.lotacaoAtual, linha.capacidadeMaxima),
     statusInfraestrutura: linha.statusInfraestrutura,
+    aceitaPets: linha.aceitaPets,
+    acessivelPcd: linha.acessivelPcd,
     ocorrenciasAtivas: linha.ocorrencias,
     emAreaDeRisco: linha.emAreaDeRisco,
+    rotaCruzaAreaRisco: linha.rotaCruzaAreaRisco ?? false,
     necessidades: { urgentes: linha.urgentes, bloqueados: linha.bloqueados },
     // RF08: destaca quem precisa URGENTE do que o doador tem; BLOQUEADO nunca é destacado.
     destaque: temFiltro ? linha.urgentes.some(atendeFiltro) : null,
@@ -170,11 +203,16 @@ export async function listarAbrigosPublicos(filtros: FiltroMapa): Promise<Abrigo
   return montarListaAbrigosPublicos(await consultarLinhasAbrigosPublicos(filtros), filtros);
 }
 
-/** Filtros de necessidade, destaque e ordenação (em memória, sobre as linhas do banco). */
+/** Filtros de necessidade, perfil (pets/PCD), destaque e ordenação (em memória, sobre as linhas do banco). */
 export function montarListaAbrigosPublicos(linhas: LinhaAbrigoPublico[], filtros: FiltroMapa): AbrigoPublico[] {
   const abrigos = linhas
     .map((linha) => apresentarResumo(linha, filtros))
-    .filter((abrigo) => !filtros.somenteDestaque || abrigo.destaque);
+    .filter(
+      (abrigo) =>
+        (!filtros.somenteDestaque || abrigo.destaque) &&
+        (filtros.aceitaPets === undefined || abrigo.aceitaPets === filtros.aceitaPets) &&
+        (filtros.acessivelPcd === undefined || abrigo.acessivelPcd === filtros.acessivelPcd),
+    );
 
   return abrigos.sort(
     (a, b) =>
@@ -209,7 +247,7 @@ export async function buscarAbrigoPublico(id: number) {
     `SELECT id, tipo, gravidade, descricao, latitude, longitude, fn_vertices_area_risco(area_risco) AS poligono,
             data_registro AS "dataRegistro"
        FROM ocorrencia_infraestrutura
-      WHERE id_abrigo = $1 AND data_resolucao IS NULL
+      WHERE id_abrigo = $1 AND data_resolucao IS NULL AND status_validacao = 'APROVADA'
       ORDER BY gravidade DESC, data_registro`,
     [id],
   );
@@ -224,6 +262,8 @@ export async function buscarAbrigoPublico(id: number) {
     longitude: resumo.longitude,
     ocupacao: resumo.ocupacao,
     statusInfraestrutura: resumo.statusInfraestrutura,
+    aceitaPets: resumo.aceitaPets,
+    acessivelPcd: resumo.acessivelPcd,
     necessidades: resumo.necessidades,
     emAreaDeRisco: resumo.emAreaDeRisco,
     atualizadoEm: resumo.atualizadoEm,
@@ -254,7 +294,7 @@ export function listarCategoriasPublicas() {
   );
 }
 
-/** RF09 - alertas de risco ativos (local próprio da ocorrência, polígono de área de risco ou o do abrigo). */
+/** RF09 - alertas de risco ativos aprovados (local próprio da ocorrência, polígono de área de risco ou o do abrigo). */
 export async function listarAlertasPublicos() {
   const alertas = await consultar<{
     id: number;
@@ -277,7 +317,7 @@ export async function listarAlertasPublicos() {
             a.id AS "idAbrigo", a.nome AS abrigo
        FROM ocorrencia_infraestrutura o
        JOIN abrigo a ON a.id = o.id_abrigo AND a.ativo
-      WHERE o.data_resolucao IS NULL
+      WHERE o.data_resolucao IS NULL AND o.status_validacao = 'APROVADA'
       ORDER BY o.gravidade DESC, o.data_registro DESC`,
   );
   return alertas.map(({ idAbrigo, abrigo, ...alerta }) => ({
@@ -285,6 +325,153 @@ export async function listarAlertasPublicos() {
     descricaoTipo: DESCRICAO_TIPO_OCORRENCIA[alerta.tipo],
     abrigo: { id: idAbrigo, nome: abrigo },
   }));
+}
+
+// -----------------------------------------------------------------------------
+// Busca Pública de Familiares Acolhidos ("Encontre um Familiar" - LGPD-safe)
+// -----------------------------------------------------------------------------
+
+export const esquemaBuscaFamiliarPublico = z.object({
+  busca: z.string().trim().min(3, "Digite ao menos 3 caracteres do nome ou CPF.").max(100),
+});
+
+function abreviarNomeFamiliar(nomeCompleto: string): string {
+  const partes = nomeCompleto.trim().split(/\s+/).filter(Boolean);
+  if (partes.length <= 2) return partes.join(" ");
+  const preposicoes = new Set(["de", "da", "do", "das", "dos", "e"]);
+  return partes
+    .map((p, idx) => {
+      if (idx === 0 || idx === partes.length - 1) return p;
+      if (preposicoes.has(p.toLowerCase())) return p.toLowerCase();
+      return `${p[0]!.toUpperCase()}.`;
+    })
+    .join(" ");
+}
+
+function mascararCpf(cpf: string | null): string | null {
+  if (!cpf || cpf.length !== 11) return null;
+  return `***.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-**`;
+}
+
+/**
+ * Consulta pública de pessoas acolhidas com status PRESENTE em abrigos ativos.
+ * Protege dados pessoais (LGPD): abrevia nomes do meio e mascara o CPF.
+ */
+export async function buscarFamiliaresAcolhidosPublico(
+  filtros: z.infer<typeof esquemaBuscaFamiliarPublico>,
+) {
+  const termo = filtros.busca.trim();
+  const somenteDigitos = termo.replace(/\D/g, "");
+  const termoNome = escaparIlike(termo);
+
+  const linhas = await consultar<{
+    id: number;
+    nomeCompleto: string;
+    cpf: string | null;
+    dataEntrada: Date;
+    idAbrigo: number;
+    abrigoNome: string;
+    abrigoEndereco: string;
+    abrigoTelefone: string | null;
+  }>(
+    `SELECT ab.id, ab.nome_completo AS "nomeCompleto", ab.cpf, ab.data_entrada AS "dataEntrada",
+            a.id AS "idAbrigo", a.nome AS "abrigoNome", a.endereco AS "abrigoEndereco", a.telefone AS "abrigoTelefone"
+       FROM abrigado ab
+       JOIN abrigo a ON a.id = ab.id_abrigo_atual AND a.ativo
+      WHERE ab.status_acolhimento = 'PRESENTE'
+        AND (
+          ab.nome_completo ILIKE '%' || $1 || '%'
+          OR ($2::text IS NOT NULL AND ab.cpf = $2)
+        )
+      ORDER BY ab.data_entrada DESC, ab.nome_completo ASC
+      LIMIT 15`,
+    [termoNome, somenteDigitos.length === 11 ? somenteDigitos : null],
+  );
+
+  return linhas.map((l) => ({
+    id: l.id,
+    nomeExibicao: abreviarNomeFamiliar(l.nomeCompleto),
+    cpfMascarado: mascararCpf(l.cpf),
+    dataEntrada: l.dataEntrada,
+    abrigo: {
+      id: l.idAbrigo,
+      nome: l.abrigoNome,
+      endereco: l.abrigoEndereco,
+      telefone: l.abrigoTelefone,
+    },
+  }));
+}
+
+// -----------------------------------------------------------------------------
+// Reporte Cidadão de Incidentes com Fila de Moderação (Crowdsourcing)
+// -----------------------------------------------------------------------------
+
+const TIPOS_REPORTE_CIDADAO = ["VIA_BLOQUEADA", "ALAGAMENTO", "DESLIZAMENTO", "RISCO_ESTRUTURAL", "OUTRO"] as const;
+
+export const esquemaReporteCidadao = z.object({
+  idAbrigo: esquemaId.optional(),
+  tipo: z.enum(TIPOS_REPORTE_CIDADAO),
+  gravidade: z.enum(GRAVIDADES).optional(),
+  descricao: textoObrigatorio(400),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  relatorNome: textoOpcional(100),
+  relatorContato: textoOpcional(40),
+});
+
+/**
+ * Permite que qualquer cidadão reporte um bloqueio de via, alagamento ou risco no mapa.
+ * O reporte entra com `status_validacao = 'PENDENTE'` no abrigo indicado (ou no abrigo
+ * ativo mais próximo via PostGIS) para aprovação em 1 clique pela coordenação.
+ */
+export async function registrarReporteCidadao(dados: z.infer<typeof esquemaReporteCidadao>) {
+  const abrigoAlvo = dados.idAbrigo
+    ? await consultarUm<{ id: number; nome: string }>(
+        "SELECT id, nome FROM abrigo WHERE id = $1 AND ativo",
+        [dados.idAbrigo],
+      )
+    : await consultarUm<{ id: number; nome: string }>(
+        `SELECT id, nome
+           FROM abrigo
+          WHERE ativo
+          ORDER BY localizacao <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography
+          LIMIT 1`,
+        [dados.latitude, dados.longitude],
+      );
+
+  if (!abrigoAlvo) {
+    throw erros.naoEncontrado("Abrigo ativo na região");
+  }
+
+  const gravidade = dados.gravidade ?? GRAVIDADE_PADRAO[dados.tipo];
+
+  const inserido = await consultarUm<{ id: number; dataRegistro: Date }>(
+    `INSERT INTO ocorrencia_infraestrutura (
+       id_abrigo, id_usuario_registro, tipo, gravidade, descricao,
+       latitude, longitude, status_validacao, relator_nome, relator_contato
+     )
+     VALUES ($1, NULL, $2, $3, $4, $5, $6, 'PENDENTE', $7, $8)
+     RETURNING id, data_registro AS "dataRegistro"`,
+    [
+      abrigoAlvo.id,
+      dados.tipo,
+      gravidade,
+      dados.descricao,
+      dados.latitude,
+      dados.longitude,
+      dados.relatorNome ?? null,
+      dados.relatorContato ?? null,
+    ],
+  );
+
+  return {
+    id: inserido!.id,
+    tipo: dados.tipo,
+    gravidade,
+    statusValidacao: "PENDENTE" as const,
+    dataRegistro: inserido!.dataRegistro,
+    abrigo: abrigoAlvo,
+  };
 }
 
 /** Converte uma lista com latitude/longitude (e polígono opcional) em GeoJSON (consumido direto pelo Leaflet). */

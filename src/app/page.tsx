@@ -6,7 +6,7 @@ import { BarraFiltros } from "@/components/mapa/barra-filtros";
 import { CabecalhoMapa } from "@/components/mapa/cabecalho-mapa";
 import { FichaAbrigo } from "@/components/mapa/ficha-abrigo";
 import { filtrarAbrigos } from "@/components/mapa/filtrar-abrigos";
-import { ListaAbrigos, PainelAlertas } from "@/components/mapa/paineis-laterais";
+import { ListaAbrigos, PainelAlertas, PainelBuscaFamiliar } from "@/components/mapa/paineis-laterais";
 import type { AlertaMapa, FiltroRapido } from "@/components/mapa/tipos";
 import { useDadosMapa } from "@/components/mapa/use-dados-mapa";
 import { useServiceWorker } from "@/components/mapa/use-service-worker";
@@ -58,9 +58,9 @@ export default function PaginaMapaPublico() {
   const [raioKm, setRaioKm] = useState<number | null>(null);
   const [ocultarNaoDestaque, setOcultarNaoDestaque] = useState(false);
 
-  // Painéis e camadas (RF09)
+  // Painéis e camadas (RF09 + Busca de Familiares)
   const [camadaAlertasVisivel, setCamadaAlertasVisivel] = useState(true);
-  const [painelAberto, setPainelAberto] = useState<"alertas" | "lista" | null>(null);
+  const [painelAberto, setPainelAberto] = useState<"alertas" | "lista" | "familiares" | null>(null);
 
   // Localização do doador/cidadão (distância e raio via PostGIS)
   const [posicaoUsuario, setPosicaoUsuario] = useState<Posicao | null>(null);
@@ -219,6 +219,8 @@ export default function PaginaMapaPublico() {
         onConfirmarBusca={() => abrigosFiltrados[0] && selecionarAbrigo(abrigosFiltrados[0].id)}
         listaAberta={painelAberto === "lista"}
         onAlternarLista={() => setPainelAberto((p) => (p === "lista" ? null : "lista"))}
+        buscaFamiliarAberta={painelAberto === "familiares"}
+        onAlternarBuscaFamiliar={() => setPainelAberto((p) => (p === "familiares" ? null : "familiares"))}
         gps={{
           ativo: posicaoUsuario !== null,
           buscando: buscandoGps,
@@ -324,8 +326,20 @@ export default function PaginaMapaPublico() {
         {painelAberto === "alertas" && (
           <PainelAlertas
             alertas={alertas}
+            abrigos={abrigos}
+            posicaoUsuario={posicaoUsuario}
             onVerNoMapa={verAlertaNoMapa}
             onVerAbrigo={selecionarAbrigo}
+            onFechar={() => setPainelAberto(null)}
+          />
+        )}
+
+        {painelAberto === "familiares" && (
+          <PainelBuscaFamiliar
+            onVerAbrigo={(id) => {
+              selecionarAbrigo(id);
+              if (window.innerWidth < 640) setPainelAberto(null);
+            }}
             onFechar={() => setPainelAberto(null)}
           />
         )}

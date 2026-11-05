@@ -1,9 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { api, mensagemErro } from "@/lib/cliente-api";
+import { obterSeloAtualizacao } from "@/components/mapa/tipos";
+import { ErroClienteApi, api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
 import { ROTULO_TIPO_MOVIMENTACAO } from "../rotulos";
+
+interface MovimentoOffline3G {
+  uid: string;
+  idAbrigo: number;
+  idItem: number;
+  nomeItem: string;
+  delta: number;
+  corpo: Record<string, unknown>;
+  criadoEm: string;
+}
+
+const CHAVE_FILA_OFFLINE_3G = "wtg:inventario:fila-offline";
 
 interface ItemEstoque {
   idItem: number;
@@ -121,6 +134,16 @@ export default function PaginaInventario() {
   // Estado de feedback tátil/visual por card e fila sequencial por item
   const [feedbackPorItem, setFeedbackPorItem] = useState<Record<number, FeedbackCard>>({});
   const [toquesRecentes, setToquesRecentes] = useState<ToqueRecente[]>([]);
+  const [filaOffline, setFilaOffline] = useState<MovimentoOffline3G[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const salvo = window.localStorage.getItem(CHAVE_FILA_OFFLINE_3G);
+      return salvo ? (JSON.parse(salvo) as MovimentoOffline3G[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [sincronizandoFilaOffline, setSincronizandoFilaOffline] = useState(false);
   const filasPorItemRef = useRef<Map<number, Promise<void>>>(new Map());
   // Envios ainda na fila por item: o saldo do servidor só substitui o otimista
   // quando a fila esvazia (senão o número "pisca" 13 -> 11 -> 12 -> 13).
@@ -150,17 +173,87 @@ export default function PaginaInventario() {
 
   const carregar = useCallback(async () => {
     if (!idAbrigoAtivo) return;
+    const chaveCache = `wtg:inventario:cache:${idAbrigoAtivo}`;
     try {
       const qs = incluirCatalogo ? "?incluirCatalogo=true" : "";
       const lista = await api<ItemEstoque[]>(`/api/abrigos/${idAbrigoAtivo}/estoque${qs}`);
       setItens(lista);
+      try {
+        window.localStorage.setItem(chaveCache, JSON.stringify(lista));
+      } catch {
+        // Ignora quota de localStorage
+      }
       setErro(null);
     } catch (err) {
+      if (!(err instanceof ErroClienteApi)) {
+        try {
+          const cacheado = window.localStorage.getItem(chaveCache);
+          if (cacheado) {
+            setItens(JSON.parse(cacheado) as ItemEstoque[]);
+            setAviso("📴 Operando com cache local (3G instável). Seus toques serão salvos na fila offline.");
+            return;
+          }
+        } catch {
+          // Ignora falha de leitura de cache
+        }
+      }
       setErro(mensagemErro(err));
     } finally {
       setCarregando(false);
     }
   }, [idAbrigoAtivo, incluirCatalogo]);
+
+  const salvarFilaOfflineStorage = useCallback((novaFila: MovimentoOffline3G[]) => {
+    setFilaOffline(novaFila);
+    try {
+      if (novaFila.length === 0) {
+        window.localStorage.removeItem(CHAVE_FILA_OFFLINE_3G);
+      } else {
+        window.localStorage.setItem(CHAVE_FILA_OFFLINE_3G, JSON.stringify(novaFila));
+      }
+    } catch {
+      // Ignora quota
+    }
+  }, []);
+
+  const sincronizarFilaOffline = useCallback(async () => {
+    if (sincronizandoFilaOffline || filaOffline.length === 0) return;
+    setSincronizandoFilaOffline(true);
+    const restantes: MovimentoOffline3G[] = [];
+    let sincronizados = 0;
+
+    for (const mov of filaOffline) {
+      try {
+        await api<RespostaMovimento>(
+          `/api/abrigos/${mov.idAbrigo}/estoque/${mov.idItem}/movimentacoes`,
+          {
+            method: "POST",
+            body: JSON.stringify(mov.corpo),
+          },
+        );
+        sincronizados++;
+      } catch (err) {
+        if (!(err instanceof ErroClienteApi)) {
+          restantes.push(mov);
+        }
+      }
+    }
+
+    salvarFilaOfflineStorage(restantes);
+    setSincronizandoFilaOffline(false);
+    if (sincronizados > 0) {
+      await carregar();
+      setAviso(`✅ ${sincronizados} lançamento(s) da fila 3G/offline sincronizado(s) com o servidor.`);
+    }
+  }, [sincronizandoFilaOffline, filaOffline, salvarFilaOfflineStorage, carregar]);
+
+  useEffect(() => {
+    const aoReconectar = () => {
+      void sincronizarFilaOffline();
+    };
+    window.addEventListener("online", aoReconectar);
+    return () => window.removeEventListener("online", aoReconectar);
+  }, [sincronizarFilaOffline]);
 
   const carregarHistorico = useCallback(async () => {
     if (!idAbrigoAtivo || !podeClassificar) return;
@@ -247,6 +340,7 @@ export default function PaginaInventario() {
         };
         setToquesRecentes((ant) => [novoToque, ...ant.slice(0, 4)]);
       },
+      corpo,
     );
   }
 
@@ -260,6 +354,7 @@ export default function PaginaInventario() {
     deltaOtimista: number,
     enviar: () => Promise<RespostaMovimento>,
     aoConfirmar?: (res: RespostaMovimento) => void,
+    corpoOffline?: Record<string, unknown>,
   ) {
     setErro(null);
     aplicarSaldoNoEstado(item.idItem, item.quantidade + deltaOtimista);
@@ -286,6 +381,30 @@ export default function PaginaInventario() {
       })
       .catch(async (err) => {
         restantes();
+        if (!(err instanceof ErroClienteApi) && corpoOffline && idAbrigoAtivo) {
+          const itemFila: MovimentoOffline3G = {
+            uid: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            idAbrigo: idAbrigoAtivo,
+            idItem: item.idItem,
+            nomeItem: item.nome,
+            delta: deltaOtimista,
+            corpo: corpoOffline,
+            criadoEm: new Date().toISOString(),
+          };
+          setFilaOffline((ant) => {
+            const nova = [...ant, itemFila];
+            try {
+              window.localStorage.setItem(CHAVE_FILA_OFFLINE_3G, JSON.stringify(nova));
+            } catch {
+              // Ignora quota
+            }
+            return nova;
+          });
+          setAviso(
+            `📴 Conexão 3G instável: ${deltaOtimista > 0 ? `+${deltaOtimista}` : deltaOtimista} em "${item.nome}" guardado na fila offline e será enviado assim que o sinal voltar.`,
+          );
+          return;
+        }
         setErro(mensagemErro(err));
         await carregar();
       })
@@ -507,6 +626,37 @@ export default function PaginaInventario() {
         </div>
       </div>
 
+      {/* Banner de Fila Offline 3G */}
+      {filaOffline.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/50 bg-amber-950/35 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs sm:text-sm font-bold text-amber-200">
+              📴 Fila Resiliente 3G/Offline: {filaOffline.length} lançamento(s) aguardando conexão
+            </p>
+            <p className="text-xs text-amber-100/80">
+              Os saldos na tela já refletem seus toques. Assim que a rede estabilizar, os dados serão sincronizados em lote.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={sincronizandoFilaOffline}
+              onClick={() => void sincronizarFilaOffline()}
+              className="min-h-10 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
+            >
+              {sincronizandoFilaOffline ? "Sincronizando..." : "🔄 Sincronizar agora"}
+            </button>
+            <button
+              type="button"
+              onClick={() => salvarFilaOfflineStorage([])}
+              className="min-h-10 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+            >
+              Descartar fila
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Faixa de Últimos Toques da Sessão + Estorno em 1 Toque */}
       {toquesRecentes.length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
@@ -697,14 +847,19 @@ export default function PaginaInventario() {
                       <span className="text-3xl font-extrabold text-white">{item.quantidade}</span>
                       <span className="ml-1.5 text-xs text-slate-400">{item.unidadeMedida}(s)</span>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right space-y-0.5">
                       <span
-                        className={`text-xs font-medium ${
+                        className={`block text-xs font-medium ${
                           abaixoDoMinimo ? "text-amber-300 font-bold" : "text-slate-400"
                         }`}
                       >
                         Mín: {item.quantidadeMinima}
                       </span>
+                      {item.atualizadoEm && (
+                        <span className="block text-[11px] text-slate-400">
+                          {obterSeloAtualizacao(item.atualizadoEm).rotulo}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

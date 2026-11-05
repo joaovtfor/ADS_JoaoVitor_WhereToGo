@@ -12,11 +12,18 @@ import {
 import { classificarItem, movimentarEstoque } from "@/modules/estoque/estoque.service";
 import {
   esquemaRegistrarOcorrencia,
+  moderarOcorrencia,
   registrarOcorrencia,
   resolverOcorrencia,
 } from "@/modules/ocorrencias/ocorrencias.service";
 import { consultar, consultarUm } from "@/lib/db";
-import { listarAbrigosPublicos, listarAlertasPublicos, paraGeoJson } from "@/modules/publico/publico.service";
+import {
+  buscarFamiliaresAcolhidosPublico,
+  listarAbrigosPublicos,
+  listarAlertasPublicos,
+  paraGeoJson,
+  registrarReporteCidadao,
+} from "@/modules/publico/publico.service";
 import { capturarErro, contexto, criarAbrigo, criarCenario, criarUsuario, idItem } from "./fixtures";
 
 /** O ponto do rótulo (latitude/longitude) está dentro do polígono da área de risco? */
@@ -268,5 +275,142 @@ describe("RF04 - Dashboard de triagem", () => {
     expect(dashboard.ultimasMovimentacoes).toHaveLength(1);
 
     expect((await capturarErro(obterDashboard(voluntario, abrigo.id))).status).toBe(403);
+  });
+});
+
+describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_Intersects, Rebalanceamento e Reporte Cidadão)", () => {
+  it("atualiza e filtra abrigos públicos por tags de perfil (Aceita Pets e Acessível PCD)", async () => {
+    const { abrigo, coordenador } = await criarCenario();
+
+    const atualizado = await atualizarAbrigo(coordenador, abrigo.id, {
+      aceitaPets: true,
+      acessivelPcd: true,
+    });
+    expect(atualizado).toMatchObject({ aceitaPets: true, acessivelPcd: true });
+
+    const listaPets = await listarAbrigosPublicos({ formato: "json", aceitaPets: true });
+    expect(listaPets.some((a) => a.id === abrigo.id && a.aceitaPets && a.acessivelPcd)).toBe(true);
+  });
+
+  it("detecta via PostGIS ST_Intersects quando o trajeto em linha reta cruza um polígono de área de risco", async () => {
+    // Usuário ao norte (-28.20, -52.40), abrigo ao sul (-28.30, -52.40) e polígono de risco no meio (-28.25)
+    const abrigo = await criarAbrigo({ latitude: -28.30, longitude: -52.40 });
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+
+    const poligonoNoCaminho = [
+      { lat: -28.245, lng: -52.41 },
+      { lat: -28.245, lng: -52.39 },
+      { lat: -28.255, lng: -52.39 },
+      { lat: -28.255, lng: -52.41 },
+    ];
+    const ocorrencia = await registrarOcorrencia(coordenador, abrigo.id, {
+      tipo: "AREA_RISCO",
+      poligono: poligonoNoCaminho,
+    });
+
+    const comCruzamento = await listarAbrigosPublicos({
+      formato: "json",
+      lat: -28.20,
+      lng: -52.40,
+    });
+    const alvo = comCruzamento.find((a) => a.id === abrigo.id);
+    expect(alvo?.emAreaDeRisco).toBe(false);
+    expect(alvo?.rotaCruzaAreaRisco).toBe(true);
+
+    await resolverOcorrencia(coordenador, abrigo.id, ocorrencia.ocorrencia.id, {});
+    const aposResolver = await listarAbrigosPublicos({
+      formato: "json",
+      lat: -28.20,
+      lng: -52.40,
+    });
+    expect(aposResolver.find((a) => a.id === abrigo.id)?.rotaCruzaAreaRisco).toBe(false);
+  });
+
+  it("busca familiares acolhidos no portal público mascarando nome do meio e CPF (LGPD)", async () => {
+    const { abrigo, voluntario } = await criarCenario();
+    await registrarEntrada(voluntario, abrigo.id, {
+      nomeCompleto: "Carlos Eduardo Pereira",
+      cpf: "52998224725",
+    });
+
+    const resultados = await buscarFamiliaresAcolhidosPublico({ busca: "Carlos" });
+    const encontrado = resultados.find((r) => r.abrigo.id === abrigo.id);
+    expect(encontrado).toBeDefined();
+    expect(encontrado?.nomeAbreviado).toBe("Carlos E. Pereira");
+    expect(encontrado?.cpfMascarado).toBe("***.982.247-**");
+  });
+
+  it("recebe reporte cidadão como PENDENTE sem alterar o mapa público até a aprovação do coordenador", async () => {
+    const abrigo = await criarAbrigo({ latitude: -28.261, longitude: -52.408 });
+    const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
+
+    const reporte = await registrarReporteCidadao({
+      idAbrigo: abrigo.id,
+      tipo: "ALAGAMENTO",
+      gravidade: "CRITICO",
+      descricao: "Água subindo rapidamente na esquina da escola",
+      latitude: -28.2612,
+      longitude: -52.4082,
+      relatorNome: "Morador Teste",
+      relatorContato: "(54) 98888-7777",
+    });
+    expect(reporte.statusValidacao).toBe("PENDENTE");
+
+    // Enquanto PENDENTE, não contamina o mapa público nem o status do abrigo
+    const alertasAntes = await listarAlertasPublicos(abrigo.id);
+    expect(alertasAntes.some((a) => a.id === reporte.id)).toBe(false);
+
+    const dashAntes = await obterDashboard(coordenador, abrigo.id);
+    expect(dashAntes.abrigo.statusInfraestrutura).toBe("NORMAL");
+    expect(dashAntes.reportesPendentes).toBe(1);
+
+    // Após aprovação pelo coordenador, publica no mapa e atualiza status para CRITICO
+    const moderado = await moderarOcorrencia(coordenador, abrigo.id, reporte.id, {
+      acao: "APROVAR",
+    });
+    expect(moderado.statusInfraestrutura).toBe("CRITICO");
+    expect(moderado.ocorrencia.statusValidacao).toBe("APROVADA");
+
+    const alertasDepois = await listarAlertasPublicos(abrigo.id);
+    expect(alertasDepois.some((a) => a.id === reporte.id)).toBe(true);
+  });
+
+  it("sugere transferência automática de estoque entre abrigos próximos com excedente e déficit", async () => {
+    const { abrigo: abrigoDeficit, coordenador: coordDeficit, voluntario: volDeficit } = await criarCenario();
+    const abrigoExcedente = await criarAbrigo({
+      nome: "Abrigo Parceiro Excedente",
+      latitude: -28.265,
+      longitude: -52.412,
+    });
+    const volExcedente = contexto(await criarUsuario("VOLUNTARIO", abrigoExcedente.id));
+    const coordExcedente = contexto(await criarUsuario("COORDENADOR", abrigoExcedente.id));
+
+    const colchao = await idItem("Colchão Solteiro");
+    // Abrigo A tem déficit (2 un, mínimo 20, URGENTE)
+    await movimentarEstoque(volDeficit, abrigoDeficit.id, colchao, { quantidade: 2 });
+    await classificarItem(coordDeficit, abrigoDeficit.id, colchao, {
+      quantidadeMinima: 20,
+      statusNecessidade: "URGENTE",
+    });
+
+    // Abrigo B tem excedente (80 un, mínimo 10)
+    await movimentarEstoque(volExcedente, abrigoExcedente.id, colchao, { quantidade: 80 });
+    await classificarItem(coordExcedente, abrigoExcedente.id, colchao, {
+      quantidadeMinima: 10,
+      statusNecessidade: "NORMAL",
+    });
+
+    const dashDeficit = await obterDashboard(coordDeficit, abrigoDeficit.id);
+    const sugestaoReceber = dashDeficit.sugestoesTransferencia.find(
+      (s) => s.direcao === "RECEBER" && s.idItem === colchao && s.idAbrigoParceiro === abrigoExcedente.id,
+    );
+    expect(sugestaoReceber).toBeDefined();
+    expect(sugestaoReceber?.quantidadeSugerida).toBeGreaterThan(0);
+
+    const dashExcedente = await obterDashboard(coordExcedente, abrigoExcedente.id);
+    const sugestaoEnviar = dashExcedente.sugestoesTransferencia.find(
+      (s) => s.direcao === "ENVIAR" && s.idItem === colchao && s.idAbrigoParceiro === abrigoDeficit.id,
+    );
+    expect(sugestaoEnviar).toBeDefined();
   });
 });

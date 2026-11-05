@@ -41,6 +41,8 @@ const camposAbrigo = {
   longitude: z.number().min(-180).max(180),
   capacidadeMaxima: z.number().int().positive().max(100_000),
   acolhidosNaoTriados: z.number().int().min(0).max(100_000).optional(),
+  aceitaPets: z.boolean().optional(),
+  acessivelPcd: z.boolean().optional(),
 };
 
 const pixCompleto = (d: { chavePix?: string | null; titularPix?: string | null }) => !d.chavePix === !d.titularPix;
@@ -71,7 +73,13 @@ export const esquemaFiltroAbrigos = z.object({
 });
 
 /** Campos que o COORDENADOR pode alterar no próprio abrigo; os demais são do ADMIN. */
-const CAMPOS_OPERACIONAIS = new Set(["telefone", "capacidadeMaxima", "acolhidosNaoTriados"]);
+const CAMPOS_OPERACIONAIS = new Set([
+  "telefone",
+  "capacidadeMaxima",
+  "acolhidosNaoTriados",
+  "aceitaPets",
+  "acessivelPcd",
+]);
 
 const COLUNAS_EDITAVEIS: Record<string, string> = {
   nome: "nome",
@@ -83,6 +91,8 @@ const COLUNAS_EDITAVEIS: Record<string, string> = {
   longitude: "longitude",
   capacidadeMaxima: "capacidade_maxima",
   acolhidosNaoTriados: "acolhidos_nao_triados",
+  aceitaPets: "aceita_pets",
+  acessivelPcd: "acessivel_pcd",
   ativo: "ativo",
 };
 
@@ -97,6 +107,7 @@ function colunasAbrigo(prefixo = "a.") {
   ${p}id, ${p}nome, ${p}endereco, ${p}telefone, ${p}chave_pix AS "chavePix", ${p}titular_pix AS "titularPix",
   ${p}latitude, ${p}longitude, ${p}capacidade_maxima AS "capacidadeMaxima", ${p}lotacao_atual AS "lotacaoAtual",
   ${p}acolhidos_nao_triados AS "acolhidosNaoTriados", ${p}status_infraestrutura AS "statusInfraestrutura",
+  ${p}aceita_pets AS "aceitaPets", ${p}acessivel_pcd AS "acessivelPcd",
   ${p}ativo, ${p}criado_em AS "criadoEm", ${p}atualizado_em AS "atualizadoEm"`;
 }
 
@@ -116,6 +127,8 @@ interface LinhaAbrigo {
   lotacaoAtual: number;
   acolhidosNaoTriados: number;
   statusInfraestrutura: StatusInfraestrutura;
+  aceitaPets: boolean;
+  acessivelPcd: boolean;
   ativo: boolean;
   criadoEm: Date;
   atualizadoEm: Date;
@@ -171,8 +184,11 @@ export async function criarAbrigo(ctx: Contexto, dados: z.infer<typeof esquemaCr
   }
 
   const linha = await consultarUm<LinhaAbrigo>(
-    `INSERT INTO abrigo (nome, endereco, telefone, chave_pix, titular_pix, latitude, longitude, capacidade_maxima, lotacao_atual, acolhidos_nao_triados)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+    `INSERT INTO abrigo (
+       nome, endereco, telefone, chave_pix, titular_pix, latitude, longitude,
+       capacidade_maxima, lotacao_atual, acolhidos_nao_triados, aceita_pets, acessivel_pcd
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11)
      RETURNING ${COLUNAS_RETORNO}`,
     [
       dados.nome,
@@ -184,6 +200,8 @@ export async function criarAbrigo(ctx: Contexto, dados: z.infer<typeof esquemaCr
       dados.longitude,
       dados.capacidadeMaxima,
       naoTriados,
+      dados.aceitaPets ?? false,
+      dados.acessivelPcd ?? false,
     ],
   );
 
@@ -298,81 +316,166 @@ export async function obterDashboard(ctx: Contexto, id: number) {
   const abrigo = await buscarPorId(id);
   if (!abrigo) throw erros.naoEncontrado("Abrigo");
 
-  const [acolhidos, transferencias, itensCriticos, resumoEstoque, ocorrencias, movimentacoes] = await Promise.all([
-    consultarUm<{ presentes: number; entradas24h: number; desligados24h: number }>(
-      `SELECT count(*) FILTER (WHERE ab.status_acolhimento = 'PRESENTE') AS presentes,
-              count(*) FILTER (
-                WHERE ab.status_acolhimento = 'PRESENTE'
-                  AND ab.data_entrada >= now() - interval '24 hours'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM transferencia_abrigado t
-                     WHERE t.id_abrigado = ab.id
-                       AND t.id_abrigo_destino = $1
-                       AND t.data_transferencia >= ab.data_entrada
+  const [acolhidos, transferencias, itensCriticos, resumoEstoque, ocorrencias, movimentacoes, sugestoesTransferencia, reportes] =
+    await Promise.all([
+      consultarUm<{ presentes: number; entradas24h: number; desligados24h: number }>(
+        `SELECT count(*) FILTER (WHERE ab.status_acolhimento = 'PRESENTE') AS presentes,
+                count(*) FILTER (
+                  WHERE ab.status_acolhimento = 'PRESENTE'
+                    AND ab.data_entrada >= now() - interval '24 hours'
+                    AND NOT EXISTS (
+                      SELECT 1 FROM transferencia_abrigado t
+                       WHERE t.id_abrigado = ab.id
+                         AND t.id_abrigo_destino = $1
+                         AND t.data_transferencia >= ab.data_entrada
+                    )
+                ) AS "entradas24h",
+                count(*) FILTER (WHERE ab.data_saida >= now() - interval '24 hours') AS "desligados24h"
+           FROM abrigado ab WHERE ab.id_abrigo_atual = $1`,
+        [id],
+      ),
+      consultarUm<{ recebidas24h: number; enviadas24h: number }>(
+        `SELECT count(*) FILTER (WHERE id_abrigo_destino = $1) AS "recebidas24h",
+                count(*) FILTER (WHERE id_abrigo_origem = $1) AS "enviadas24h"
+           FROM transferencia_abrigado
+          WHERE (id_abrigo_origem = $1 OR id_abrigo_destino = $1)
+            AND data_transferencia >= now() - interval '24 hours'`,
+        [id],
+      ),
+      consultar<{
+        idItem: number;
+        nome: string;
+        unidadeMedida: string;
+        categoria: string;
+        quantidade: number;
+        quantidadeMinima: number;
+        statusNecessidade: string;
+      }>(
+        `SELECT e.id_item AS "idItem", i.nome_micro AS nome, i.unidade_medida AS "unidadeMedida", c.slug AS categoria,
+                e.quantidade, e.quantidade_minima AS "quantidadeMinima", s.codigo AS "statusNecessidade"
+           FROM estoque_abrigo e
+           JOIN item i ON i.id = e.id_item
+           JOIN categoria_item c ON c.id = i.id_categoria
+           JOIN status_necessidade s ON s.id = e.id_status_necessidade
+          WHERE e.id_abrigo = $1
+            AND (s.codigo = 'URGENTE' OR e.quantidade < e.quantidade_minima)
+          ORDER BY s.nivel_prioridade, e.quantidade - e.quantidade_minima, i.nome_micro`,
+        [id],
+      ),
+      consultarUm<{ itensEmEstoque: number; itensUrgentes: number; itensBloqueados: number }>(
+        `SELECT count(*) FILTER (WHERE e.quantidade > 0) AS "itensEmEstoque",
+                count(*) FILTER (WHERE s.codigo = 'URGENTE') AS "itensUrgentes",
+                count(*) FILTER (WHERE s.codigo = 'BLOQUEADO') AS "itensBloqueados"
+           FROM estoque_abrigo e JOIN status_necessidade s ON s.id = e.id_status_necessidade
+          WHERE e.id_abrigo = $1`,
+        [id],
+      ),
+      consultar(
+        `SELECT id, tipo, gravidade, descricao, latitude, longitude, fn_vertices_area_risco(area_risco) AS poligono, data_registro AS "dataRegistro"
+           FROM ocorrencia_infraestrutura
+          WHERE id_abrigo = $1 AND data_resolucao IS NULL AND status_validacao = 'APROVADA'
+          ORDER BY gravidade DESC, data_registro`,
+        [id],
+      ),
+      consultar(
+        `SELECT m.id, m.tipo_movimentacao AS tipo, m.quantidade, m.quantidade_resultante AS "quantidadeResultante",
+                m.data_hora AS "dataHora", i.nome_micro AS item, u.nome AS usuario
+           FROM movimentacao_estoque m
+           JOIN item i ON i.id = m.id_item
+           JOIN usuario u ON u.id = m.id_usuario
+          WHERE m.id_abrigo = $1
+          ORDER BY m.data_hora DESC, m.id DESC
+          LIMIT 10`,
+        [id],
+      ),
+      consultar<{
+        direcao: "RECEBER" | "ENVIAR";
+        idItem: number;
+        item: string;
+        unidadeMedida: string;
+        categoria: string;
+        idAbrigoParceiro: number;
+        abrigoParceiro: string;
+        telefoneParceiro: string | null;
+        distanciaKm: number;
+        quantidadeAtual: number;
+        quantidadeParceiro: number;
+        quantidadeSugerida: number;
+      }>(
+        `SELECT CASE
+                  WHEN s_atual.codigo = 'URGENTE' OR e_atual.quantidade < e_atual.quantidade_minima THEN 'RECEBER'
+                  ELSE 'ENVIAR'
+                END AS direcao,
+                e_atual.id_item AS "idItem",
+                i.nome_micro AS item,
+                i.unidade_medida AS "unidadeMedida",
+                c.slug AS categoria,
+                a_parceiro.id AS "idAbrigoParceiro",
+                a_parceiro.nome AS "abrigoParceiro",
+                a_parceiro.telefone AS "telefoneParceiro",
+                round((ST_Distance(a_atual.localizacao, a_parceiro.localizacao) / 1000)::numeric, 2)::float8 AS "distanciaKm",
+                e_atual.quantidade AS "quantidadeAtual",
+                e_parceiro.quantidade AS "quantidadeParceiro",
+                GREATEST(
+                  1,
+                  LEAST(
+                    CASE
+                      WHEN s_atual.codigo = 'URGENTE' OR e_atual.quantidade < e_atual.quantidade_minima
+                        THEN GREATEST(e_atual.quantidade_minima - e_atual.quantidade, 5)
+                      ELSE GREATEST(e_parceiro.quantidade_minima - e_parceiro.quantidade, 5)
+                    END,
+                    CASE
+                      WHEN s_atual.codigo = 'URGENTE' OR e_atual.quantidade < e_atual.quantidade_minima
+                        THEN GREATEST(e_parceiro.quantidade - e_parceiro.quantidade_minima, 1)
+                      ELSE GREATEST(e_atual.quantidade - e_atual.quantidade_minima, 1)
+                    END
                   )
-              ) AS "entradas24h",
-              count(*) FILTER (WHERE ab.data_saida >= now() - interval '24 hours') AS "desligados24h"
-         FROM abrigado ab WHERE ab.id_abrigo_atual = $1`,
-      [id],
-    ),
-    consultarUm<{ recebidas24h: number; enviadas24h: number }>(
-      `SELECT count(*) FILTER (WHERE id_abrigo_destino = $1) AS "recebidas24h",
-              count(*) FILTER (WHERE id_abrigo_origem = $1) AS "enviadas24h"
-         FROM transferencia_abrigado
-        WHERE (id_abrigo_origem = $1 OR id_abrigo_destino = $1)
-          AND data_transferencia >= now() - interval '24 hours'`,
-      [id],
-    ),
-    consultar<{
-      idItem: number;
-      nome: string;
-      unidadeMedida: string;
-      categoria: string;
-      quantidade: number;
-      quantidadeMinima: number;
-      statusNecessidade: string;
-    }>(
-      `SELECT e.id_item AS "idItem", i.nome_micro AS nome, i.unidade_medida AS "unidadeMedida", c.slug AS categoria,
-              e.quantidade, e.quantidade_minima AS "quantidadeMinima", s.codigo AS "statusNecessidade"
-         FROM estoque_abrigo e
-         JOIN item i ON i.id = e.id_item
-         JOIN categoria_item c ON c.id = i.id_categoria
-         JOIN status_necessidade s ON s.id = e.id_status_necessidade
-        WHERE e.id_abrigo = $1
-          AND (s.codigo = 'URGENTE' OR e.quantidade < e.quantidade_minima)
-        ORDER BY s.nivel_prioridade, e.quantidade - e.quantidade_minima, i.nome_micro`,
-      [id],
-    ),
-    consultarUm<{ itensEmEstoque: number; itensUrgentes: number; itensBloqueados: number }>(
-      `SELECT count(*) FILTER (WHERE e.quantidade > 0) AS "itensEmEstoque",
-              count(*) FILTER (WHERE s.codigo = 'URGENTE') AS "itensUrgentes",
-              count(*) FILTER (WHERE s.codigo = 'BLOQUEADO') AS "itensBloqueados"
-         FROM estoque_abrigo e JOIN status_necessidade s ON s.id = e.id_status_necessidade
-        WHERE e.id_abrigo = $1`,
-      [id],
-    ),
-    consultar(
-      `SELECT id, tipo, gravidade, descricao, latitude, longitude, fn_vertices_area_risco(area_risco) AS poligono, data_registro AS "dataRegistro"
-         FROM ocorrencia_infraestrutura
-        WHERE id_abrigo = $1 AND data_resolucao IS NULL
-        ORDER BY gravidade DESC, data_registro`,
-      [id],
-    ),
-    consultar(
-      `SELECT m.id, m.tipo_movimentacao AS tipo, m.quantidade, m.quantidade_resultante AS "quantidadeResultante",
-              m.data_hora AS "dataHora", i.nome_micro AS item, u.nome AS usuario
-         FROM movimentacao_estoque m
-         JOIN item i ON i.id = m.id_item
-         JOIN usuario u ON u.id = m.id_usuario
-        WHERE m.id_abrigo = $1
-        ORDER BY m.data_hora DESC, m.id DESC
-        LIMIT 10`,
-      [id],
-    ),
-  ]);
+                )::int AS "quantidadeSugerida"
+           FROM abrigo a_atual
+           JOIN estoque_abrigo e_atual ON e_atual.id_abrigo = a_atual.id
+           JOIN status_necessidade s_atual ON s_atual.id = e_atual.id_status_necessidade
+           JOIN item i ON i.id = e_atual.id_item AND i.ativo
+           JOIN categoria_item c ON c.id = i.id_categoria
+           JOIN estoque_abrigo e_parceiro ON e_parceiro.id_item = e_atual.id_item AND e_parceiro.id_abrigo <> a_atual.id
+           JOIN status_necessidade s_parceiro ON s_parceiro.id = e_parceiro.id_status_necessidade
+           JOIN abrigo a_parceiro ON a_parceiro.id = e_parceiro.id_abrigo AND a_parceiro.ativo
+          WHERE a_atual.id = $1
+            AND (
+              (
+                (s_atual.codigo = 'URGENTE' OR e_atual.quantidade < e_atual.quantidade_minima)
+                AND e_parceiro.quantidade > e_parceiro.quantidade_minima
+                AND (s_parceiro.codigo = 'BLOQUEADO' OR e_parceiro.quantidade >= GREATEST(e_parceiro.quantidade_minima + 5, 10))
+              )
+              OR
+              (
+                e_atual.quantidade > e_atual.quantidade_minima
+                AND (s_atual.codigo = 'BLOQUEADO' OR e_atual.quantidade >= GREATEST(e_atual.quantidade_minima + 5, 10))
+                AND (s_parceiro.codigo = 'URGENTE' OR e_parceiro.quantidade < e_parceiro.quantidade_minima)
+              )
+            )
+          ORDER BY (s_atual.codigo = 'URGENTE' OR s_parceiro.codigo = 'URGENTE') DESC,
+                   ST_Distance(a_atual.localizacao, a_parceiro.localizacao) ASC,
+                   i.nome_micro ASC
+          LIMIT 8`,
+        [id],
+      ),
+      consultarUm<{ pendentes: number }>(
+        `SELECT count(*)::int AS pendentes
+           FROM ocorrencia_infraestrutura
+          WHERE id_abrigo = $1 AND data_resolucao IS NULL AND status_validacao = 'PENDENTE'`,
+        [id],
+      ),
+    ]);
 
   return {
-    abrigo: { id: abrigo.id, nome: abrigo.nome, ativo: abrigo.ativo, statusInfraestrutura: abrigo.statusInfraestrutura },
+    abrigo: {
+      id: abrigo.id,
+      nome: abrigo.nome,
+      ativo: abrigo.ativo,
+      statusInfraestrutura: abrigo.statusInfraestrutura,
+      aceitaPets: abrigo.aceitaPets,
+      acessivelPcd: abrigo.acessivelPcd,
+    },
     ocupacao: resumirOcupacao(abrigo.lotacaoAtual, abrigo.capacidadeMaxima),
     acolhidos: { ...acolhidos!, naoTriados: abrigo.acolhidosNaoTriados, ...transferencias! },
     estoque: {
@@ -382,6 +485,8 @@ export async function obterDashboard(ctx: Contexto, id: number) {
         motivo: item.statusNecessidade === "URGENTE" ? "URGENTE" : "ABAIXO_DO_MINIMO",
       })),
     },
+    sugestoesTransferencia,
+    reportesPendentes: reportes?.pendentes ?? 0,
     ocorrenciasAtivas: ocorrencias,
     ultimasMovimentacoes: movimentacoes,
   };

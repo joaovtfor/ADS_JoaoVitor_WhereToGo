@@ -48,18 +48,29 @@ export const esquemaRegistrarOcorrencia = z
 
 export const esquemaResolverOcorrencia = z.object({ observacao: textoOpcional(500) });
 
+export const esquemaModerarOcorrencia = z.object({
+  acao: z.enum(["APROVAR", "REJEITAR"]),
+  observacao: textoOpcional(500),
+});
+
 export const esquemaFiltroOcorrencias = z.object({ ativas: booleanoQuery.optional() });
 
 const COLUNAS_OCORRENCIA = `
   o.id, o.id_abrigo AS "idAbrigo", o.tipo, o.gravidade, o.descricao, o.latitude, o.longitude,
   fn_vertices_area_risco(o.area_risco) AS "poligono",
+  o.status_validacao AS "statusValidacao",
+  o.relator_nome AS "relatorNome",
+  o.relator_contato AS "relatorContato",
+  (o.id_usuario_registro IS NULL) AS "origemCidada",
   o.data_registro AS "dataRegistro", o.data_resolucao AS "dataResolucao",
-  o.id_usuario_registro AS "idUsuarioRegistro", ur.nome AS "usuarioRegistro", ur.nome AS "registradoPor",
+  o.id_usuario_registro AS "idUsuarioRegistro",
+  COALESCE(ur.nome, o.relator_nome, 'Reporte Cidadão') AS "usuarioRegistro",
+  COALESCE(ur.nome, o.relator_nome, 'Reporte Cidadão') AS "registradoPor",
   o.id_usuario_resolucao AS "idUsuarioResolucao", us.nome AS "usuarioResolucao", us.nome AS "resolvidoPor"`;
 
 const FROM_OCORRENCIA = `
   FROM ocorrencia_infraestrutura o
-  JOIN usuario ur ON ur.id = o.id_usuario_registro
+  LEFT JOIN usuario ur ON ur.id = o.id_usuario_registro
   LEFT JOIN usuario us ON us.id = o.id_usuario_resolucao`;
 
 interface Ocorrencia {
@@ -71,6 +82,10 @@ interface Ocorrencia {
   latitude: number | null;
   longitude: number | null;
   poligono: PontoPoligono[] | null;
+  statusValidacao: "PENDENTE" | "APROVADA" | "REJEITADA";
+  relatorNome: string | null;
+  relatorContato: string | null;
+  origemCidada: boolean;
   dataRegistro: Date;
   dataResolucao: Date | null;
 }
@@ -98,7 +113,7 @@ export async function listarOcorrencias(ctx: Contexto, idAbrigo: number, filtros
   const linhas = await consultar<Ocorrencia>(
     `SELECT ${COLUNAS_OCORRENCIA} ${FROM_OCORRENCIA}
       WHERE o.id_abrigo = $1 AND ($2::boolean IS NULL OR (o.data_resolucao IS NULL) = $2)
-      ORDER BY (o.data_resolucao IS NULL) DESC, o.data_registro DESC`,
+      ORDER BY (o.data_resolucao IS NULL) DESC, (o.status_validacao = 'PENDENTE') DESC, o.data_registro DESC`,
     [idAbrigo, filtros.ativas ?? null],
   );
   return linhas.map(apresentar);
@@ -180,6 +195,69 @@ export async function resolverOcorrencia(
     descricao: `Ocorrência resolvida: ${DESCRICAO_TIPO_OCORRENCIA[ocorrencia!.tipo]}`,
     idAbrigo,
     detalhes: { idOcorrencia, observacao: dados.observacao ?? null },
+  });
+
+  return { ocorrencia: apresentar(ocorrencia!), statusInfraestrutura: await statusAtual(idAbrigo) };
+}
+
+/**
+ * Moderação de reporte cidadão (crowdsourcing inspirado em Ushahidi/Waze):
+ * - APROVAR: promove para APROVADA e publica no mapa público (RF09).
+ * - REJEITAR: marca como REJEITADA e encerra o reporte sem afetar o abrigo.
+ */
+export async function moderarOcorrencia(
+  ctx: Contexto,
+  idAbrigo: number,
+  idOcorrencia: number,
+  dados: z.infer<typeof esquemaModerarOcorrencia>,
+) {
+  exigirPermissao(ctx.usuario, "ocorrencia:gerenciar", idAbrigo);
+
+  const ocorrencia = await comTransacao(async (client) => {
+    const atual = await consultarUm<{
+      id: number;
+      tipo: TipoOcorrencia;
+      statusValidacao: "PENDENTE" | "APROVADA" | "REJEITADA";
+      resolvida: boolean;
+    }>(
+      `SELECT id, tipo, status_validacao AS "statusValidacao", data_resolucao IS NOT NULL AS resolvida
+         FROM ocorrencia_infraestrutura WHERE id = $1 AND id_abrigo = $2 FOR UPDATE`,
+      [idOcorrencia, idAbrigo],
+      client,
+    );
+    if (!atual) throw erros.naoEncontrado("Ocorrência");
+    if (atual.resolvida) throw erros.conflito("OCORRENCIA_JA_RESOLVIDA", "Esta ocorrência já foi encerrada.");
+    if (atual.statusValidacao !== "PENDENTE") {
+      throw erros.conflito("OCORRENCIA_JA_MODERADA", "Este reporte já foi moderado anteriormente.");
+    }
+
+    if (dados.acao === "APROVAR") {
+      await client.query(
+        `UPDATE ocorrencia_infraestrutura
+            SET status_validacao = 'APROVADA',
+                id_usuario_registro = COALESCE(id_usuario_registro, $2)
+          WHERE id = $1`,
+        [idOcorrencia, ctx.usuario.id],
+      );
+    } else {
+      await client.query(
+        `UPDATE ocorrencia_infraestrutura
+            SET status_validacao = 'REJEITADA',
+                data_resolucao = now(),
+                id_usuario_resolucao = $2
+          WHERE id = $1`,
+        [idOcorrencia, ctx.usuario.id],
+      );
+    }
+
+    return consultarUm<Ocorrencia>(`SELECT ${COLUNAS_OCORRENCIA} ${FROM_OCORRENCIA} WHERE o.id = $1`, [idOcorrencia], client);
+  });
+
+  auditar(ctx, {
+    acao: dados.acao === "APROVAR" ? "REPORTE_CIDADAO_APROVADO" : "REPORTE_CIDADAO_REJEITADO",
+    descricao: `Reporte cidadão (${DESCRICAO_TIPO_OCORRENCIA[ocorrencia!.tipo]}) ${dados.acao === "APROVAR" ? "aprovado" : "descartado"}`,
+    idAbrigo,
+    detalhes: { idOcorrencia, acao: dados.acao, observacao: dados.observacao ?? null },
   });
 
   return { ocorrencia: apresentar(ocorrencia!), statusInfraestrutura: await statusAtual(idAbrigo) };

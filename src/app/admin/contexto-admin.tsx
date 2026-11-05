@@ -50,6 +50,8 @@ export interface AbrigoAdmin {
   lotacaoAtual: number;
   acolhidosNaoTriados: number;
   statusInfraestrutura: StatusInfraestrutura;
+  aceitaPets: boolean;
+  acessivelPcd: boolean;
   ativo: boolean;
   ocupacao: ResumoOcupacao;
 }

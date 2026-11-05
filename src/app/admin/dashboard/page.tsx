@@ -6,12 +6,29 @@ import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin, type NivelOcupacao, type StatusInfraestrutura } from "../contexto-admin";
 import { ROTULO_TIPO_MOVIMENTACAO } from "../rotulos";
 
+interface SugestaoTransferencia {
+  direcao: "RECEBER" | "ENVIAR";
+  idItem: number;
+  item: string;
+  unidadeMedida: string;
+  categoria: string;
+  idAbrigoParceiro: number;
+  abrigoParceiro: string;
+  telefoneParceiro: string | null;
+  distanciaKm: number;
+  quantidadeAtual: number;
+  quantidadeParceiro: number;
+  quantidadeSugerida: number;
+}
+
 interface DadosDashboard {
   abrigo: {
     id: number;
     nome: string;
     ativo: boolean;
     statusInfraestrutura: StatusInfraestrutura;
+    aceitaPets?: boolean;
+    acessivelPcd?: boolean;
   };
   ocupacao: {
     capacidadeMaxima: number;
@@ -43,6 +60,8 @@ interface DadosDashboard {
       motivo: "URGENTE" | "ABAIXO_DO_MINIMO";
     }>;
   };
+  sugestoesTransferencia?: SugestaoTransferencia[];
+  reportesPendentes?: number;
   ocorrenciasAtivas: Array<{
     id: number;
     tipo: string;
@@ -172,6 +191,51 @@ export default function PaginaDashboard() {
     }
   }
 
+  async function alternarPerfilAbrigo(campo: "aceitaPets" | "acessivelPcd") {
+    if (!idAbrigoAtivo || !dados || somenteLeitura) return;
+    const atual = Boolean(dados.abrigo[campo]);
+    setProcessando(true);
+    setErro(null);
+    try {
+      await api(`/api/abrigos/${idAbrigoAtivo}`, {
+        method: "PATCH",
+        body: JSON.stringify({ [campo]: !atual }),
+      });
+      await Promise.all([carregar(), recarregarAbrigos()]);
+      const rotulo = campo === "aceitaPets" ? "Aceita Pets" : "Acessível PCD";
+      setAviso(`Perfil "${rotulo}" ${!atual ? "ativado" : "desativado"} no mapa público.`);
+    } catch (err) {
+      setErro(mensagemErro(err));
+    } finally {
+      setProcessando(false);
+    }
+  }
+
+  async function executarTransferenciaSugerida(sugestao: SugestaoTransferencia) {
+    if (!idAbrigoAtivo || somenteLeitura || sugestao.direcao !== "ENVIAR") return;
+    setProcessando(true);
+    setErro(null);
+    try {
+      await api(`/api/abrigos/${idAbrigoAtivo}/transferencias-estoque`, {
+        method: "POST",
+        body: JSON.stringify({
+          idAbrigoDestino: sugestao.idAbrigoParceiro,
+          idItem: sugestao.idItem,
+          quantidade: sugestao.quantidadeSugerida,
+          observacao: `Remanejamento inteligente sugerido (${sugestao.distanciaKm} km)`,
+        }),
+      });
+      await carregar();
+      setAviso(
+        `Transferência de ${sugestao.quantidadeSugerida} ${sugestao.unidadeMedida}(s) de ${sugestao.item} para ${sugestao.abrigoParceiro} registrada!`,
+      );
+    } catch (err) {
+      setErro(mensagemErro(err));
+    } finally {
+      setProcessando(false);
+    }
+  }
+
   async function alterarStatusItem(idItem: number, statusNecessidade: "URGENTE" | "NORMAL" | "BLOQUEADO") {
     if (!idAbrigoAtivo) return;
     setProcessando(true);
@@ -293,6 +357,32 @@ export default function PaginaDashboard() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            disabled={somenteLeitura || processando}
+            aria-pressed={Boolean(dados.abrigo.aceitaPets)}
+            onClick={() => alternarPerfilAbrigo("aceitaPets")}
+            className={`min-h-10 rounded-xl border px-3 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
+              dados.abrigo.aceitaPets
+                ? "border-teal-500/50 bg-teal-500/20 text-teal-200 hover:bg-teal-500/30"
+                : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            }`}
+          >
+            🐾 {dados.abrigo.aceitaPets ? "Aceita Pets • SIM" : "Aceita Pets • NÃO"}
+          </button>
+          <button
+            type="button"
+            disabled={somenteLeitura || processando}
+            aria-pressed={Boolean(dados.abrigo.acessivelPcd)}
+            onClick={() => alternarPerfilAbrigo("acessivelPcd")}
+            className={`min-h-10 rounded-xl border px-3 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
+              dados.abrigo.acessivelPcd
+                ? "border-indigo-500/50 bg-indigo-500/20 text-indigo-200 hover:bg-indigo-500/30"
+                : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            }`}
+          >
+            ♿ {dados.abrigo.acessivelPcd ? "Acessível PCD • SIM" : "Acessível PCD • NÃO"}
+          </button>
+          <button
+            type="button"
             disabled={somenteLeitura}
             onClick={() => {
               setNovaCapacidade(String(ocupacao.capacidadeMaxima));
@@ -312,6 +402,26 @@ export default function PaginaDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Banner de Moderação de Reportes Cidadãos Pendentes */}
+      {(dados.reportesPendentes ?? 0) > 0 && (
+        <div className="rounded-2xl border border-amber-500/50 bg-amber-950/35 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-amber-200">
+              📢 {dados.reportesPendentes} reporte(s) comunitário(s) de vias/alagamentos aguardando moderação
+            </p>
+            <p className="text-xs text-amber-100/80">
+              Moradores enviaram alertas próximos a este abrigo. Aprove para publicar no mapa público ou descarte se for falso alarme.
+            </p>
+          </div>
+          <Link
+            href="/admin/ocorrencias"
+            className="min-h-10 inline-flex items-center rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
+          >
+            Revisar Reportes →
+          </Link>
+        </div>
+      )}
 
       {/* Formulário inline de capacidade e telefone */}
       {editandoOperacao && (
@@ -559,6 +669,104 @@ export default function PaginaDashboard() {
           </div>
         </section>
       </div>
+
+      {/* Sugestões Automáticas de Remanejamento entre Abrigos (PostGIS Smart Rebalancing) */}
+      {(dados.sugestoesTransferencia?.length ?? 0) > 0 && (
+        <section className="rounded-2xl border border-sky-500/40 bg-slate-900 p-5 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-sky-400">
+                Logística Cooperativa entre Abrigos (PostGIS)
+              </span>
+              <h2 className="text-base sm:text-lg font-bold text-white">
+                🔄 Sugestões Inteligentes de Remanejamento de Estoque
+              </h2>
+              <p className="text-xs text-slate-400">
+                Cruzamento geoespacial automático entre itens críticos/urgentes e abrigos próximos com excedente disponível.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {dados.sugestoesTransferencia!.map((s, idx) => (
+              <div
+                key={`${s.direcao}-${s.idItem}-${s.idAbrigoParceiro}-${idx}`}
+                className={`rounded-xl border p-4 flex flex-col justify-between gap-3 ${
+                  s.direcao === "RECEBER"
+                    ? "border-amber-500/40 bg-amber-950/20"
+                    : "border-sky-500/40 bg-sky-950/20"
+                }`}
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-black ${
+                        s.direcao === "RECEBER"
+                          ? "bg-amber-400 text-slate-950"
+                          : "bg-sky-400 text-slate-950"
+                      }`}
+                    >
+                      {s.direcao === "RECEBER" ? "📥 PODE SOLICITAR DE PARCEIRO" : "📤 PODE APOIAR PARCEIRO EM DÉFICIT"}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-slate-300 tabular-nums">
+                      📍 {s.distanciaKm} km
+                    </span>
+                  </div>
+
+                  <p className="text-sm font-bold text-white">
+                    {s.item}{" "}
+                    <span className="text-xs font-normal text-slate-400">
+                      ({s.categoria} • sugerido: <strong>{s.quantidadeSugerida} {s.unidadeMedida}(s)</strong>)
+                    </span>
+                  </p>
+
+                  <p className="text-xs text-slate-300">
+                    {s.direcao === "RECEBER" ? (
+                      <>
+                        O abrigo <strong>{s.abrigoParceiro}</strong> possui excedente ({s.quantidadeParceiro}{" "}
+                        {s.unidadeMedida}s) enquanto seu saldo atual é <strong>{s.quantidadeAtual}</strong>.
+                      </>
+                    ) : (
+                      <>
+                        O abrigo <strong>{s.abrigoParceiro}</strong> está em alerta crítico ({s.quantidadeParceiro}{" "}
+                        {s.unidadeMedida}s) e você dispõe de <strong>{s.quantidadeAtual}</strong> em estoque.
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                  {s.telefoneParceiro ? (
+                    <span className="text-xs text-slate-400">
+                      📞 Contato: <strong className="text-slate-200">{s.telefoneParceiro}</strong>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">Sem telefone cadastrado</span>
+                  )}
+
+                  {s.direcao === "ENVIAR" ? (
+                    <button
+                      type="button"
+                      disabled={somenteLeitura || processando}
+                      onClick={() => executarTransferenciaSugerida(s)}
+                      className="min-h-9 rounded-lg bg-sky-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-40 cursor-pointer"
+                    >
+                      🚚 Enviar {s.quantidadeSugerida} {s.unidadeMedida}(s) agora
+                    </button>
+                  ) : (
+                    <Link
+                      href="/admin/inventario"
+                      className="min-h-9 inline-flex items-center rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/25"
+                    >
+                      Ver no Estoque →
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Grade Inferior: Suprimentos Críticos e Últimas Movimentações */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

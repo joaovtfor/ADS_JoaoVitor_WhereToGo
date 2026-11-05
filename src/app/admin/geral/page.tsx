@@ -97,6 +97,8 @@ export default function PaginaAdminGeral() {
   const [latitudeAbrigo, setLatitudeAbrigo] = useState("-28.2620");
   const [longitudeAbrigo, setLongitudeAbrigo] = useState("-52.4083");
   const [capacidadeAbrigo, setCapacidadeAbrigo] = useState("100");
+  const [aceitaPetsAbrigo, setAceitaPetsAbrigo] = useState(false);
+  const [acessivelPcdAbrigo, setAcessivelPcdAbrigo] = useState(false);
 
   // --- Estado: Usuários ------------------------------------------------------
   const [usuarios, setUsuarios] = useState<UsuarioLista[]>([]);
@@ -204,6 +206,8 @@ export default function PaginaAdminGeral() {
     setLatitudeAbrigo(String(a?.latitude ?? -28.262));
     setLongitudeAbrigo(String(a?.longitude ?? -52.4083));
     setCapacidadeAbrigo(String(a?.capacidadeMaxima ?? 100));
+    setAceitaPetsAbrigo(Boolean(a?.aceitaPets));
+    setAcessivelPcdAbrigo(Boolean(a?.acessivelPcd));
   }
 
   async function salvarAbrigo(e: FormEvent) {
@@ -220,6 +224,8 @@ export default function PaginaAdminGeral() {
         latitude: Number(latitudeAbrigo),
         longitude: Number(longitudeAbrigo),
         capacidadeMaxima: Number(capacidadeAbrigo),
+        aceitaPets: aceitaPetsAbrigo,
+        acessivelPcd: acessivelPcdAbrigo,
       };
       if (abrigoEditando) {
         await api(`/api/abrigos/${abrigoEditando.id}`, {
@@ -617,6 +623,32 @@ export default function PaginaAdminGeral() {
                 />
               </div>
 
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-300">
+                  Perfil Humanitário e Acessibilidade (exibido no mapa público)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-teal-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={aceitaPetsAbrigo}
+                      onChange={(e) => setAceitaPetsAbrigo(e.target.checked)}
+                      className="h-4 w-4 accent-teal-500"
+                    />
+                    🐾 Aceita Pets
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold text-indigo-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={acessivelPcdAbrigo}
+                      onChange={(e) => setAcessivelPcdAbrigo(e.target.checked)}
+                      className="h-4 w-4 accent-indigo-500"
+                    />
+                    ♿ Acessível PCD
+                  </label>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={enviando}
@@ -636,7 +668,7 @@ export default function PaginaAdminGeral() {
                   className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-wrap items-center justify-between gap-3"
                 >
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-bold text-white">{a.nome}</h3>
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-bold ${
@@ -645,6 +677,16 @@ export default function PaginaAdminGeral() {
                       >
                         {a.ativo ? "ATIVO" : "ARQUIVADO"}
                       </span>
+                      {a.aceitaPets && (
+                        <span className="rounded-full border border-teal-500/40 bg-teal-950/60 px-2 py-0.5 text-[11px] font-bold text-teal-200">
+                          🐾 Aceita Pets
+                        </span>
+                      )}
+                      {a.acessivelPcd && (
+                        <span className="rounded-full border border-indigo-500/40 bg-indigo-950/60 px-2 py-0.5 text-[11px] font-bold text-indigo-200">
+                          ♿ Acessível PCD
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-slate-400">{a.endereco}</p>
                     <p className="text-xs text-slate-300 tabular-nums">

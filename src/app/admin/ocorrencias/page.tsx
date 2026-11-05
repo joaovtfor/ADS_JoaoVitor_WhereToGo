@@ -20,6 +20,10 @@ interface Ocorrencia {
   idAbrigo: number;
   tipo: string;
   gravidade: "ALERTA" | "CRITICO";
+  statusValidacao?: "PENDENTE" | "APROVADA" | "REJEITADA";
+  relatorNome?: string | null;
+  relatorContato?: string | null;
+  origemCidada?: boolean;
   descricao: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -208,6 +212,31 @@ export default function PaginaOcorrencias() {
       });
       await Promise.all([carregar(), recarregarAbrigos()]);
       setAviso("Ocorrência encerrada e status do abrigo atualizado.");
+    } catch (err) {
+      setErro(mensagemErro(err));
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function moderar(idOcorrencia: number, acao: "APROVAR" | "REJEITAR") {
+    if (!idAbrigoAtivo || somenteLeitura) return;
+    setEnviando(true);
+    setErro(null);
+    try {
+      await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${idOcorrencia}/moderacao`, {
+        method: "POST",
+        body: JSON.stringify({
+          acao,
+          observacao: observacaoResolucao[idOcorrencia]?.trim() || null,
+        }),
+      });
+      await Promise.all([carregar(), recarregarAbrigos()]);
+      setAviso(
+        acao === "APROVAR"
+          ? "Reporte cidadão aprovado e publicado imediatamente no mapa público!"
+          : "Reporte cidadão descartado.",
+      );
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {
@@ -524,16 +553,19 @@ export default function PaginaOcorrencias() {
             <ul className="space-y-3">
               {ocorrencias.map((oc) => {
                 const rotulo = TIPOS_OCORRENCIA.find((t) => t.tipo === oc.tipo)?.rotulo ?? oc.tipo;
-                const ativa = !oc.dataResolucao;
+                const ativa = !oc.dataResolucao && oc.statusValidacao !== "REJEITADA";
+                const pendenteModeracao = oc.statusValidacao === "PENDENTE" && !oc.dataResolucao;
                 return (
                   <li
                     key={oc.id}
                     className={`rounded-xl border p-4 space-y-3 ${
                       !ativa
                         ? "border-slate-800 bg-slate-950/60 opacity-80"
-                        : oc.gravidade === "CRITICO"
-                          ? "border-rose-500/40 bg-rose-950/25"
-                          : "border-amber-500/40 bg-amber-950/25"
+                        : pendenteModeracao
+                          ? "border-sky-500/60 bg-sky-950/30"
+                          : oc.gravidade === "CRITICO"
+                            ? "border-rose-500/40 bg-rose-950/25"
+                            : "border-amber-500/40 bg-amber-950/25"
                     }`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -541,16 +573,31 @@ export default function PaginaOcorrencias() {
                         <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={`rounded px-2 py-0.5 text-xs font-black ${
-                              !ativa
-                                ? "bg-emerald-500/20 text-emerald-300"
-                                : oc.gravidade === "CRITICO"
-                                  ? "bg-rose-500 text-slate-950"
-                                  : "bg-amber-400 text-slate-950"
+                              oc.statusValidacao === "REJEITADA"
+                                ? "bg-slate-700 text-slate-300"
+                                : pendenteModeracao
+                                  ? "bg-sky-400 text-slate-950"
+                                  : !ativa
+                                    ? "bg-emerald-500/20 text-emerald-300"
+                                    : oc.gravidade === "CRITICO"
+                                      ? "bg-rose-500 text-slate-950"
+                                      : "bg-amber-400 text-slate-950"
                             }`}
                           >
-                            {ativa ? oc.gravidade : "RESOLVIDA"}
+                            {oc.statusValidacao === "REJEITADA"
+                              ? "DESCARTADA"
+                              : pendenteModeracao
+                                ? "AGUARDANDO MODERAÇÃO"
+                                : ativa
+                                  ? oc.gravidade
+                                  : "RESOLVIDA"}
                           </span>
                           <h3 className="text-base font-bold text-white">{rotulo}</h3>
+                          {oc.origemCidada && (
+                            <span className="rounded-full border border-sky-400/50 bg-sky-500/20 px-2 py-0.5 text-xs font-bold text-sky-200">
+                              📢 Reporte Cidadão
+                            </span>
+                          )}
                           {oc.poligono && oc.poligono.length >= 3 && (
                             <span className="rounded-full border border-rose-400/50 bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-200">
                               🔺 Polígono ({oc.poligono.length} marcadores)
@@ -568,7 +615,12 @@ export default function PaginaOcorrencias() {
 
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
                       <div>
-                        <span>Registrado por: <strong className="text-slate-300">{oc.registradoPor}</strong></span>
+                        <span>
+                          Registrado por: <strong className="text-slate-300">{oc.registradoPor}</strong>
+                          {oc.relatorContato && (
+                            <span className="ml-1.5 text-sky-300">({oc.relatorContato})</span>
+                          )}
+                        </span>
                         {oc.latitude !== null && oc.longitude !== null && (
                           <span className="ml-3 font-mono text-xs text-amber-300 tabular-nums">
                             📍 {oc.latitude.toFixed(4)}, {oc.longitude.toFixed(4)}
@@ -576,7 +628,7 @@ export default function PaginaOcorrencias() {
                         )}
                         {oc.resolvidoPor && (
                           <span className="ml-3 text-emerald-300">
-                            • Resolvido por {oc.resolvidoPor} em{" "}
+                            • {oc.statusValidacao === "REJEITADA" ? "Descartado" : "Resolvido"} por {oc.resolvidoPor} em{" "}
                             {new Date(oc.dataResolucao!).toLocaleString("pt-BR")}
                           </span>
                         )}
@@ -584,24 +636,47 @@ export default function PaginaOcorrencias() {
 
                       {ativa && podeGerenciar && (
                         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                          <input
-                            type="text"
-                            disabled={somenteLeitura}
-                            placeholder="Observação de resolução (opcional)"
-                            value={observacaoResolucao[oc.id] ?? ""}
-                            onChange={(e) =>
-                              setObservacaoResolucao((ant) => ({ ...ant, [oc.id]: e.target.value }))
-                            }
-                            className="flex-1 sm:w-56 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-base sm:text-xs text-white"
-                          />
-                          <button
-                            type="button"
-                            disabled={somenteLeitura || enviando}
-                            onClick={() => resolver(oc.id)}
-                            className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 cursor-pointer"
-                          >
-                            ✓ Resolver
-                          </button>
+                          {pendenteModeracao ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={somenteLeitura || enviando}
+                                onClick={() => moderar(oc.id, "APROVAR")}
+                                className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 cursor-pointer"
+                              >
+                                ✅ Aprovar e Publicar no Mapa
+                              </button>
+                              <button
+                                type="button"
+                                disabled={somenteLeitura || enviando}
+                                onClick={() => moderar(oc.id, "REJEITAR")}
+                                className="min-h-9 rounded-lg border border-rose-500/40 bg-rose-950/50 px-3 py-1.5 text-xs font-bold text-rose-200 hover:bg-rose-900/60 disabled:opacity-40 cursor-pointer"
+                              >
+                                ✕ Descartar
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <input
+                                type="text"
+                                disabled={somenteLeitura}
+                                placeholder="Observação de resolução (opcional)"
+                                value={observacaoResolucao[oc.id] ?? ""}
+                                onChange={(e) =>
+                                  setObservacaoResolucao((ant) => ({ ...ant, [oc.id]: e.target.value }))
+                                }
+                                className="flex-1 sm:w-56 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-base sm:text-xs text-white"
+                              />
+                              <button
+                                type="button"
+                                disabled={somenteLeitura || enviando}
+                                onClick={() => resolver(oc.id)}
+                                className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 cursor-pointer"
+                              >
+                                ✓ Resolver
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

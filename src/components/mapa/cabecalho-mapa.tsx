@@ -10,6 +10,8 @@ interface PropriedadesCabecalhoMapa {
   onConfirmarBusca: () => void;
   listaAberta: boolean;
   onAlternarLista: () => void;
+  buscaFamiliarAberta: boolean;
+  onAlternarBuscaFamiliar: () => void;
   gps: { ativo: boolean; buscando: boolean; onAtivar: () => void; onLimpar: () => void };
   onAtualizar: () => void;
 }
@@ -25,6 +27,8 @@ export function CabecalhoMapa({
   onConfirmarBusca,
   listaAberta,
   onAlternarLista,
+  buscaFamiliarAberta,
+  onAlternarBuscaFamiliar,
   gps,
   onAtualizar,
 }: PropriedadesCabecalhoMapa) {
@@ -56,6 +60,16 @@ export function CabecalhoMapa({
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onAlternarBuscaFamiliar}
+            aria-pressed={buscaFamiliarAberta}
+            title="Encontrar familiar acolhido em algum abrigo"
+            className={`${BOTAO_NEUTRO} inline-flex ${buscaFamiliarAberta ? "border-teal-500 bg-teal-500/20 text-teal-300" : ""}`}
+          >
+            🔍 <span className="ml-1 hidden md:inline">Encontrar familiar</span>
+          </button>
+
           <button
             type="button"
             onClick={onAlternarLista}
