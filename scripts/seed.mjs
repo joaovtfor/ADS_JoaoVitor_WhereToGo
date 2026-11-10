@@ -8,7 +8,7 @@
 import { pathToFileURL } from 'node:url';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
-import { carregarEnvLocal } from './migrate.mjs';
+import { carregarEnvLocal, obterConfigSslScript } from './migrate.mjs';
 
 const ABRIGOS = [
   {
@@ -21,6 +21,8 @@ const ABRIGOS = [
     latitude: -28.2346,
     longitude: -52.3809,
     capacidade: 300,
+    aceitaPets: true,
+    acessivelPcd: true,
   },
   {
     chave: 'centro',
@@ -32,6 +34,8 @@ const ABRIGOS = [
     latitude: -28.262,
     longitude: -52.4083,
     capacidade: 150,
+    aceitaPets: true,
+    acessivelPcd: true,
   },
   {
     chave: 'boqueirao',
@@ -43,6 +47,8 @@ const ABRIGOS = [
     latitude: -28.2486,
     longitude: -52.423,
     capacidade: 80,
+    aceitaPets: false,
+    acessivelPcd: true,
   },
   {
     chave: 'saocristovao',
@@ -54,6 +60,8 @@ const ABRIGOS = [
     latitude: -28.2795,
     longitude: -52.387,
     capacidade: 12,
+    aceitaPets: true,
+    acessivelPcd: false,
   },
 ];
 
@@ -164,7 +172,12 @@ function gerarCpf(base) {
  * @param {{ connectionString: string, senha: string, log?: (msg: string) => void }} opcoes
  */
 export async function executarSeed({ connectionString, senha, log = console.log }) {
-  const client = new pg.Client({ connectionString, application_name: 'wheretogo-seed' });
+  const ssl = obterConfigSslScript(connectionString);
+  const client = new pg.Client({
+    connectionString,
+    application_name: 'wheretogo-seed',
+    ...(ssl ? { ssl } : {}),
+  });
   await client.connect();
 
   try {
@@ -176,12 +189,27 @@ export async function executarSeed({ connectionString, senha, log = console.log 
       const existente = await client.query('SELECT id FROM abrigo WHERE nome = $1', [a.nome]);
       if (existente.rows[0]) {
         idsAbrigo[a.chave] = existente.rows[0].id;
+        await client.query(
+          'UPDATE abrigo SET aceita_pets = $1, acessivel_pcd = $2 WHERE id = $3',
+          [Boolean(a.aceitaPets), Boolean(a.acessivelPcd), existente.rows[0].id],
+        );
         continue;
       }
       const { rows } = await client.query(
-        `INSERT INTO abrigo (nome, endereco, telefone, chave_pix, titular_pix, latitude, longitude, capacidade_maxima)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [a.nome, a.endereco, a.telefone, a.chavePix, a.titularPix, a.latitude, a.longitude, a.capacidade],
+        `INSERT INTO abrigo (nome, endereco, telefone, chave_pix, titular_pix, latitude, longitude, capacidade_maxima, aceita_pets, acessivel_pcd)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        [
+          a.nome,
+          a.endereco,
+          a.telefone,
+          a.chavePix,
+          a.titularPix,
+          a.latitude,
+          a.longitude,
+          a.capacidade,
+          Boolean(a.aceitaPets),
+          Boolean(a.acessivelPcd),
+        ],
       );
       idsAbrigo[a.chave] = rows[0].id;
     }

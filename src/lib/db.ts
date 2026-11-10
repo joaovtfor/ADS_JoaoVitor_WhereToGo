@@ -15,14 +15,26 @@ export interface Executor {
 // Mantém um único pool entre recarregamentos do `next dev` (HMR).
 const globalComPool = globalThis as typeof globalThis & { __wheretogoPool?: Pool };
 
+function obterConfigSsl(connectionString: string, modoSsl: string): boolean | { rejectUnauthorized: boolean } | undefined {
+  if (modoSsl === "no-verify") return { rejectUnauthorized: false };
+  if (modoSsl === "true" || modoSsl === "require") return { rejectUnauthorized: false };
+  if (/sslmode=(require|verify-full|verify-ca|no-verify)/i.test(connectionString)) {
+    return { rejectUnauthorized: false };
+  }
+  return undefined;
+}
+
 export function pool(): Pool {
   if (!globalComPool.__wheretogoPool) {
+    const cfg = env();
+    const ssl = obterConfigSsl(cfg.DATABASE_URL, cfg.DATABASE_SSL);
     const novoPool = new Pool({
-      connectionString: env().DATABASE_URL,
-      max: env().DB_POOL_MAX,
+      connectionString: cfg.DATABASE_URL,
+      max: cfg.DB_POOL_MAX,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
       application_name: "wheretogo-app",
+      ...(ssl ? { ssl } : {}),
     });
     novoPool.on("error", (erro) => console.error("[db] erro em conexão ociosa do pool", erro));
     globalComPool.__wheretogoPool = novoPool;

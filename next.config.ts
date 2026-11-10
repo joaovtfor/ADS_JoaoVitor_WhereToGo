@@ -47,6 +47,20 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
         ],
       },
+      {
+        // Ícones estáticos do PWA cacheados por longo prazo na CDN e no navegador (3G).
+        source: "/icone-:tamanho.png",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        // Manifesto PWA cacheado na CDN com revalidação em background.
+        source: "/manifest.webmanifest",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400" },
+        ],
+      },
     ];
   },
 };

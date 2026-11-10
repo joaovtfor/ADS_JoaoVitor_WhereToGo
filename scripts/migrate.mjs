@@ -38,13 +38,29 @@ async function listarArquivos() {
   );
 }
 
+export function obterConfigSslScript(connectionString) {
+  const modo = (process.env.DATABASE_SSL || 'false').toLowerCase();
+  if (modo === 'true' || modo === 'require' || modo === 'no-verify') {
+    return { rejectUnauthorized: false };
+  }
+  if (/sslmode=(require|verify-full|verify-ca|no-verify)/i.test(connectionString || '')) {
+    return { rejectUnauthorized: false };
+  }
+  return undefined;
+}
+
 /**
  * Aplica as migrations pendentes no banco indicado.
  * @param {{ connectionString: string, reset?: boolean, log?: (msg: string) => void }} opcoes
  * @returns {Promise<string[]>} nomes das migrations aplicadas nesta execução
  */
 export async function executarMigracoes({ connectionString, reset = false, log = console.log }) {
-  const client = new pg.Client({ connectionString, application_name: 'wheretogo-migrate' });
+  const ssl = obterConfigSslScript(connectionString);
+  const client = new pg.Client({
+    connectionString,
+    application_name: 'wheretogo-migrate',
+    ...(ssl ? { ssl } : {}),
+  });
   await client.connect();
   const aplicadasAgora = [];
 

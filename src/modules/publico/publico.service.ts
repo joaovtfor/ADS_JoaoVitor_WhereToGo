@@ -19,10 +19,14 @@ import type { PontoPoligono } from "../ocorrencias/ocorrencias.service";
 // (CPF inteiro, usuários) nem quantidades de estoque — apenas o necessário para o mapa.
 
 /**
- * Cache HTTP para uma eventual CDN/proxy. O cache que vale no deploy atual
- * (Docker + Apache, sem CDN) é o do servidor: ver `publico.cache.ts`.
+ * Cache HTTP para CDN de borda (Cloudflare, Vercel Edge, CloudFront) e proxies.
+ * Inclui `stale-if-error=300` para que a CDN continue entregando o último mapa
+ * conhecido por até 5 min caso a instância de origem sofra pico extremo.
  */
-export const CACHE_PUBLICO = { "Cache-Control": "public, max-age=0, s-maxage=10, stale-while-revalidate=30" };
+export const CACHE_PUBLICO = {
+  "Cache-Control": "public, max-age=0, s-maxage=10, stale-while-revalidate=30, stale-if-error=300",
+  "CDN-Cache-Control": "public, s-maxage=10, stale-while-revalidate=60, stale-if-error=300",
+};
 
 const separarPorVirgula = (valor: string) =>
   valor

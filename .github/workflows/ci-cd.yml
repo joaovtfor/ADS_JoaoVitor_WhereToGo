@@ -1,0 +1,64 @@
+name: CI/CD — Testes PostGIS & Build de Produção (WhereToGo)
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: postgresql://postgres:postgres123@localhost:5432/wheretogo_db
+  DATABASE_URL_TEST: postgresql://postgres:postgres123@localhost:5432/wheretogo_test
+  JWT_SECRET: chave-secreta-ci-wheretogo-com-mais-de-32-caracteres-2026
+  JWT_EXPIRES_IN: 8h
+
+jobs:
+  qualidade-e-build:
+    name: Lint, Typecheck, Testes PostGIS & Build Standalone
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres123
+          POSTGRES_DB: wheretogo_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d wheretogo_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Aplicar migrations SQL no banco principal
+        run: npm run db:migrate
+
+      - name: Verificar tipagem estática (TypeScript + Next Typegen)
+        run: npm run typecheck
+
+      - name: Verificar lint (ESLint)
+        run: npm run lint
+
+      - name: Executar testes unitários e de integração (PostgreSQL + PostGIS)
+        run: npm test
+
+      - name: Compilar build de produção standalone (Next.js 16)
+        env:
+          NODE_ENV: production
+        run: npm run build

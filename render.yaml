@@ -1,0 +1,41 @@
+# =============================================================================
+# Render Blueprint (Infraestrutura como Código - Semana 8)
+# Implantação automatizada em nuvem da aplicação WhereToGo + PostgreSQL/PostGIS
+# =============================================================================
+services:
+  - type: web
+    name: wheretogo-app
+    runtime: docker
+    dockerfilePath: ./.docker/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/health
+    preDeployCommand: node scripts/migrate.mjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: PROXIES_CONFIAVEIS
+        value: "1"
+      - key: DB_POOL_MAX
+        value: "20"
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_EXPIRES_IN
+        value: "8h"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wheretogo-db
+          property: connectionString
+
+databases:
+  - name: wheretogo-db
+    databaseName: wheretogo_db
+    user: wheretogo
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    ipAllowList: []

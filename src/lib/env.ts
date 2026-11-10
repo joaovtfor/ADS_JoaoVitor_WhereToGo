@@ -8,6 +8,9 @@ const esquemaEnv = z.object({
   // O dashboard abre 6 consultas em paralelo: com 10 conexões, poucas abas
   // abertas esgotavam o pool e as requisições caíam em timeout.
   DB_POOL_MAX: z.coerce.number().int().min(2).max(100).default(20),
+  // Em bancos PostgreSQL gerenciados na nuvem (Render, Neon, Supabase, RDS),
+  // defina DATABASE_SSL=true (ou no-verify para certificados autoassinados).
+  DATABASE_SSL: z.enum(["false", "true", "require", "no-verify"]).default("false"),
 });
 
 export type Env = z.infer<typeof esquemaEnv>;
