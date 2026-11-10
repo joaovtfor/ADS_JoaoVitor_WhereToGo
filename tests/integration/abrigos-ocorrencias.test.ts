@@ -336,7 +336,7 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     const resultados = await buscarFamiliaresAcolhidosPublico({ busca: "Carlos" });
     const encontrado = resultados.find((r) => r.abrigo.id === abrigo.id);
     expect(encontrado).toBeDefined();
-    expect(encontrado?.nomeAbreviado).toBe("Carlos E. Pereira");
+    expect(encontrado?.nomeExibicao).toBe("Carlos E. Pereira");
     expect(encontrado?.cpfMascarado).toBe("***.982.247-**");
   });
 
@@ -357,7 +357,7 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     expect(reporte.statusValidacao).toBe("PENDENTE");
 
     // Enquanto PENDENTE, não contamina o mapa público nem o status do abrigo
-    const alertasAntes = await listarAlertasPublicos(abrigo.id);
+    const alertasAntes = await listarAlertasPublicos();
     expect(alertasAntes.some((a) => a.id === reporte.id)).toBe(false);
 
     const dashAntes = await obterDashboard(coordenador, abrigo.id);
@@ -371,7 +371,7 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     expect(moderado.statusInfraestrutura).toBe("CRITICO");
     expect(moderado.ocorrencia.statusValidacao).toBe("APROVADA");
 
-    const alertasDepois = await listarAlertasPublicos(abrigo.id);
+    const alertasDepois = await listarAlertasPublicos();
     expect(alertasDepois.some((a) => a.id === reporte.id)).toBe(true);
   });
 
@@ -385,7 +385,7 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     const volExcedente = contexto(await criarUsuario("VOLUNTARIO", abrigoExcedente.id));
     const coordExcedente = contexto(await criarUsuario("COORDENADOR", abrigoExcedente.id));
 
-    const colchao = await idItem("Colchão Solteiro");
+    const colchao = await idItem("Colchão");
     // Abrigo A tem déficit (2 un, mínimo 20, URGENTE)
     await movimentarEstoque(volDeficit, abrigoDeficit.id, colchao, { quantidade: 2 });
     await classificarItem(coordDeficit, abrigoDeficit.id, colchao, {

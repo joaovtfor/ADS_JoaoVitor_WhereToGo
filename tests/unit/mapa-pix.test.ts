@@ -58,6 +58,8 @@ function abrigo(id: number, extras: Partial<AbrigoMapa> = {}): AbrigoMapa {
     longitude: 0,
     ocupacao: { capacidadeMaxima: 10, lotacaoAtual: 5, vagasDisponiveis: 5, percentual: 50, nivel: "VERDE" },
     statusInfraestrutura: "NORMAL",
+    aceitaPets: false,
+    acessivelPcd: false,
     ocorrenciasAtivas: [],
     emAreaDeRisco: false,
     necessidades: { urgentes: [], bloqueados: [] },
