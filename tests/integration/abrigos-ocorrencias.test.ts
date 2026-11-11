@@ -293,15 +293,15 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
   });
 
   it("detecta via PostGIS ST_Intersects quando o trajeto em linha reta cruza um polígono de área de risco", async () => {
-    // Usuário ao norte (-28.20, -52.40), abrigo ao sul (-28.30, -52.40) e polígono de risco no meio (-28.25)
-    const abrigo = await criarAbrigo({ latitude: -28.30, longitude: -52.40 });
+    // Coordenada exclusiva: usuário ao norte (-27.20, -50.40), abrigo ao sul (-27.30, -50.40) e polígono de risco no meio (-27.25)
+    const abrigo = await criarAbrigo({ latitude: -27.30, longitude: -50.40 });
     const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
 
     const poligonoNoCaminho = [
-      { lat: -28.245, lng: -52.41 },
-      { lat: -28.245, lng: -52.39 },
-      { lat: -28.255, lng: -52.39 },
-      { lat: -28.255, lng: -52.41 },
+      { lat: -27.245, lng: -50.41 },
+      { lat: -27.245, lng: -50.39 },
+      { lat: -27.255, lng: -50.39 },
+      { lat: -27.255, lng: -50.41 },
     ];
     const ocorrencia = await registrarOcorrencia(coordenador, abrigo.id, {
       tipo: "AREA_RISCO",
@@ -310,8 +310,8 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
 
     const comCruzamento = await listarAbrigosPublicos({
       formato: "json",
-      lat: -28.20,
-      lng: -52.40,
+      lat: -27.20,
+      lng: -50.40,
     });
     const alvo = comCruzamento.find((a) => a.id === abrigo.id);
     expect(alvo?.emAreaDeRisco).toBe(false);
@@ -320,8 +320,8 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     await resolverOcorrencia(coordenador, abrigo.id, ocorrencia.ocorrencia.id, {});
     const aposResolver = await listarAbrigosPublicos({
       formato: "json",
-      lat: -28.20,
-      lng: -52.40,
+      lat: -27.20,
+      lng: -50.40,
     });
     expect(aposResolver.find((a) => a.id === abrigo.id)?.rotaCruzaAreaRisco).toBe(false);
   });
@@ -330,14 +330,14 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     const { abrigo, voluntario } = await criarCenario();
     await registrarEntrada(voluntario, abrigo.id, {
       nomeCompleto: "Carlos Eduardo Pereira",
-      cpf: "52998224725",
+      cpf: "12345678909",
     });
 
     const resultados = await buscarFamiliaresAcolhidosPublico({ busca: "Carlos" });
     const encontrado = resultados.find((r) => r.abrigo.id === abrigo.id);
     expect(encontrado).toBeDefined();
     expect(encontrado?.nomeExibicao).toBe("Carlos E. Pereira");
-    expect(encontrado?.cpfMascarado).toBe("***.982.247-**");
+    expect(encontrado?.cpfMascarado).toBe("***.456.789-**");
   });
 
   it("recebe reporte cidadão como PENDENTE sem alterar o mapa público até a aprovação do coordenador", async () => {

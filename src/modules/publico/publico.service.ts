@@ -8,7 +8,7 @@ import {
   DESCRICAO_TIPO_OCORRENCIA,
   GRAVIDADE_PADRAO,
   GRAVIDADES,
-  TIPOS_OCORRENCIA,
+
   type Gravidade,
   type StatusInfraestrutura,
   type TipoOcorrencia,
