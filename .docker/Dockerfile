@@ -121,11 +121,14 @@ COPY --from=builder /app/public ./public
 # Configura diretório de cache do Next.js com as permissões corretas
 RUN mkdir .next && chown nextjs:nodejs .next
 
+# Garante dependências de produção para os scripts de inicialização (pg / bcryptjs)
+COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+
 # Copia os arquivos compilados do modo standalone (`output: 'standalone'` no next.config.ts)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copia scripts e migrations SQL para permitir preDeployCommand / releaseCommand em PaaS (Render/Railway)
+# Copia scripts e migrations SQL para aplicar migrations + seed automático no boot
 COPY --from=builder --chown=nextjs:nodejs /app/db ./db
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 
@@ -137,4 +140,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/api/health > /dev/null || exit 1
 
-CMD ["node", "server.js"]
+CMD ["node", "scripts/start-prod.mjs"]

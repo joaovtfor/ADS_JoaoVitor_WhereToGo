@@ -8,10 +8,9 @@ services:
     runtime: docker
     dockerfilePath: ./.docker/Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     region: oregon
     healthCheckPath: /api/health
-    preDeployCommand: node scripts/migrate.mjs
     envVars:
       - key: NODE_ENV
         value: production
@@ -23,6 +22,10 @@ services:
         value: "20"
       - key: DATABASE_SSL
         value: "true"
+      - key: SEED_SE_VAZIO
+        value: "true"
+      - key: SEED_SENHA_PADRAO
+        value: "WhereToGo@2026"
       - key: JWT_EXPIRES_IN
         value: "8h"
       - key: JWT_SECRET
@@ -36,6 +39,6 @@ databases:
   - name: wheretogo-db
     databaseName: wheretogo_db
     user: wheretogo
-    plan: basic-256mb
+    plan: free
     postgresMajorVersion: "16"
     ipAllowList: []
