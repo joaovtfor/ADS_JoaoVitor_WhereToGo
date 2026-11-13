@@ -324,10 +324,42 @@ export default function PaginaLogin() {
     });
   }
 
-  function preencherDemo(emailDemo: string) {
-    setEmail(emailDemo);
-    setSenha("WhereToGo@2026");
+  async function entrarComDemo(conta: (typeof CONTAS_DEMONSTRACAO)[number]) {
+    const senhaPadrao = "WhereToGo@2026";
+    setEmail(conta.email);
+    setSenha(senhaPadrao);
     setErro(null);
+    setCadastroPendente(null);
+    setCarregando(true);
+
+    try {
+      const resultado = await api<RespostaLogin>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: conta.email, senha: senhaPadrao }),
+      });
+      window.location.assign(resultado.redirecionarPara);
+      return;
+    } catch (errLogin) {
+      if (configGoogle.modoSimulado) {
+        try {
+          const respostaGoogle = await api<RespostaGoogle>("/api/auth/google", {
+            method: "POST",
+            body: JSON.stringify({
+              credencialSimulada: { nome: conta.nome, email: conta.email },
+            }),
+          });
+          if (respostaGoogle.status === "AUTENTICADO") {
+            window.location.assign(respostaGoogle.redirecionarPara);
+            return;
+          }
+        } catch {
+          // Mantém o erro original do login por senha abaixo
+        }
+      }
+      setErro(mensagemErro(errLogin));
+      setCarregando(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
 
   return (
@@ -344,7 +376,7 @@ export default function PaginaLogin() {
       {configGoogle.modoSimulado && oneTapVisivel && !credencialPendente && !cadastroPendente && (
         <aside
           aria-label="Google One Tap"
-          className="fixed top-4 right-4 z-50 w-84 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-700 bg-slate-900/95 p-4 shadow-2xl backdrop-blur"
+          className="mx-auto mb-3 w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-4 shadow-2xl backdrop-blur sm:fixed sm:top-4 sm:right-4 sm:z-50 sm:mb-0 sm:w-84 sm:max-w-[calc(100vw-2rem)]"
         >
           <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2">
@@ -678,15 +710,16 @@ export default function PaginaLogin() {
 
           <div className="mt-6 pt-5 border-t border-slate-800">
             <p className="text-xs font-semibold text-slate-400 mb-2.5">
-              Contas de demonstração (toque para preencher):
+              Contas de demonstração (toque para entrar direto):
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {CONTAS_DEMONSTRACAO.map((conta) => (
                 <button
                   key={conta.email}
                   type="button"
-                  onClick={() => preencherDemo(conta.email)}
-                  className="flex flex-col items-start rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-left hover:border-amber-500/50 hover:bg-slate-800/70 transition cursor-pointer"
+                  disabled={carregando}
+                  onClick={() => void entrarComDemo(conta)}
+                  className="flex flex-col items-start rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-left hover:border-amber-500/50 hover:bg-slate-800/70 transition cursor-pointer disabled:opacity-50"
                 >
                   <span className="text-xs font-bold text-slate-100">{conta.rotulo}</span>
                   <span className="text-xs text-slate-400 mt-0.5 leading-snug">{conta.descricao}</span>

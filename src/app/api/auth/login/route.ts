@@ -9,6 +9,6 @@ export const POST = rota(async (req) => {
   const resultado = await login(dados, obterIp(req));
 
   const resposta = NextResponse.json({ dados: resultado }, { headers: { "Cache-Control": "no-store" } });
-  definirCookieSessao(resposta, resultado.token, resultado.expiraEm);
+  definirCookieSessao(resposta, resultado.token, resultado.expiraEm, req);
   return resposta;
 });

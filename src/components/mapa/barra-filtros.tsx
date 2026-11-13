@@ -21,7 +21,7 @@ interface PropriedadesBarraFiltros {
   onLimparTudo: () => void;
 }
 
-const PILULA = "min-h-12 shrink-0 whitespace-nowrap rounded-full px-3.5 text-sm font-bold transition sm:min-h-9";
+const PILULA = "min-h-9 shrink-0 whitespace-nowrap rounded-full px-3 text-xs font-bold transition sm:min-h-9 sm:px-3.5 sm:text-sm";
 const PILULA_INATIVA = "border border-slate-800 bg-slate-900/80 text-slate-300 hover:bg-slate-800";
 
 /** Pílulas de filtro rápido, categorias de doação e camada de alertas (topo do mapa). */
@@ -125,13 +125,13 @@ export function BarraFiltros(props: PropriedadesBarraFiltros) {
       </div>
 
       {(categoriaAtiva || gps.ativo) && (
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl border border-sky-500/35 bg-slate-950/92 px-3 py-2 text-sm shadow-lg backdrop-blur-md">
+        <div className="barra-filtros-scroll pointer-events-auto flex flex-nowrap items-center gap-2 overflow-x-auto rounded-2xl border border-sky-500/35 bg-slate-950/92 px-3 py-1.5 text-xs shadow-lg backdrop-blur-md sm:flex-wrap sm:py-2 sm:text-sm">
           {categoriaAtiva && (
             <>
-              <span className="font-bold text-sky-300">
+              <span className="shrink-0 font-bold text-sky-300">
                 {ICONE_CATEGORIA[categoriaAtiva.slug] ?? "📦"} Doar {categoriaAtiva.nome}:
               </span>
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex shrink-0 items-center gap-1.5 sm:flex-wrap">
                 <button
                   type="button"
                   aria-pressed={itemFiltroId === null}
@@ -152,7 +152,7 @@ export function BarraFiltros(props: PropriedadesBarraFiltros) {
                   </button>
                 ))}
               </div>
-              <span className="text-slate-300 tabular-nums">
+              <span className="shrink-0 text-slate-300 tabular-nums">
                 <strong className="text-sky-300">{props.totalDestaque}</strong> abrigo(s) precisam disso
               </span>
               <button
@@ -174,8 +174,8 @@ export function BarraFiltros(props: PropriedadesBarraFiltros) {
           )}
 
           {gps.ativo && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="font-semibold text-slate-400">Distância:</span>
+            <div className="flex shrink-0 items-center gap-1.5 sm:flex-wrap">
+              <span className="shrink-0 font-semibold text-slate-400">Distância:</span>
               {([null, 5, 10, 25] as const).map((raio) => (
                 <button
                   key={raio ?? "todos"}

@@ -12,6 +12,6 @@ export const PUT = rota(async (req) => {
   const { token, expiraEm } = await alterarSenha(ctx, await lerCorpo(req, esquemaAlterarSenha));
 
   const resposta = new NextResponse(null, { status: 204 });
-  definirCookieSessao(resposta, token, expiraEm);
+  definirCookieSessao(resposta, token, expiraEm, req);
   return resposta;
 });

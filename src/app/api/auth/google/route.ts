@@ -28,7 +28,7 @@ export const POST = rota(async (req) => {
       { dados: resultado },
       { status: 200, headers: { "Cache-Control": "no-store" } },
     );
-    definirCookieSessao(resposta, resultado.token, resultado.expiraEm);
+    definirCookieSessao(resposta, resultado.token, resultado.expiraEm, req);
     return resposta;
   }
 

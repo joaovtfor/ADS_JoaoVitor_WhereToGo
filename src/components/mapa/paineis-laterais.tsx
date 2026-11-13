@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { obterEstiloNivel, obterSeloAtualizacao, type AbrigoMapa, type AlertaMapa } from "./tipos";
 
 function Gaveta({
@@ -16,26 +16,103 @@ function Gaveta({
   onFechar: () => void;
   children: ReactNode;
 }) {
+  const [expandidoMobile, setExpandidoMobile] = useState(false);
+  const [deslocamentoArrasteY, setDeslocamentoArrasteY] = useState(0);
+  const inicioToqueYRef = useRef<number | null>(null);
+
+  const iniciarArraste = (clientY: number) => {
+    inicioToqueYRef.current = clientY;
+    setDeslocamentoArrasteY(0);
+  };
+
+  const moverArraste = (clientY: number) => {
+    if (inicioToqueYRef.current === null) return;
+    setDeslocamentoArrasteY(clientY - inicioToqueYRef.current);
+  };
+
+  const finalizarArraste = () => {
+    if (inicioToqueYRef.current === null) return;
+    const deltaY = deslocamentoArrasteY;
+    inicioToqueYRef.current = null;
+    setDeslocamentoArrasteY(0);
+
+    if (deltaY < -35) {
+      setExpandidoMobile(true);
+    } else if (deltaY > 45) {
+      if (expandidoMobile) {
+        setExpandidoMobile(false);
+      } else {
+        onFechar();
+      }
+    }
+  };
+
+  const classeAlturaMobile = expandidoMobile
+    ? "inset-x-0 bottom-0 h-[100%] max-h-[100%] rounded-none border-x-0 border-b-0"
+    : "inset-x-2 bottom-2 h-[65%] max-h-[65%] rounded-3xl";
+
   return (
     <aside
       aria-label={titulo}
-      className={`pointer-events-auto absolute top-24 bottom-16 left-3 z-[450] flex w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-3xl border bg-slate-950/95 shadow-2xl backdrop-blur-xl sm:w-96 ${cor}`}
+      style={
+        deslocamentoArrasteY !== 0
+          ? { transform: `translateY(${Math.max(-90, Math.min(180, deslocamentoArrasteY))}px)` }
+          : undefined
+      }
+      className={`pointer-events-auto absolute z-[450] flex flex-col overflow-hidden border bg-slate-950/95 shadow-2xl backdrop-blur-xl transition-[height,max-height,bottom,border-radius] duration-200 ease-out ${classeAlturaMobile} sm:inset-auto sm:top-24 sm:bottom-16 sm:left-3 sm:h-auto sm:max-h-none sm:w-96 sm:rounded-3xl sm:border ${cor}`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
-        <div>
-          <h2 className="text-base font-semibold text-white">{titulo}</h2>
-          <p className="text-xs text-slate-400">{subtitulo}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onFechar}
-          aria-label={`Fechar ${titulo.toLowerCase()}`}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-sm font-bold text-slate-400 hover:text-white sm:h-9 sm:w-9"
-        >
-          ✕
-        </button>
+      {/* Alça de puxar exclusiva para Mobile */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={expandidoMobile ? "Reduzir painel para ver o mapa" : "Puxar ou tocar para expandir painel em tela cheia"}
+        onClick={() => setExpandidoMobile((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpandidoMobile((v) => !v);
+          }
+        }}
+        onTouchStart={(e) => iniciarArraste(e.touches[0].clientY)}
+        onTouchMove={(e) => moverArraste(e.touches[0].clientY)}
+        onTouchEnd={finalizarArraste}
+        className="flex shrink-0 cursor-grab touch-none flex-col items-center justify-center pt-2 pb-1 select-none active:cursor-grabbing sm:hidden"
+      >
+        <div className="h-1.5 w-12 rounded-full bg-slate-600/90" />
+        <span className="mt-1 text-[10px] font-semibold tracking-wide text-slate-400">
+          {expandidoMobile ? "⬇ Puxe para baixo para ver o mapa" : "⬆ Puxe ou toque para tela cheia"}
+        </span>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">{children}</div>
+
+      <div
+        onTouchStart={(e) => iniciarArraste(e.touches[0].clientY)}
+        onTouchMove={(e) => moverArraste(e.touches[0].clientY)}
+        onTouchEnd={finalizarArraste}
+        className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5 sm:py-3"
+      >
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-white sm:text-base">{titulo}</h2>
+          <p className="truncate text-xs text-slate-400">{subtitulo}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setExpandidoMobile((v) => !v)}
+            className="flex h-9 items-center justify-center rounded-full border border-slate-700 bg-slate-900 px-2.5 text-[11px] font-bold text-slate-200 hover:bg-slate-800 sm:hidden"
+          >
+            {expandidoMobile ? "⬇ Mapa" : "⬆ Expandir"}
+          </button>
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label={`Fechar ${titulo.toLowerCase()}`}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-sm font-bold text-slate-400 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto overscroll-contain p-3">{children}</div>
     </aside>
   );
 }

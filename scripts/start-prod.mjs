@@ -9,21 +9,17 @@
 import { cpSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import pg from 'pg';
-import { carregarEnvLocal, executarMigracoes, obterConfigSslScript } from './migrate.mjs';
+import { carregarEnvLocal, conectarComRetentativa, executarMigracoes } from './migrate.mjs';
 import { executarSeed } from './seed.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(__dirname, '..');
 
 async function bancoEstaVazio(connectionString) {
-  const ssl = obterConfigSslScript(connectionString);
-  const client = new pg.Client({
+  const client = await conectarComRetentativa({
     connectionString,
-    application_name: 'wheretogo-check-seed',
-    ...(ssl ? { ssl } : {}),
+    applicationName: 'wheretogo-check-seed',
   });
-  await client.connect();
   try {
     const { rows } = await client.query('SELECT count(*)::int AS total FROM usuario');
     return (rows[0]?.total ?? 0) === 0;
@@ -72,9 +68,13 @@ async function iniciar() {
     process.exit(1);
   }
 
-  // Garante bind em todas as interfaces de rede para o proxy do Render/Docker
-  if (!process.env.HOSTNAME) {
-    process.env.HOSTNAME = '0.0.0.0';
+  // IMPORTANTE: Em containers Linux/Kubernetes (como o Render), o sistema define
+  // automaticamente HOSTNAME=<nome-do-pod> (ex.: srv-xxx-hibernate-xxx). Se não
+  // sobrescrevermos para '0.0.0.0', o Next.js faz bind apenas no hostname interno
+  // e o proxy reverso do Render retorna HTTP 502 Bad Gateway.
+  process.env.HOSTNAME = '0.0.0.0';
+  if (!process.env.KEEP_ALIVE_TIMEOUT) {
+    process.env.KEEP_ALIVE_TIMEOUT = '65000';
   }
 
   console.log('[start-prod] Verificando e aplicando migrations pendentes...');

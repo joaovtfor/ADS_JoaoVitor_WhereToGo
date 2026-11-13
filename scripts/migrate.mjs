@@ -49,19 +49,85 @@ export function obterConfigSslScript(connectionString) {
   return undefined;
 }
 
+const CODIGOS_RETENTATIVA_CONEXAO = new Set([
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  '57P03', // PostgreSQL: the database system is starting up
+]);
+
+function aguardarMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Abre uma conexão PostgreSQL com retentativa automática caso o container do banco
+ * ainda esteja subindo ou registrando seu DNS na rede do Docker Desktop.
+ */
+export async function conectarComRetentativa({
+  connectionString,
+  applicationName = 'wheretogo-migrate',
+  maxTentativas = 15,
+  intervaloMs = 2000,
+  log = console.log,
+}) {
+  const ssl = obterConfigSslScript(connectionString);
+  let ultimoErro = null;
+
+  for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+    const client = new pg.Client({
+      connectionString,
+      application_name: applicationName,
+      ...(ssl ? { ssl } : {}),
+    });
+
+    try {
+      await client.connect();
+      return client;
+    } catch (erro) {
+      ultimoErro = erro;
+      await client.end().catch(() => {});
+
+      const codigo = erro?.code || erro?.errno || '';
+      const deveTentarNovamente =
+        CODIGOS_RETENTATIVA_CONEXAO.has(String(codigo)) ||
+        /starting up|EAI_AGAIN|ENOTFOUND|ECONNREFUSED/i.test(String(erro?.message || ''));
+
+      if (!deveTentarNovamente || tentativa === maxTentativas) {
+        break;
+      }
+
+      log(
+        `[migrate] Aguardando banco de dados ficar disponível (${tentativa}/${maxTentativas} - ${codigo || erro.message})...`,
+      );
+      await aguardarMs(intervaloMs);
+    }
+  }
+
+  if (ultimoErro && (ultimoErro.code === 'EAI_AGAIN' || ultimoErro.code === 'ENOTFOUND') && ultimoErro.hostname === 'postgres') {
+    console.error(
+      '\n[migrate] DICA DOCKER DESKTOP: O host "postgres" não foi encontrado na rede Docker.\n' +
+        'Isso acontece quando apenas o container "wheretogo_app" foi iniciado sozinho e o container "wheretogo_postgres" está parado.\n' +
+        '-> No Docker Desktop, dê Play (▶) no container "wheretogo_postgres" (ou no grupo completo do projeto) ou execute: docker compose up -d\n',
+    );
+  }
+
+  throw ultimoErro;
+}
+
 /**
  * Aplica as migrations pendentes no banco indicado.
  * @param {{ connectionString: string, reset?: boolean, log?: (msg: string) => void }} opcoes
  * @returns {Promise<string[]>} nomes das migrations aplicadas nesta execução
  */
 export async function executarMigracoes({ connectionString, reset = false, log = console.log }) {
-  const ssl = obterConfigSslScript(connectionString);
-  const client = new pg.Client({
+  const client = await conectarComRetentativa({
     connectionString,
-    application_name: 'wheretogo-migrate',
-    ...(ssl ? { ssl } : {}),
+    applicationName: 'wheretogo-migrate',
+    log,
   });
-  await client.connect();
   const aplicadasAgora = [];
 
   try {

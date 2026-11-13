@@ -13,11 +13,23 @@ function extrairToken(req: NextRequest): string | null {
   return req.cookies.get(COOKIE_SESSAO)?.value ?? null;
 }
 
+function requisicaoEhHttps(req?: Request): boolean {
+  if (!req) return process.env.NODE_ENV === "production";
+  const proto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (proto === "https") return true;
+  if (proto === "http") return false;
+  try {
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Grava o JWT no cookie httpOnly de sessão (login por senha, Google e troca de senha). */
-export function definirCookieSessao(resposta: NextResponse, token: string, expiraEm: Date): void {
+export function definirCookieSessao(resposta: NextResponse, token: string, expiraEm: Date, req?: Request): void {
   resposta.cookies.set(COOKIE_SESSAO, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: requisicaoEhHttps(req),
     sameSite: "lax",
     path: "/",
     expires: expiraEm,
