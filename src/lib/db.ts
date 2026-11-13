@@ -16,9 +16,10 @@ export interface Executor {
 const globalComPool = globalThis as typeof globalThis & { __wheretogoPool?: Pool };
 
 function obterConfigSsl(connectionString: string, modoSsl: string): boolean | { rejectUnauthorized: boolean } | undefined {
-  if (modoSsl === "no-verify") return { rejectUnauthorized: false };
-  if (modoSsl === "true" || modoSsl === "require") return { rejectUnauthorized: false };
-  if (/sslmode=(require|verify-full|verify-ca|no-verify)/i.test(connectionString)) {
+  if (modoSsl === "no-verify" || modoSsl === "true" || modoSsl === "require") {
+    return { rejectUnauthorized: false };
+  }
+  if (/(@dpg-|render\.com|neon\.tech|supabase\.co|sslmode=(require|verify-full|verify-ca|no-verify))/i.test(connectionString)) {
     return { rejectUnauthorized: false };
   }
   return undefined;

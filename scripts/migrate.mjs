@@ -43,7 +43,7 @@ export function obterConfigSslScript(connectionString) {
   if (modo === 'true' || modo === 'require' || modo === 'no-verify') {
     return { rejectUnauthorized: false };
   }
-  if (/sslmode=(require|verify-full|verify-ca|no-verify)/i.test(connectionString || '')) {
+  if (/(@dpg-|render\.com|neon\.tech|supabase\.co|sslmode=(require|verify-full|verify-ca|no-verify))/i.test(connectionString || '')) {
     return { rejectUnauthorized: false };
   }
   return undefined;
