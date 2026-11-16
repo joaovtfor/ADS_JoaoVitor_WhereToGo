@@ -121,16 +121,23 @@ COPY --from=builder /app/public ./public
 # Configura diretório de cache do Next.js com as permissões corretas
 RUN mkdir .next && chown nextjs:nodejs .next
 
-# Garante dependências de produção para os scripts de inicialização (pg / bcryptjs)
-COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
-
-# Copia os arquivos compilados do modo standalone (`output: 'standalone'` no next.config.ts)
+# Copia os arquivos compilados do modo standalone (`output: 'standalone'` no next.config.ts).
+# O standalone já traz um node_modules mínimo, só com o que o servidor usa (inclui o `pg`).
+# Antes a imagem recebia também o node_modules de produção inteiro (next, react, ícones...),
+# o que anulava esse enxugamento e deixava a imagem e a partida a frio mais pesadas.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Copia scripts e migrations SQL para aplicar migrations + seed automático no boot
 COPY --from=builder --chown=nextjs:nodejs /app/db ./db
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+
+# Os scripts de boot usam `pg` (já no standalone) e `bcryptjs` (o seed gera os hashes
+# de senha). O bcryptjs é JavaScript puro e sem dependências: basta a pasta dele.
+COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules/bcryptjs ./node_modules/bcryptjs
+
+# Falha o build, e não o boot em produção, se um desses módulos deixar de estar disponível.
+RUN node -e "Promise.all([import('pg'), import('bcryptjs')]).catch((erro) => { console.error(erro); process.exit(1); })"
 
 USER nextjs
 

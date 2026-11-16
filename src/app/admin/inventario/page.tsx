@@ -1,1316 +1,235 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { obterSeloAtualizacao } from "@/components/mapa/tipos";
-import { ErroClienteApi, api, mensagemErro } from "@/lib/cliente-api";
+import { useCallback, useMemo, useState } from "react";
+import { History, Search, Undo2 } from "lucide-react";
+import { Botao } from "@/components/ui/botao";
+import { CLASSES_CAMPO } from "@/components/ui/campo";
+import { Chip } from "@/components/ui/chip";
+import { Icone } from "@/components/ui/icone";
+import { CabecalhoPagina, EstadoVazio, Faixa } from "@/components/ui/pagina";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
-import { ROTULO_TIPO_MOVIMENTACAO } from "../rotulos";
+import { Historico } from "./historico";
+import { LinhaItem } from "./linha-item";
+import { ModalConfig, ModalLote, ModalTransferencia } from "./modais";
+import { emAlerta, formatarDelta, type FiltroStatusEstoque, type ItemEstoque } from "./tipos";
+import { useEstoque } from "./use-estoque";
 
-interface MovimentoOffline3G {
-  uid: string;
-  idAbrigo: number;
-  idItem: number;
-  nomeItem: string;
-  delta: number;
-  corpo: Record<string, unknown>;
-  criadoEm: string;
-}
-
-const CHAVE_FILA_OFFLINE_3G = "wtg:inventario:fila-offline";
-
-interface ItemEstoque {
-  idItem: number;
-  nome: string;
-  unidadeMedida: string;
-  itemAtivo: boolean;
-  idCategoria: number;
-  categoria: string;
-  categoriaSlug: string;
-  quantidade: number;
-  quantidadeMinima: number;
-  statusNecessidade: "URGENTE" | "NORMAL" | "BLOQUEADO";
-  atualizadoEm: string | null;
-  critico: boolean;
-}
-
-interface MovimentacaoEstoque {
-  id: number;
-  tipo: string;
-  quantidade: number;
-  quantidadeResultante: number;
-  dataHora: string;
-  observacao: string | null;
-  idItem: number;
-  item: string;
-  unidadeMedida: string;
-  idUsuario: number;
-  usuario: string;
-  idAbrigoContraparte: number | null;
-  abrigoContraparte: string | null;
-  /** Já foi desfeita (existe um ESTORNO apontando para ela). */
-  estornada: boolean;
-}
-
-
-interface PaginaMovimentacoes {
-  itens: MovimentacaoEstoque[];
-  paginacao: { pagina: number; tamanho: number; total: number; totalPaginas: number };
-}
-
-interface ToqueRecente {
-  uid: string;
-  /** Movimentação gravada no servidor (o "Desfazer" estorna exatamente ela). */
-  idMovimentacao: number;
-  idItem: number;
-  nomeItem: string;
-  unidadeMedida: string;
-  delta: number;
-  tipo: string;
-  horario: string;
-  desfeito: boolean;
-}
-
-interface RespostaMovimento {
-  quantidadeAtual: number;
-  statusNecessidade: ItemEstoque["statusNecessidade"];
-  movimentacao: { id: number } | null;
-}
-
-interface FeedbackCard {
-  pendentes: number;
-  ultimoDelta: number | null;
-}
-
-type FiltroStatusRapido = "TODOS" | "CRITICOS" | "URGENTE" | "BLOQUEADO" | "COM_SALDO";
-
-const ICONES_CATEGORIA: Record<string, string> = {
-  agua: "💧",
-  alimentos: "🥫",
-  higiene: "🧼",
-  "cama-e-banho": "🛏️",
-  roupas: "🧥",
-  medicamentos: "💊",
-  limpeza: "🧹",
-  infantil: "🍼",
-  pet: "🐾",
-};
-
-const MOTIVOS_RAPIDOS_LOTE = [
-  "Chegada de caminhão de doações",
-  "Remessa da Defesa Civil",
-  "Distribuição coletiva no abrigo",
-  "Montagem de kits familiares",
-];
-
-function vibrarToque(ms = 12) {
-  try {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      navigator.vibrate(ms);
-    }
-  } catch {
-    // Ignora dispositivos sem suporte a vibração
-  }
-}
+/** Qual modal está aberto, e para qual item. */
+type ModalAberto = { tipo: "lote" | "config" | "transferencia"; idItem: number } | null;
 
 export default function PaginaInventario() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, abrigos } = useAdmin();
-  const podeClassificar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
+  const podeGerenciar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
   const somenteLeitura = abrigoAtivo ? !abrigoAtivo.ativo : false;
+  const estoque = useEstoque(idAbrigoAtivo, somenteLeitura);
+  const { itens, setErro, setAviso, movimentar, classificar } = estoque;
 
-  const [itens, setItens] = useState<ItemEstoque[]>([]);
-  const [incluirCatalogo, setIncluirCatalogo] = useState(true);
-  const [modoSaida, setModoSaida] = useState<"SAIDA_CONSUMO" | "PERDA">("SAIDA_CONSUMO");
-  const [categoriaAtiva, setCategoriaAtiva] = useState<string>("TODAS");
-  const [filtroStatus, setFiltroStatus] = useState<FiltroStatusRapido>("TODOS");
   const [busca, setBusca] = useState("");
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [ocupadoId, setOcupadoId] = useState<number | null>(null);
-
-  // Divulgação progressiva: controla qual card está com a gaveta de gestão aberta
-  const [cardExpandidoId, setCardExpandidoId] = useState<number | null>(null);
-
-  // Estado de feedback tátil/visual por card e fila sequencial por item
-  const [feedbackPorItem, setFeedbackPorItem] = useState<Record<number, FeedbackCard>>({});
-  const [toquesRecentes, setToquesRecentes] = useState<ToqueRecente[]>([]);
-  const [filaOffline, setFilaOffline] = useState<MovimentoOffline3G[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const salvo = window.localStorage.getItem(CHAVE_FILA_OFFLINE_3G);
-      return salvo ? (JSON.parse(salvo) as MovimentoOffline3G[]) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [sincronizandoFilaOffline, setSincronizandoFilaOffline] = useState(false);
-  const filasPorItemRef = useRef<Map<number, Promise<void>>>(new Map());
-  // Envios ainda na fila por item: o saldo do servidor só substitui o otimista
-  // quando a fila esvazia (senão o número "pisca" 13 -> 11 -> 12 -> 13).
-  const pendentesPorItemRef = useRef<Map<number, number>>(new Map());
-
-  // Modal de Lote Rápido Touch (sem necessidade de teclado virtual)
-  const [itemLote, setItemLote] = useState<ItemEstoque | null>(null);
-  const [motivoLote, setMotivoLote] = useState<string>(MOTIVOS_RAPIDOS_LOTE[0]);
-
-  // Histórico de movimentações do abrigo
+  const [categoria, setCategoria] = useState("TODAS");
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatusEstoque>("TODOS");
+  const [gestaoAbertaId, setGestaoAbertaId] = useState<number | null>(null);
+  const [modal, setModal] = useState<ModalAberto>(null);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
-  const [movimentacoes, setMovimentacoes] = useState<MovimentacaoEstoque[]>([]);
-  const [filtroItemHist, setFiltroItemHist] = useState<string>("");
-  const [filtroTipoHist, setFiltroTipoHist] = useState<string>("");
 
-  // Modal de Ajuste Físico / Config Mínimo (Coordenador/Admin)
-  const [itemConfig, setItemConfig] = useState<ItemEstoque | null>(null);
-  const [minimoInput, setMinimoInput] = useState("");
-  const [contagemFisicaInput, setContagemFisicaInput] = useState("");
-  const [justificativaAjuste, setJustificativaAjuste] = useState("");
-
-  // Modal de Transferência de Suprimentos entre Abrigos
-  const [itemTransferencia, setItemTransferencia] = useState<ItemEstoque | null>(null);
-  const [idAbrigoDestino, setIdAbrigoDestino] = useState<number | "">("");
-  const [qtdTransferencia, setQtdTransferencia] = useState("1");
-  const [obsTransferencia, setObsTransferencia] = useState("");
-
-  const carregar = useCallback(async () => {
-    if (!idAbrigoAtivo) return;
-    const chaveCache = `wtg:inventario:cache:${idAbrigoAtivo}`;
-    try {
-      const qs = incluirCatalogo ? "?incluirCatalogo=true" : "";
-      const lista = await api<ItemEstoque[]>(`/api/abrigos/${idAbrigoAtivo}/estoque${qs}`);
-      setItens(lista);
-      try {
-        window.localStorage.setItem(chaveCache, JSON.stringify(lista));
-      } catch {
-        // Ignora quota de localStorage
-      }
-      setErro(null);
-    } catch (err) {
-      if (!(err instanceof ErroClienteApi)) {
-        try {
-          const cacheado = window.localStorage.getItem(chaveCache);
-          if (cacheado) {
-            setItens(JSON.parse(cacheado) as ItemEstoque[]);
-            setAviso("📴 Operando com cache local (3G instável). Seus toques serão salvos na fila offline.");
-            return;
-          }
-        } catch {
-          // Ignora falha de leitura de cache
-        }
-      }
-      setErro(mensagemErro(err));
-    } finally {
-      setCarregando(false);
-    }
-  }, [idAbrigoAtivo, incluirCatalogo]);
-
-  const salvarFilaOfflineStorage = useCallback((novaFila: MovimentoOffline3G[]) => {
-    setFilaOffline(novaFila);
-    try {
-      if (novaFila.length === 0) {
-        window.localStorage.removeItem(CHAVE_FILA_OFFLINE_3G);
-      } else {
-        window.localStorage.setItem(CHAVE_FILA_OFFLINE_3G, JSON.stringify(novaFila));
-      }
-    } catch {
-      // Ignora quota
-    }
-  }, []);
-
-  const sincronizarFilaOffline = useCallback(async () => {
-    if (sincronizandoFilaOffline || filaOffline.length === 0) return;
-    setSincronizandoFilaOffline(true);
-    const restantes: MovimentoOffline3G[] = [];
-    let sincronizados = 0;
-
-    for (const mov of filaOffline) {
-      try {
-        await api<RespostaMovimento>(
-          `/api/abrigos/${mov.idAbrigo}/estoque/${mov.idItem}/movimentacoes`,
-          {
-            method: "POST",
-            body: JSON.stringify(mov.corpo),
-          },
-        );
-        sincronizados++;
-      } catch (err) {
-        if (!(err instanceof ErroClienteApi)) {
-          restantes.push(mov);
-        }
-      }
-    }
-
-    salvarFilaOfflineStorage(restantes);
-    setSincronizandoFilaOffline(false);
-    if (sincronizados > 0) {
-      await carregar();
-      setAviso(`✅ ${sincronizados} lançamento(s) da fila 3G/offline sincronizado(s) com o servidor.`);
-    }
-  }, [sincronizandoFilaOffline, filaOffline, salvarFilaOfflineStorage, carregar]);
-
-  useEffect(() => {
-    const aoReconectar = () => {
-      void sincronizarFilaOffline();
-    };
-    window.addEventListener("online", aoReconectar);
-    return () => window.removeEventListener("online", aoReconectar);
-  }, [sincronizarFilaOffline]);
-
-  const carregarHistorico = useCallback(async () => {
-    if (!idAbrigoAtivo || !podeClassificar) return;
-    try {
-      const params = new URLSearchParams({ tamanho: "50" });
-      if (filtroItemHist) params.set("idItem", filtroItemHist);
-      if (filtroTipoHist) params.set("tipo", filtroTipoHist);
-      const res = await api<PaginaMovimentacoes>(
-        `/api/abrigos/${idAbrigoAtivo}/movimentacoes?${params.toString()}`,
-      );
-      setMovimentacoes(res.itens);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    }
-  }, [idAbrigoAtivo, podeClassificar, filtroItemHist, filtroTipoHist]);
-
-  useEffect(() => {
-    void Promise.resolve().then(carregar);
-  }, [carregar]);
-
-  useEffect(() => {
-    if (!mostrarHistorico) return;
-    void Promise.resolve().then(carregarHistorico);
-  }, [mostrarHistorico, carregarHistorico]);
-
-  /** Saldo otimista (status estimado) ou confirmado pelo servidor (status real, que pode ter voltado a NORMAL). */
-  function aplicarSaldoNoEstado(idItem: number, novaQtd: number, statusServidor?: ItemEstoque["statusNecessidade"]) {
-    setItens((atual) =>
-      atual.map((i) => {
-        if (i.idItem !== idItem) return i;
-        const qtdSegura = Math.max(0, novaQtd);
-        const novoStatus =
-          statusServidor ??
-          (i.statusNecessidade === "NORMAL" && qtdSegura < i.quantidadeMinima ? "URGENTE" : i.statusNecessidade);
-        return {
-          ...i,
-          quantidade: qtdSegura,
-          statusNecessidade: novoStatus,
-          critico: novoStatus === "URGENTE" || qtdSegura < i.quantidadeMinima,
-        };
-      }),
-    );
-  }
-
-  function movimentarRapido(
-    item: ItemEstoque,
-    delta: number,
-    opcoes?: { observacao?: string; registrarNoTopo?: boolean },
-  ) {
-    if (!idAbrigoAtivo || somenteLeitura) return;
-    if (delta < 0 && item.quantidade + delta < 0) return;
-
-    vibrarToque(12);
-    const tipoMovimento =
-      delta > 0 ? "ENTRADA_DOACAO" : modoSaida === "PERDA" ? "PERDA" : "SAIDA_CONSUMO";
-
-    const corpo: Record<string, unknown> = { quantidade: delta };
-    if (delta < 0 && modoSaida === "PERDA") {
-      corpo.tipo = "PERDA";
-      corpo.observacao = opcoes?.observacao ?? "Baixa por perda/avaria no painel de estoque";
-    } else if (opcoes?.observacao) {
-      corpo.observacao = opcoes.observacao;
-    }
-
-    enfileirarMovimento(
-      item,
-      delta,
-      () => api<RespostaMovimento>(`/api/abrigos/${idAbrigoAtivo}/estoque/${item.idItem}/movimentacoes`, {
-        method: "POST",
-        body: JSON.stringify(corpo),
-      }),
-      (res) => {
-        if (opcoes?.registrarNoTopo === false || !res.movimentacao) return;
-        const novoToque: ToqueRecente = {
-          uid: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          idMovimentacao: res.movimentacao.id,
-          idItem: item.idItem,
-          nomeItem: item.nome,
-          unidadeMedida: item.unidadeMedida,
-          delta,
-          tipo: tipoMovimento,
-          horario: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-          desfeito: false,
-        };
-        setToquesRecentes((ant) => [novoToque, ...ant.slice(0, 4)]);
-      },
-      corpo,
-    );
-  }
-
-  /**
-   * Fila sequencial por item (toques repetidos em 3G chegam na ordem certa) com
-   * atualização otimista: o número muda no toque e o saldo do servidor só é
-   * aplicado quando não há mais envios pendentes daquele item.
-   */
-  function enfileirarMovimento(
-    item: ItemEstoque,
-    deltaOtimista: number,
-    enviar: () => Promise<RespostaMovimento>,
-    aoConfirmar?: (res: RespostaMovimento) => void,
-    corpoOffline?: Record<string, unknown>,
-  ) {
-    setErro(null);
-    aplicarSaldoNoEstado(item.idItem, item.quantidade + deltaOtimista);
-    setFeedbackPorItem((prev) => {
-      const atual = prev[item.idItem] ?? { pendentes: 0, ultimoDelta: null };
-      return { ...prev, [item.idItem]: { pendentes: atual.pendentes + 1, ultimoDelta: (atual.ultimoDelta ?? 0) + deltaOtimista } };
-    });
-
-    const pendentes = pendentesPorItemRef.current;
-    pendentes.set(item.idItem, (pendentes.get(item.idItem) ?? 0) + 1);
-    const restantes = () => {
-      const valor = Math.max(0, (pendentes.get(item.idItem) ?? 1) - 1);
-      pendentes.set(item.idItem, valor);
-      return valor;
-    };
-
-    const filaAnterior = filasPorItemRef.current.get(item.idItem) ?? Promise.resolve();
-    const novaPromessa = filaAnterior
-      .then(async () => {
-        const res = await enviar();
-        if (restantes() === 0) aplicarSaldoNoEstado(item.idItem, res.quantidadeAtual, res.statusNecessidade);
-        aoConfirmar?.(res);
-        if (mostrarHistorico) await carregarHistorico();
-      })
-      .catch(async (err) => {
-        restantes();
-        if (!(err instanceof ErroClienteApi) && corpoOffline && idAbrigoAtivo) {
-          const itemFila: MovimentoOffline3G = {
-            uid: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            idAbrigo: idAbrigoAtivo,
-            idItem: item.idItem,
-            nomeItem: item.nome,
-            delta: deltaOtimista,
-            corpo: corpoOffline,
-            criadoEm: new Date().toISOString(),
-          };
-          setFilaOffline((ant) => {
-            const nova = [...ant, itemFila];
-            try {
-              window.localStorage.setItem(CHAVE_FILA_OFFLINE_3G, JSON.stringify(nova));
-            } catch {
-              // Ignora quota
-            }
-            return nova;
-          });
-          setAviso(
-            `📴 Conexão 3G instável: ${deltaOtimista > 0 ? `+${deltaOtimista}` : deltaOtimista} em "${item.nome}" guardado na fila offline e será enviado assim que o sinal voltar.`,
-          );
-          return;
-        }
-        setErro(mensagemErro(err));
-        await carregar();
-      })
-      .finally(() => {
-        setFeedbackPorItem((prev) => {
-          const atual = prev[item.idItem] ?? { pendentes: 1, ultimoDelta: deltaOtimista };
-          return { ...prev, [item.idItem]: { pendentes: Math.max(0, atual.pendentes - 1), ultimoDelta: atual.ultimoDelta } };
-        });
-      });
-
-    filasPorItemRef.current.set(item.idItem, novaPromessa);
-  }
-
-  /** Estorna a movimentação original (tipo ESTORNO), sem inflar doações ou consumo. */
-  function desfazerToque(toque: ToqueRecente) {
-    if (toque.desfeito || somenteLeitura || !idAbrigoAtivo) return;
-    const itemAtual = itens.find((i) => i.idItem === toque.idItem);
-    if (!itemAtual) return;
-    if (itemAtual.quantidade - toque.delta < 0) {
-      setErro("Saldo atual insuficiente para desfazer este lançamento.");
-      return;
-    }
-
-    vibrarToque(12);
-    setToquesRecentes((ant) => ant.map((t) => (t.uid === toque.uid ? { ...t, desfeito: true } : t)));
-    enfileirarMovimento(itemAtual, -toque.delta, () =>
-      api<RespostaMovimento>(`/api/abrigos/${idAbrigoAtivo}/movimentacoes/${toque.idMovimentacao}/estorno`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      }),
-    );
-    setAviso(`Lançamento de ${toque.nomeItem} (${toque.delta > 0 ? `+${toque.delta}` : toque.delta}) desfeito.`);
-  }
-
-  async function classificarStatus(item: ItemEstoque, statusNecessidade: "URGENTE" | "NORMAL" | "BLOQUEADO") {
-    if (!idAbrigoAtivo || somenteLeitura) return;
-    vibrarToque(15);
-    setOcupadoId(item.idItem);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/estoque/${item.idItem}`, {
-        method: "PATCH",
-        body: JSON.stringify({ statusNecessidade }),
-      });
-      await carregar();
-      setAviso(`${item.nome} marcado como ${statusNecessidade}.`);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setOcupadoId(null);
-    }
-  }
-
-  async function salvarConfigItem(e: FormEvent) {
-    e.preventDefault();
-    if (!itemConfig || !idAbrigoAtivo || somenteLeitura) return;
-    setOcupadoId(itemConfig.idItem);
-    setErro(null);
-    try {
-      const novaMinima = Number(minimoInput);
-      if (novaMinima !== itemConfig.quantidadeMinima) {
-        await api(`/api/abrigos/${idAbrigoAtivo}/estoque/${itemConfig.idItem}`, {
-          method: "PATCH",
-          body: JSON.stringify({ quantidadeMinima: novaMinima }),
-        });
-      }
-      if (contagemFisicaInput.trim() !== "" && Number(contagemFisicaInput) !== itemConfig.quantidade) {
-        await api(`/api/abrigos/${idAbrigoAtivo}/estoque/${itemConfig.idItem}/movimentacoes`, {
-          method: "POST",
-          body: JSON.stringify({
-            tipo: "AJUSTE",
-            quantidadeFinal: Number(contagemFisicaInput),
-            observacao: justificativaAjuste.trim() || "Ajuste por contagem física",
-          }),
-        });
-      }
-      setItemConfig(null);
-      await carregar();
-      if (mostrarHistorico) await carregarHistorico();
-      setAviso(`Parâmetros de "${itemConfig.nome}" atualizados.`);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setOcupadoId(null);
-    }
-  }
-
-  async function confirmarTransferencia(e: FormEvent) {
-    e.preventDefault();
-    if (!itemTransferencia || !idAbrigoAtivo || !idAbrigoDestino || somenteLeitura) return;
-    setOcupadoId(itemTransferencia.idItem);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/transferencias-estoque`, {
-        method: "POST",
-        body: JSON.stringify({
-          idAbrigoDestino: Number(idAbrigoDestino),
-          idItem: itemTransferencia.idItem,
-          quantidade: Number(qtdTransferencia),
-          observacao: obsTransferencia,
-        }),
-      });
-      setItemTransferencia(null);
-      await carregar();
-      if (mostrarHistorico) await carregarHistorico();
-      setAviso(`Transferência de ${itemTransferencia.nome} concluída.`);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setOcupadoId(null);
-    }
-  }
-
-  const categorias = Array.from(
-    new Map(itens.map((i) => [i.categoriaSlug, { slug: i.categoriaSlug, nome: i.categoria }])).values(),
+  const categorias = useMemo(
+    () => Array.from(new Map(itens.map((i) => [i.categoriaSlug, { slug: i.categoriaSlug, nome: i.categoria }])).values()),
+    [itens],
   );
 
-  const totalCriticos = itens.filter(
-    (i) => i.statusNecessidade === "URGENTE" || i.quantidade < i.quantidadeMinima,
-  ).length;
-  const totalUrgentes = itens.filter((i) => i.statusNecessidade === "URGENTE").length;
-  const totalBloqueados = itens.filter((i) => i.statusNecessidade === "BLOQUEADO").length;
-  const totalComSaldo = itens.filter((i) => i.quantidade > 0).length;
+  const contagem = useMemo(
+    () => ({
+      emAlerta: itens.filter(emAlerta).length,
+      urgentes: itens.filter((i) => i.statusNecessidade === "URGENTE").length,
+      bloqueados: itens.filter((i) => i.statusNecessidade === "BLOQUEADO").length,
+      comSaldo: itens.filter((i) => i.quantidade > 0).length,
+    }),
+    [itens],
+  );
 
-  const itensFiltrados = itens.filter((i) => {
-    if (categoriaAtiva !== "TODAS" && i.categoriaSlug !== categoriaAtiva) return false;
-    if (filtroStatus === "CRITICOS" && !(i.statusNecessidade === "URGENTE" || i.quantidade < i.quantidadeMinima)) {
-      return false;
-    }
-    if (filtroStatus === "URGENTE" && i.statusNecessidade !== "URGENTE") return false;
-    if (filtroStatus === "BLOQUEADO" && i.statusNecessidade !== "BLOQUEADO") return false;
-    if (filtroStatus === "COM_SALDO" && i.quantidade <= 0) return false;
-    if (busca.trim() && !i.nome.toLowerCase().includes(busca.trim().toLowerCase())) return false;
-    return true;
-  });
+  const itensFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return itens.filter((i) => {
+      if (categoria !== "TODAS" && i.categoriaSlug !== categoria) return false;
+      if (filtroStatus === "CRITICOS" && !emAlerta(i)) return false;
+      if (filtroStatus === "URGENTE" && i.statusNecessidade !== "URGENTE") return false;
+      if (filtroStatus === "BLOQUEADO" && i.statusNecessidade !== "BLOQUEADO") return false;
+      if (filtroStatus === "COM_SALDO" && i.quantidade <= 0) return false;
+      return !termo || i.nome.toLowerCase().includes(termo);
+    });
+  }, [itens, busca, categoria, filtroStatus]);
 
-  const abrigosDestino = abrigos.filter((a) => a.ativo && a.id !== idAbrigoAtivo);
+  const abrigosDestino = useMemo(() => abrigos.filter((a) => a.ativo && a.id !== idAbrigoAtivo), [abrigos, idAbrigoAtivo]);
 
-  if (!idAbrigoAtivo) {
-    return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-slate-400">
-        Selecione um abrigo no topo para acessar o estoque.
-      </div>
-    );
-  }
+  // Funções estáveis: as linhas são memorizadas e só renderizam quando o próprio item muda.
+  const alternarGestao = useCallback((idItem: number) => setGestaoAbertaId((atual) => (atual === idItem ? null : idItem)), []);
+  const abrirLote = useCallback((item: ItemEstoque) => setModal({ tipo: "lote", idItem: item.idItem }), []);
+  const abrirConfig = useCallback((item: ItemEstoque) => setModal({ tipo: "config", idItem: item.idItem }), []);
+  const abrirTransferencia = useCallback((item: ItemEstoque) => setModal({ tipo: "transferencia", idItem: item.idItem }), []);
+
+  if (!idAbrigoAtivo) return <EstadoVazio>Selecione um abrigo no topo para ver o estoque.</EstadoVazio>;
+
+  // O modal usa sempre a versão atual do item (o saldo pode mudar com ele aberto).
+  const itemDoModal = modal ? (itens.find((i) => i.idItem === modal.idItem) ?? null) : null;
+  const alternarFiltro = (filtro: FiltroStatusEstoque) => setFiltroStatus((atual) => (atual === filtro ? "TODOS" : filtro));
 
   return (
     <div className="space-y-5">
-      <ToastFlutuante
-        erro={erro}
-        aviso={aviso}
-        aoFecharErro={() => setErro(null)}
-        aoFecharAviso={() => setAviso(null)}
-      />
+      <ToastFlutuante erro={estoque.erro} aviso={estoque.aviso} aoFecharErro={() => setErro(null)} aoFecharAviso={() => setAviso(null)} />
 
-      {/* Cabeçalho e Controles Operacionais Touch */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-            Controle de Estoque e Doações
-          </span>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">
-            {abrigoAtivo?.nome}
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Toque nos botões para registrar entradas e saídas rapidamente.
-          </p>
+      <CabecalhoPagina titulo="Estoque" descricao="Toque nos botões de cada item para registrar entradas e saídas.">
+        <div role="group" aria-label="As saídas contam como" className="flex items-center gap-2">
+          <span className="text-meta text-texto-3">Saídas como</span>
+          <Chip ativo={estoque.modoSaida === "SAIDA_CONSUMO"} onClick={() => estoque.setModoSaida("SAIDA_CONSUMO")}>
+            Consumo
+          </Chip>
+          <Chip ativo={estoque.modoSaida === "PERDA"} onClick={() => estoque.setModoSaida("PERDA")}>
+            Perda
+          </Chip>
         </div>
+        {podeGerenciar && (
+          <Botao icone={History} ligado={mostrarHistorico} onClick={() => setMostrarHistorico((v) => !v)}>
+            Histórico
+          </Botao>
+        )}
+      </CabecalhoPagina>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-xl border border-slate-800 bg-slate-900 p-1 text-xs">
-            <button
-              type="button"
-              onClick={() => setModoSaida("SAIDA_CONSUMO")}
-              className={`min-h-10 rounded-lg px-3 py-1.5 font-semibold transition cursor-pointer ${
-                modoSaida === "SAIDA_CONSUMO"
-                  ? "bg-amber-500 text-slate-950"
-                  : "text-slate-300 hover:text-white"
-              }`}
-            >
-              − Saída p/ Consumo
-            </button>
-            <button
-              type="button"
-              onClick={() => setModoSaida("PERDA")}
-              className={`min-h-10 rounded-lg px-3 py-1.5 font-semibold transition cursor-pointer ${
-                modoSaida === "PERDA"
-                  ? "bg-rose-500 text-slate-950"
-                  : "text-slate-300 hover:text-white"
-              }`}
-            >
-              − Baixa por Perda
-            </button>
-          </div>
-
-          <label className="min-h-11 inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={incluirCatalogo}
-              onChange={(e) => setIncluirCatalogo(e.target.checked)}
-              className="h-4 w-4 accent-amber-500"
-            />
-            Mostrar zerados
-          </label>
-
-          {podeClassificar && (
-            <button
-              type="button"
-              onClick={() => setMostrarHistorico((v) => !v)}
-              className={`min-h-11 rounded-xl border px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
-                mostrarHistorico
-                  ? "border-amber-500 bg-amber-500/20 text-amber-200"
-                  : "border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800"
-              }`}
-            >
-              📜 {mostrarHistorico ? "Ocultar Histórico" : "Histórico"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Banner de Fila Offline 3G */}
-      {filaOffline.length > 0 && (
-        <div className="rounded-2xl border border-amber-500/50 bg-amber-950/35 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs sm:text-sm font-bold text-amber-200">
-              📴 Fila Resiliente 3G/Offline: {filaOffline.length} lançamento(s) aguardando conexão
-            </p>
-            <p className="text-xs text-amber-100/80">
-              Os saldos na tela já refletem seus toques. Assim que a rede estabilizar, os dados serão sincronizados em lote.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={sincronizandoFilaOffline}
-              onClick={() => void sincronizarFilaOffline()}
-              className="min-h-10 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
-            >
-              {sincronizandoFilaOffline ? "Sincronizando..." : "🔄 Sincronizar agora"}
-            </button>
-            <button
-              type="button"
-              onClick={() => salvarFilaOfflineStorage([])}
-              className="min-h-10 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
-            >
-              Descartar fila
-            </button>
-          </div>
-        </div>
+      {estoque.filaOffline.length > 0 && (
+        <Faixa
+          acoes={
+            <>
+              <Botao tamanho="sm" disabled={estoque.sincronizando} onClick={() => void estoque.sincronizarFila()}>
+                {estoque.sincronizando ? "Enviando..." : "Enviar agora"}
+              </Botao>
+              <Botao tamanho="sm" variante="fantasma" onClick={estoque.descartarFila}>
+                Descartar
+              </Botao>
+            </>
+          }
+        >
+          {estoque.filaOffline.length === 1 ? "1 lançamento aguarda" : `${estoque.filaOffline.length} lançamentos aguardam`} conexão. Os saldos na tela já
+          contam com eles e o envio é automático quando o sinal voltar.
+        </Faixa>
       )}
 
-      {/* Faixa de Últimos Toques da Sessão + Estorno em 1 Toque */}
-      {toquesRecentes.length > 0 && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Recentes:
+      {estoque.toquesRecentes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-borda py-2 text-meta">
+          <span className="text-texto-3">Últimos lançamentos</span>
+          {estoque.toquesRecentes.map((toque) => (
+            <span key={toque.uid} className={toque.desfeito ? "text-texto-3 line-through" : "inline-flex items-center gap-1 text-texto-2"}>
+              <span className="tabular-nums text-texto">{formatarDelta(toque.delta)}</span> {toque.nomeItem}
+              <span className="text-texto-3 tabular-nums"> {toque.horario}</span>
+              {!toque.desfeito && !somenteLeitura && (
+                <Botao tamanho="sm" variante="fantasma" icone={Undo2} onClick={() => estoque.desfazerToque(toque)}>
+                  Desfazer
+                </Botao>
+              )}
             </span>
-            {toquesRecentes.map((t) => (
-              <div
-                key={t.uid}
-                className={`inline-flex items-center gap-2 rounded-xl border px-2.5 py-1 text-xs tabular-nums ${
-                  t.desfeito
-                    ? "border-slate-800 bg-slate-950/50 text-slate-500 line-through"
-                    : t.delta > 0
-                      ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200"
-                      : "border-amber-500/30 bg-amber-950/30 text-amber-200"
-                }`}
-              >
-                <span className="font-bold">
-                  {t.delta > 0 ? `+${t.delta}` : t.delta}
-                </span>
-                <span className="font-medium">{t.nomeItem}</span>
-                <span className="text-xs text-slate-400">{t.horario}</span>
-                {!t.desfeito && !somenteLeitura && (
-                  <button
-                    type="button"
-                    onClick={() => desfazerToque(t)}
-                    className="ml-1 rounded-md bg-slate-800 px-1.5 py-0.5 text-xs font-bold text-amber-300 hover:bg-slate-700 cursor-pointer"
-                    title="Desfazer este lançamento"
-                  >
-                    ↩ Desfazer
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setToquesRecentes([])}
-            className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
-          >
+          ))}
+          <Botao tamanho="sm" variante="fantasma" onClick={estoque.limparToques} className="ml-auto">
             Limpar
-          </button>
+          </Botao>
         </div>
       )}
 
-      {/* Filtros Rápidos por Status, Busca e Categorias Macro */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <input
-              type="search"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar item (ex.: Água, Fralda, Cobertor, Insulina)..."
-              className="w-full min-h-11 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-base sm:text-sm text-white"
-            />
-            {busca && (
-              <button
-                type="button"
-                onClick={() => setBusca("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:text-white cursor-pointer"
-              >
-                ✕ Limpar
-              </button>
-            )}
-          </div>
-
-          {/* Pílulas de Filtro Rápido por Status (1 Toque) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 tabular-nums">
-            {[
-              { id: "TODOS" as const, rotulo: `Todos (${itens.length})` },
-              { id: "CRITICOS" as const, rotulo: `🚨 Em Alerta (${totalCriticos})` },
-              { id: "URGENTE" as const, rotulo: `🔴 Urgentes (${totalUrgentes})` },
-              { id: "BLOQUEADO" as const, rotulo: `🛑 Bloqueados (${totalBloqueados})` },
-              { id: "COM_SALDO" as const, rotulo: `📦 Com Saldo (${totalComSaldo})` },
-            ].map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFiltroStatus(f.id)}
-                className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-bold transition cursor-pointer ${
-                  filtroStatus === f.id
-                    ? "bg-sky-500 text-slate-950"
-                    : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
-                }`}
-              >
-                {f.rotulo}
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Icone de={Search} tamanho={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-texto-3" />
+          <input
+            type="search"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar item"
+            aria-label="Buscar item do estoque"
+            className={`${CLASSES_CAMPO} pl-9`}
+          />
         </div>
-
-        {/* Abas Touch de Categoria Macro com Ícones */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          <button
-            type="button"
-            onClick={() => setCategoriaAtiva("TODAS")}
-            className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
-              categoriaAtiva === "TODAS"
-                ? "bg-amber-500 text-slate-950"
-                : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
-            }`}
-          >
-            📋 Todas
-          </button>
+        <div className="w-40 shrink-0 sm:w-52">
+          <select aria-label="Categoria" value={categoria} onChange={(e) => setCategoria(e.target.value)} className={CLASSES_CAMPO}>
+          <option value="TODAS">Todas as categorias</option>
           {categorias.map((c) => (
-            <button
-              key={c.slug}
-              type="button"
-              onClick={() => setCategoriaAtiva(c.slug)}
-              className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
-                categoriaAtiva === c.slug
-                  ? "bg-amber-500 text-slate-950"
-                  : "border border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              {ICONES_CATEGORIA[c.slug] ?? "📦"} {c.nome}
-            </button>
+            <option key={c.slug} value={c.slug}>
+              {c.nome}
+            </option>
           ))}
+          </select>
+        </div>
+        <div className="barra-filtros-scroll flex items-center gap-2 tabular-nums">
+          <Chip ativo={filtroStatus === "CRITICOS"} onClick={() => alternarFiltro("CRITICOS")}>
+            Em alerta {contagem.emAlerta}
+          </Chip>
+          <Chip ativo={filtroStatus === "URGENTE"} onClick={() => alternarFiltro("URGENTE")}>
+            Urgentes {contagem.urgentes}
+          </Chip>
+          <Chip ativo={filtroStatus === "BLOQUEADO"} onClick={() => alternarFiltro("BLOQUEADO")}>
+            Bloqueados {contagem.bloqueados}
+          </Chip>
+          <Chip ativo={filtroStatus === "COM_SALDO"} onClick={() => alternarFiltro("COM_SALDO")}>
+            Com saldo {contagem.comSaldo}
+          </Chip>
+          <Chip ativo={estoque.incluirCatalogo} onClick={() => estoque.setIncluirCatalogo(!estoque.incluirCatalogo)}>
+            Mostrar zerados
+          </Chip>
         </div>
       </div>
 
-      {/* Grade de Cards de Estoque */}
-      {carregando ? (
-        <p className="py-12 text-center text-sm text-slate-400">Carregando estoque...</p>
+      {estoque.carregando ? (
+        <EstadoVazio>Carregando estoque...</EstadoVazio>
       ) : itensFiltrados.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center text-sm text-slate-400">
-          Nenhum item encontrado para este filtro.
-        </div>
+        <EstadoVazio>Nenhum item com estes filtros.</EstadoVazio>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {itensFiltrados.map((item) => {
-            const desabilitadoClassificacao = ocupadoId === item.idItem || somenteLeitura;
-            const fb = feedbackPorItem[item.idItem];
-            const sincronizando = (fb?.pendentes ?? 0) > 0;
-            const abaixoDoMinimo = item.quantidade < item.quantidadeMinima;
-            const expandido = cardExpandidoId === item.idItem;
-
-            return (
-              <div
-                key={item.idItem}
-                className={`rounded-2xl border p-4 flex flex-col justify-between space-y-4 transition ${
-                  item.statusNecessidade === "URGENTE"
-                    ? "border-rose-500/50 bg-slate-900 shadow-sm shadow-rose-950/30"
-                    : item.statusNecessidade === "BLOQUEADO"
-                      ? "border-slate-700 bg-slate-900/70"
-                      : abaixoDoMinimo
-                        ? "border-amber-500/40 bg-slate-900"
-                        : "border-slate-800 bg-slate-900"
-                }`}
-              >
-                {/* Zona 1: Identificação e Contador Principal */}
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-semibold text-slate-400 uppercase">
-                        {ICONES_CATEGORIA[item.categoriaSlug] ?? "📦"} {item.categoria}
-                      </span>
-                      <h3 className="text-base font-bold text-white leading-snug">{item.nome}</h3>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                          item.statusNecessidade === "URGENTE"
-                            ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                            : item.statusNecessidade === "BLOQUEADO"
-                              ? "bg-slate-700 text-slate-300"
-                              : "bg-emerald-500/15 text-emerald-300"
-                        }`}
-                      >
-                        {item.statusNecessidade}
-                      </span>
-                      {sincronizando ? (
-                        <span className="text-xs tabular-nums text-amber-300 animate-pulse">
-                          ⟳ Salvando ({fb.pendentes})...
-                        </span>
-                      ) : fb?.ultimoDelta ? (
-                        <span className="text-xs tabular-nums text-emerald-400">
-                          ✓ {fb.ultimoDelta > 0 ? `+${fb.ultimoDelta}` : fb.ultimoDelta} salvo
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="flex items-baseline justify-between pt-1 tabular-nums">
-                    <div>
-                      <span className="text-3xl font-extrabold text-white">{item.quantidade}</span>
-                      <span className="ml-1.5 text-xs text-slate-400">{item.unidadeMedida}(s)</span>
-                    </div>
-                    <div className="text-right space-y-0.5">
-                      <span
-                        className={`block text-xs font-medium ${
-                          abaixoDoMinimo ? "text-amber-300 font-bold" : "text-slate-400"
-                        }`}
-                      >
-                        Mín: {item.quantidadeMinima}
-                      </span>
-                      {item.atualizadoEm && (
-                        <span className="block text-[11px] text-slate-400">
-                          {obterSeloAtualizacao(item.atualizadoEm).rotulo}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Zona 2: Botões Touch Rápidos (-5, -1, +1, +5) + Lote e Gestão */}
-                <div className="space-y-2">
-                  <div className="grid grid-cols-4 gap-2 tabular-nums">
-                    <button
-                      type="button"
-                      disabled={somenteLeitura || item.quantidade < 5}
-                      onClick={() => movimentarRapido(item, -5)}
-                      className={`min-h-12 rounded-xl border text-base font-black transition active:scale-95 disabled:opacity-30 cursor-pointer ${
-                        modoSaida === "PERDA"
-                          ? "border-rose-500/40 bg-rose-950/40 text-rose-300 hover:bg-rose-900/50"
-                          : "border-slate-700 bg-slate-950 text-amber-300 hover:bg-slate-800"
-                      }`}
-                    >
-                      −5
-                    </button>
-                    <button
-                      type="button"
-                      disabled={somenteLeitura || item.quantidade < 1}
-                      onClick={() => movimentarRapido(item, -1)}
-                      className={`min-h-12 rounded-xl border text-lg font-black transition active:scale-95 disabled:opacity-30 cursor-pointer ${
-                        modoSaida === "PERDA"
-                          ? "border-rose-500/40 bg-rose-950/40 text-rose-300 hover:bg-rose-900/50"
-                          : "border-slate-700 bg-slate-950 text-amber-300 hover:bg-slate-800"
-                      }`}
-                    >
-                      −1
-                    </button>
-                    <button
-                      type="button"
-                      disabled={somenteLeitura || !item.itemAtivo}
-                      onClick={() => movimentarRapido(item, 1)}
-                      className="min-h-12 rounded-xl border border-emerald-500/40 bg-emerald-500/15 text-lg font-black text-emerald-200 hover:bg-emerald-500/25 transition active:scale-95 disabled:opacity-30 cursor-pointer"
-                    >
-                      +1
-                    </button>
-                    <button
-                      type="button"
-                      disabled={somenteLeitura || !item.itemAtivo}
-                      onClick={() => movimentarRapido(item, 5)}
-                      className="min-h-12 rounded-xl border border-emerald-500/40 bg-emerald-500/15 text-base font-black text-emerald-200 hover:bg-emerald-500/25 transition active:scale-95 disabled:opacity-30 cursor-pointer"
-                    >
-                      +5
-                    </button>
-                  </div>
-
-                  {/* Linha Secundária Enxuta: Lote Rápido + Toggle de Gestão (Progressive Disclosure) */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={somenteLeitura}
-                      onClick={() => {
-                        setItemLote(item);
-                        setMotivoLote(MOTIVOS_RAPIDOS_LOTE[0]);
-                      }}
-                      className="flex-1 min-h-10 rounded-xl border border-slate-800 bg-slate-950/90 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white disabled:opacity-40 transition cursor-pointer"
-                    >
-                      🚚 Lote (+10 a +100)
-                    </button>
-
-                    {podeClassificar && (
-                      <button
-                        type="button"
-                        aria-expanded={expandido}
-                        onClick={() => setCardExpandidoId(expandido ? null : item.idItem)}
-                        className={`min-h-10 rounded-xl border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
-                          expandido
-                            ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
-                            : "border-slate-800 bg-slate-950/90 text-slate-400 hover:text-white hover:bg-slate-800"
-                        }`}
-                      >
-                        ⚙️ {expandido ? "Fechar" : "Gerenciar"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Zona 3: Gaveta de Governança Recolhível (Exclusiva Coordenador / Admin) */}
-                {podeClassificar && expandido && (
-                  <div className="pt-3 border-t border-slate-800 space-y-2.5 animate-fadeIn">
-                    <div>
-                      <p className="text-xs font-medium text-slate-400 mb-1.5">
-                        Visibilidade para doações no mapa público:
-                      </p>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {(["URGENTE", "NORMAL", "BLOQUEADO"] as const).map((st) => (
-                          <button
-                            key={st}
-                            type="button"
-                            disabled={desabilitadoClassificacao || item.statusNecessidade === st}
-                            onClick={() => classificarStatus(item, st)}
-                            className={`min-h-9 rounded-lg py-1 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-                              item.statusNecessidade === st
-                                ? "bg-amber-500 text-slate-950"
-                                : "border border-slate-700 bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-800"
-                            }`}
-                          >
-                            {st}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        disabled={somenteLeitura}
-                        onClick={() => {
-                          setItemConfig(item);
-                          setMinimoInput(String(item.quantidadeMinima));
-                          setContagemFisicaInput(String(item.quantidade));
-                          setJustificativaAjuste("");
-                        }}
-                        className="min-h-9 flex-1 rounded-lg border border-slate-700 bg-slate-950 py-1.5 px-2 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
-                      >
-                        📏 Mínimo / Contagem
-                      </button>
-                      {item.quantidade > 0 && abrigosDestino.length > 0 && (
-                        <button
-                          type="button"
-                          disabled={somenteLeitura}
-                          onClick={() => {
-                            setItemTransferencia(item);
-                            setIdAbrigoDestino(abrigosDestino[0]?.id ?? "");
-                            setQtdTransferencia("1");
-                            setObsTransferencia("");
-                          }}
-                          className="min-h-9 flex-1 rounded-lg border border-sky-500/40 bg-sky-950/40 py-1.5 px-2 text-xs font-semibold text-sky-300 hover:bg-sky-900/50 disabled:opacity-40 cursor-pointer"
-                        >
-                          ⇄ Transferir
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <ul className="border-t border-borda">
+          {itensFiltrados.map((item) => (
+            <LinhaItem
+              key={item.idItem}
+              item={item}
+              feedback={estoque.feedbackPorItem[item.idItem]}
+              modoSaida={estoque.modoSaida}
+              somenteLeitura={somenteLeitura}
+              podeGerenciar={podeGerenciar}
+              gestaoAberta={gestaoAbertaId === item.idItem}
+              ocupado={estoque.ocupadoId === item.idItem}
+              podeTransferir={abrigosDestino.length > 0}
+              onMovimentar={movimentar}
+              onAlternarGestao={alternarGestao}
+              onLote={abrirLote}
+              onClassificar={classificar}
+              onConfigurar={abrirConfig}
+              onTransferir={abrirTransferencia}
+            />
+          ))}
+        </ul>
       )}
 
-      {/* Modal Touch de Lote Rápido (Sem Teclado Virtual) */}
-      {itemLote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <span className="text-xs font-bold uppercase text-amber-400">Lançamento em Lote</span>
-                <h3 className="text-lg font-bold text-white">{itemLote.nome}</h3>
-                <p className="text-xs text-slate-400 tabular-nums">
-                  Saldo atual: <strong className="text-white">{itemLote.quantidade}</strong> {itemLote.unidadeMedida}(s)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setItemLote(null)}
-                className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-300">1. Selecione a origem ou motivo:</p>
-              <div className="grid grid-cols-1 gap-1.5">
-                {MOTIVOS_RAPIDOS_LOTE.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMotivoLote(m)}
-                    className={`min-h-10 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition cursor-pointer ${
-                      motivoLote === m
-                        ? "border-amber-500 bg-amber-500/20 text-amber-200"
-                        : "border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                    }`}
-                  >
-                    {motivoLote === m ? `✓ ${m}` : m}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2 tabular-nums">
-              <p className="text-xs font-semibold text-slate-300">2. Toque na quantidade para lançar:</p>
-              <div className="grid grid-cols-4 gap-2">
-                {[10, 20, 50, 100].map((qtd) => (
-                  <button
-                    key={qtd}
-                    type="button"
-                    disabled={!itemLote.itemAtivo}
-                    onClick={() => {
-                      const atualizado = itens.find((i) => i.idItem === itemLote.idItem) ?? itemLote;
-                      movimentarRapido(atualizado, qtd, { observacao: motivoLote });
-                      setItemLote(null);
-                      setAviso(`+${qtd} ${itemLote.nome} lançado (${motivoLote}).`);
-                    }}
-                    className="min-h-12 rounded-xl border border-emerald-500/40 bg-emerald-500/20 text-base font-black text-emerald-200 hover:bg-emerald-500/30 cursor-pointer"
-                  >
-                    +{qtd}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-2 pt-1">
-                {[-10, -20, -50].map((qtd) => {
-                  const atualizado = itens.find((i) => i.idItem === itemLote.idItem) ?? itemLote;
-                  return (
-                    <button
-                      key={qtd}
-                      type="button"
-                      disabled={atualizado.quantidade + qtd < 0}
-                      onClick={() => {
-                        movimentarRapido(atualizado, qtd, { observacao: motivoLote });
-                        setItemLote(null);
-                        setAviso(`${qtd} ${itemLote.nome} lançado (${motivoLote}).`);
-                      }}
-                      className="min-h-11 rounded-xl border border-slate-700 bg-slate-950 text-sm font-black text-amber-300 hover:bg-slate-800 disabled:opacity-30 cursor-pointer"
-                    >
-                      {qtd}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
+      {itemDoModal && modal?.tipo === "lote" && (
+        <ModalLote
+          item={itemDoModal}
+          onFechar={() => setModal(null)}
+          onLancar={(delta, motivo) => {
+            movimentar(itemDoModal, delta, motivo);
+            setModal(null);
+            setAviso(`${formatarDelta(delta)} ${itemDoModal.nome} (${motivo.toLowerCase()}).`);
+          }}
+        />
+      )}
+      {itemDoModal && modal?.tipo === "config" && (
+        <ModalConfig
+          item={itemDoModal}
+          salvando={estoque.ocupadoId === itemDoModal.idItem}
+          onFechar={() => setModal(null)}
+          onSalvar={(dados) => void estoque.salvarConfig(itemDoModal, dados).then((ok) => ok && setModal(null))}
+        />
+      )}
+      {itemDoModal && modal?.tipo === "transferencia" && (
+        <ModalTransferencia
+          item={itemDoModal}
+          abrigosDestino={abrigosDestino}
+          salvando={estoque.ocupadoId === itemDoModal.idItem}
+          onFechar={() => setModal(null)}
+          onTransferir={(dados) => void estoque.transferir(itemDoModal, dados).then((ok) => ok && setModal(null))}
+        />
       )}
 
-      {/* Modal de Estoque Mínimo e Ajuste por Contagem Física */}
-      {itemConfig && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-            <h3 className="text-lg font-bold text-white">Configurar: {itemConfig.nome}</h3>
-            <form onSubmit={salvarConfigItem} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Estoque Mínimo de Segurança ({itemConfig.unidadeMedida}s)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  required
-                  value={minimoInput}
-                  onChange={(e) => setMinimoInput(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
-                />
-              </div>
-
-              <div className="pt-2 border-t border-slate-800 space-y-2">
-                <label className="block text-xs font-medium text-slate-300">
-                  Contagem Física no Depósito (Saldo atual: {itemConfig.quantidade})
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={contagemFisicaInput}
-                  onChange={(e) => setContagemFisicaInput(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
-                />
-                {Number(contagemFisicaInput) !== itemConfig.quantidade && (
-                  <input
-                    type="text"
-                    required
-                    value={justificativaAjuste}
-                    onChange={(e) => setJustificativaAjuste(e.target.value)}
-                    placeholder="Motivo da correção de saldo *"
-                    className="w-full rounded-xl border border-amber-500/50 bg-slate-950 px-3 py-2 text-base sm:text-xs text-white"
-                  />
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setItemConfig(null)}
-                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
-                >
-                  Salvar Alterações
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Transferência de Suprimentos entre Abrigos */}
-      {itemTransferencia && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-4">
-            <h3 className="text-lg font-bold text-white">
-              Transferir {itemTransferencia.nome} (Saldo: {itemTransferencia.quantidade})
-            </h3>
-            <form onSubmit={confirmarTransferencia} className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Abrigo de Destino</label>
-                <select
-                  required
-                  value={idAbrigoDestino}
-                  onChange={(e) => setIdAbrigoDestino(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
-                >
-                  {abrigosDestino.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Quantidade</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={itemTransferencia.quantidade}
-                  required
-                  value={qtdTransferencia}
-                  onChange={(e) => setQtdTransferencia(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Observação / Motivo *</label>
-                <input
-                  type="text"
-                  required
-                  value={obsTransferencia}
-                  onChange={(e) => setObsTransferencia(e.target.value)}
-                  placeholder="Ex.: Apoio emergencial ao abrigo vizinho"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setItemTransferencia(null)}
-                  className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
-                >
-                  Confirmar Transferência
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Histórico de Movimentações do Abrigo */}
-      {mostrarHistorico && podeClassificar && (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-white">
-                Histórico de Movimentações de Estoque
-              </h2>
-              <p className="text-xs text-slate-400">
-                Registro cronológico de entradas, saídas, perdas, ajustes e transferências do abrigo.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-end gap-2">
-              <select
-                value={filtroItemHist}
-                onChange={(e) => setFiltroItemHist(e.target.value)}
-                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white"
-              >
-                <option value="">Todos os itens</option>
-                {itens.map((i) => (
-                  <option key={i.idItem} value={String(i.idItem)}>
-                    {i.nome}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={filtroTipoHist}
-                onChange={(e) => setFiltroTipoHist(e.target.value)}
-                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white"
-              >
-                <option value="">Todos os tipos</option>
-                {Object.entries(ROTULO_TIPO_MOVIMENTACAO).map(([tipo, rotulo]) => (
-                  <option key={tipo} value={tipo}>
-                    {rotulo}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400">
-                  <th className="pb-2.5 font-semibold">Data / Hora</th>
-                  <th className="pb-2.5 font-semibold">Item</th>
-                  <th className="pb-2.5 font-semibold">Tipo</th>
-                  <th className="pb-2.5 font-semibold">Variação / Saldo</th>
-                  <th className="pb-2.5 font-semibold">Responsável / Obs.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {movimentacoes.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-slate-400">
-                      Nenhuma movimentação encontrada para o filtro selecionado.
-                    </td>
-                  </tr>
-                ) : (
-                  movimentacoes.map((m) => (
-                    <tr key={m.id}>
-                      <td className="py-2.5 pr-3 whitespace-nowrap text-slate-400 tabular-nums">
-                        {new Date(m.dataHora).toLocaleString("pt-BR")}
-                      </td>
-                      <td className="py-2.5 pr-3 font-semibold text-white">{m.item}</td>
-                      <td className="py-2.5 pr-3">
-                        <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-amber-300">
-                          {ROTULO_TIPO_MOVIMENTACAO[m.tipo] ?? m.tipo}
-                        </span>
-                        {m.estornada && <span className="ml-1.5 text-xs text-slate-400">(desfeita)</span>}
-                      </td>
-                      <td className="py-2.5 pr-3 tabular-nums">
-                        <span className={m.quantidade > 0 ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>
-                          {m.quantidade > 0 ? `+${m.quantidade}` : m.quantidade}
-                        </span>{" "}
-                        <span className="text-slate-400">→ saldo {m.quantidadeResultante}</span>
-                      </td>
-                      <td className="py-2.5 text-slate-300">
-                        {m.usuario}
-                        {m.abrigoContraparte && (
-                          <span className="text-sky-300"> ({m.abrigoContraparte})</span>
-                        )}
-                        {m.observacao && <span className="text-slate-400"> • {m.observacao}</span>}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+      {mostrarHistorico && podeGerenciar && <Historico idAbrigo={idAbrigoAtivo} itens={itens} versao={estoque.versaoMovimentos} onErro={setErro} />}
     </div>
   );
 }

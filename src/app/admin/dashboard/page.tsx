@@ -1,109 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { Botao, BotaoIcone, classesBotao } from "@/components/ui/botao";
+import { CabecalhoPagina, EstadoVazio, Faixa } from "@/components/ui/pagina";
 import { api, mensagemErro } from "@/lib/cliente-api";
-import { ToastFlutuante, useAdmin, type NivelOcupacao, type StatusInfraestrutura } from "../contexto-admin";
-import { ROTULO_TIPO_MOVIMENTACAO } from "../rotulos";
-
-interface SugestaoTransferencia {
-  direcao: "RECEBER" | "ENVIAR";
-  idItem: number;
-  item: string;
-  unidadeMedida: string;
-  categoria: string;
-  idAbrigoParceiro: number;
-  abrigoParceiro: string;
-  telefoneParceiro: string | null;
-  distanciaKm: number;
-  quantidadeAtual: number;
-  quantidadeParceiro: number;
-  quantidadeSugerida: number;
-}
-
-interface DadosDashboard {
-  abrigo: {
-    id: number;
-    nome: string;
-    ativo: boolean;
-    statusInfraestrutura: StatusInfraestrutura;
-    aceitaPets?: boolean;
-    acessivelPcd?: boolean;
-  };
-  ocupacao: {
-    capacidadeMaxima: number;
-    lotacaoAtual: number;
-    vagasDisponiveis: number;
-    percentual: number;
-    nivel: NivelOcupacao;
-  };
-  acolhidos: {
-    presentes: number;
-    naoTriados: number;
-    entradas24h: number;
-    desligados24h: number;
-    recebidas24h: number;
-    enviadas24h: number;
-  };
-  estoque: {
-    itensEmEstoque: number;
-    itensUrgentes: number;
-    itensBloqueados: number;
-    itensCriticos: Array<{
-      idItem: number;
-      nome: string;
-      unidadeMedida: string;
-      categoria: string;
-      quantidade: number;
-      quantidadeMinima: number;
-      statusNecessidade: "URGENTE" | "NORMAL" | "BLOQUEADO";
-      motivo: "URGENTE" | "ABAIXO_DO_MINIMO";
-    }>;
-  };
-  sugestoesTransferencia?: SugestaoTransferencia[];
-  reportesPendentes?: number;
-  ocorrenciasAtivas: Array<{
-    id: number;
-    tipo: string;
-    gravidade: "ALERTA" | "CRITICO";
-    descricao: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    dataRegistro: string;
-  }>;
-  ultimasMovimentacoes: Array<{
-    id: number;
-    tipo: string;
-    quantidade: number;
-    quantidadeResultante: number;
-    dataHora: string;
-    item: string;
-    usuario: string;
-  }>;
-}
-
-const ROTULOS_OCORRENCIA: Record<string, string> = {
-  SEM_ENERGIA: "Sem Energia Elétrica",
-  SEM_AGUA: "Sem Abastecimento de Água",
-  SEM_COMUNICACAO: "Sem Internet / Comunicação",
-  VIA_BLOQUEADA: "Via de Acesso Bloqueada",
-  ALAGAMENTO: "Alagamento no Entorno",
-  DESLIZAMENTO: "Risco de Deslizamento",
-  RISCO_ESTRUTURAL: "Risco Estrutural no Prédio",
-  OUTRO: "Outra Ocorrência",
-};
-
-const BARRA_OCUPACAO: Record<NivelOcupacao, string> = {
-  VERDE: "bg-emerald-500",
-  AMARELO: "bg-amber-500",
-  VERMELHO: "bg-rose-500",
-};
-
-const ROTULO_SEMAFORO: Record<NivelOcupacao, string> = {
-  VERDE: "Normal",
-  AMARELO: "Atenção",
-  VERMELHO: "Lotado / Crítico",
-};
+import { ToastFlutuante, useAdmin } from "../contexto-admin";
+import { ROTULO_NECESSIDADE, rotuloOcorrencia } from "../rotulos";
+import { ModalAbrigo, SecaoEstoqueEmAlerta, SecaoInfraestrutura, SecaoMovimentacoes, SecaoOcupacao, SecaoSugestoes } from "./secoes";
+import type { DadosDashboard, StatusNecessidade, SugestaoTransferencia } from "./tipos";
 
 export default function PaginaDashboard() {
   const { idAbrigoAtivo, abrigoAtivo, recarregarAbrigos } = useAdmin();
@@ -112,17 +18,12 @@ export default function PaginaDashboard() {
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [processando, setProcessando] = useState(false);
-
-  // Edição rápida de capacidade e telefone
-  const [editandoOperacao, setEditandoOperacao] = useState(false);
-  const [novaCapacidade, setNovaCapacidade] = useState("");
-  const [novoTelefone, setNovoTelefone] = useState("");
+  const [editandoAbrigo, setEditandoAbrigo] = useState(false);
 
   const carregar = useCallback(async () => {
     if (!idAbrigoAtivo) return;
     try {
-      const resposta = await api<DadosDashboard>(`/api/abrigos/${idAbrigoAtivo}/dashboard`);
-      setDados(resposta);
+      setDados(await api<DadosDashboard>(`/api/abrigos/${idAbrigoAtivo}/dashboard`));
       setErro(null);
     } catch (err) {
       setErro(mensagemErro(err));
@@ -148,755 +49,167 @@ export default function PaginaDashboard() {
     };
   }, [carregar]);
 
-  async function ajustarNaoTriados(delta: number) {
-    if (!dados || !idAbrigoAtivo) return;
+  /**
+   * Roda uma ação do painel: bloqueia os botões enquanto salva, recarrega os
+   * indicadores e mostra o resultado. `afetaCabecalho` atualiza também a lotação
+   * e o estado do abrigo no topo da tela.
+   */
+  async function executar<T>(acao: () => Promise<T>, mensagem: (resultado: T) => string, afetaCabecalho = true): Promise<boolean> {
     setProcessando(true);
     setErro(null);
     try {
-      // Envia só a variação: o banco soma, então toques simultâneos de dois
-      // coordenadores (ou duas abas) não se sobrescrevem.
-      const abrigo = await api<{ acolhidosNaoTriados: number }>(`/api/abrigos/${idAbrigoAtivo}/triagem`, {
-        method: "POST",
-        body: JSON.stringify({ delta }),
-      });
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`Fila de triagem: ${abrigo.acolhidosNaoTriados} pessoa(s) aguardando cadastro.`);
+      const resultado = await acao();
+      await Promise.all(afetaCabecalho ? [carregar(), recarregarAbrigos()] : [carregar()]);
+      setAviso(mensagem(resultado));
+      return true;
     } catch (err) {
       setErro(mensagemErro(err));
+      return false;
     } finally {
       setProcessando(false);
     }
   }
 
-  async function salvarOperacao(e: FormEvent) {
-    e.preventDefault();
-    if (!idAbrigoAtivo) return;
-    setProcessando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          capacidadeMaxima: Number(novaCapacidade),
-          telefone: novoTelefone.trim() || null,
-        }),
-      });
-      setEditandoOperacao(false);
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso("Capacidade e contato atualizados.");
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setProcessando(false);
-    }
-  }
+  if (!idAbrigoAtivo) return <EstadoVazio>Selecione um abrigo no topo para ver a visão geral.</EstadoVazio>;
+  if (carregando && !dados) return <EstadoVazio>Carregando indicadores do abrigo...</EstadoVazio>;
+  if (!dados) return <Faixa nivel="critico">{erro ?? "Não foi possível carregar os indicadores do abrigo."}</Faixa>;
 
-  async function alternarPerfilAbrigo(campo: "aceitaPets" | "acessivelPcd") {
-    if (!idAbrigoAtivo || !dados || somenteLeitura) return;
-    const atual = Boolean(dados.abrigo[campo]);
-    setProcessando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}`, {
-        method: "PATCH",
-        body: JSON.stringify({ [campo]: !atual }),
-      });
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      const rotulo = campo === "aceitaPets" ? "Aceita Pets" : "Acessível PCD";
-      setAviso(`Perfil "${rotulo}" ${!atual ? "ativado" : "desativado"} no mapa público.`);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setProcessando(false);
-    }
-  }
+  const { ocupacao, acolhidos, estoque, ocorrenciasAtivas } = dados;
+  const somenteLeitura = !dados.abrigo.ativo;
+  const bloqueado = somenteLeitura || processando;
+  const base = `/api/abrigos/${idAbrigoAtivo}`;
+  const reportesPendentes = dados.reportesPendentes ?? 0;
+  const sugestoes = dados.sugestoesTransferencia ?? [];
 
-  async function executarTransferenciaSugerida(sugestao: SugestaoTransferencia) {
-    if (!idAbrigoAtivo || somenteLeitura || sugestao.direcao !== "ENVIAR") return;
-    setProcessando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/transferencias-estoque`, {
-        method: "POST",
-        body: JSON.stringify({
-          idAbrigoDestino: sugestao.idAbrigoParceiro,
-          idItem: sugestao.idItem,
-          quantidade: sugestao.quantidadeSugerida,
-          observacao: `Remanejamento inteligente sugerido (${sugestao.distanciaKm} km)`,
-        }),
-      });
-      await carregar();
-      setAviso(
-        `Transferência de ${sugestao.quantidadeSugerida} ${sugestao.unidadeMedida}(s) de ${sugestao.item} para ${sugestao.abrigoParceiro} registrada!`,
+  // Envia só a variação: o banco soma, então toques simultâneos de dois
+  // coordenadores (ou duas abas) não se sobrescrevem.
+  const ajustarFila = (delta: number) =>
+    void executar(
+      () => api<{ acolhidosNaoTriados: number }>(`${base}/triagem`, { method: "POST", body: JSON.stringify({ delta }) }),
+      (abrigo) => (abrigo.acolhidosNaoTriados === 1 ? "1 pessoa aguardando cadastro." : `${abrigo.acolhidosNaoTriados} pessoas aguardando cadastro.`),
+    );
+
+  const resolverOcorrencia = (idOcorrencia: number) =>
+    void executar(
+      () => api(`${base}/ocorrencias/${idOcorrencia}/resolucao`, { method: "POST", body: JSON.stringify({ observacao: "Resolvido pelo painel de visão geral" }) }),
+      () => "Ocorrência marcada como resolvida.",
+    );
+
+  /** Liga o alerta ou, se já houver um ativo desse tipo, encerra todos eles. */
+  function alternarAlerta(tipo: string) {
+    const ativas = ocorrenciasAtivas.filter((o) => o.tipo === tipo);
+    if (ativas.length === 0) {
+      void executar(
+        () => api(`${base}/ocorrencias`, { method: "POST", body: JSON.stringify({ tipo }) }),
+        () => `Alerta publicado no mapa: ${rotuloOcorrencia(tipo).toLowerCase()}.`,
       );
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setProcessando(false);
-    }
-  }
-
-  async function alterarStatusItem(idItem: number, statusNecessidade: "URGENTE" | "NORMAL" | "BLOQUEADO") {
-    if (!idAbrigoAtivo) return;
-    setProcessando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/estoque/${idItem}`, {
-        method: "PATCH",
-        body: JSON.stringify({ statusNecessidade }),
-      });
-      await carregar();
-      setAviso(`Status do item alterado para ${statusNecessidade}.`);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setProcessando(false);
-    }
-  }
-
-  async function resolverOcorrencia(idOcorrencia: number) {
-    if (!idAbrigoAtivo) return;
-    setProcessando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${idOcorrencia}/resolucao`, {
-        method: "POST",
-        body: JSON.stringify({ observacao: "Resolvido pelo painel de visão geral" }),
-      });
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso("Ocorrência marcada como resolvida.");
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setProcessando(false);
-    }
-  }
-
-  async function alternarAlertaRapido(tipo: string) {
-    if (!idAbrigoAtivo || !dados) return;
-    const ativasDoTipo = dados.ocorrenciasAtivas.filter((o) => o.tipo === tipo);
-    if (ativasDoTipo.length > 0) {
-      setProcessando(true);
-      setErro(null);
-      try {
-        await Promise.all(
-          ativasDoTipo.map((o) =>
-            api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${o.id}/resolucao`, {
-              method: "POST",
-              body: JSON.stringify({ observacao: "Desativado pelo atalho rápido do painel" }),
-            }),
-          ),
-        );
-        await Promise.all([carregar(), recarregarAbrigos()]);
-        setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" encerrado.`);
-      } catch (err) {
-        setErro(mensagemErro(err));
-      } finally {
-        setProcessando(false);
-      }
       return;
     }
-
-    setProcessando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias`, {
-        method: "POST",
-        body: JSON.stringify({ tipo }),
-      });
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(`Alerta "${ROTULOS_OCORRENCIA[tipo] ?? tipo}" publicado no mapa.`);
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setProcessando(false);
-    }
-  }
-
-  if (!idAbrigoAtivo) {
-    return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-slate-400">
-        Selecione um abrigo no topo para visualizar a Visão Geral.
-      </div>
+    void executar(
+      () =>
+        Promise.all(
+          ativas.map((o) =>
+            api(`${base}/ocorrencias/${o.id}/resolucao`, { method: "POST", body: JSON.stringify({ observacao: "Desativado pelo atalho rápido do painel" }) }),
+          ),
+        ),
+      () => `Alerta encerrado: ${rotuloOcorrencia(tipo).toLowerCase()}.`,
     );
   }
 
-  if (carregando && !dados) {
-    return <div className="py-12 text-center text-sm text-slate-400">Carregando indicadores do abrigo...</div>;
-  }
+  const enviarSugestao = (sugestao: SugestaoTransferencia) =>
+    void executar(
+      () =>
+        api(`${base}/transferencias-estoque`, {
+          method: "POST",
+          body: JSON.stringify({
+            idAbrigoDestino: sugestao.idAbrigoParceiro,
+            idItem: sugestao.idItem,
+            quantidade: sugestao.quantidadeSugerida,
+            observacao: `Remanejamento sugerido pelo painel (${sugestao.distanciaKm} km)`,
+          }),
+        }),
+      () => `${sugestao.quantidadeSugerida} ${sugestao.unidadeMedida} de ${sugestao.item} enviados para ${sugestao.abrigoParceiro}.`,
+      false,
+    );
 
-  if (!dados) {
-    return (
-      <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-6 text-rose-200">
-        {erro ?? "Não foi possível carregar os indicadores do abrigo."}
-      </div>
+  const alterarStatusItem = (idItem: number, statusNecessidade: StatusNecessidade) =>
+    void executar(
+      () => api(`${base}/estoque/${idItem}`, { method: "PATCH", body: JSON.stringify({ statusNecessidade }) }),
+      () => `Pedido de doação alterado para ${ROTULO_NECESSIDADE[statusNecessidade].toLowerCase()}.`,
+      false,
+    );
+
+  function alternarPerfil(campo: "aceitaPets" | "acessivelPcd") {
+    const ligado = !dados?.abrigo[campo];
+    const rotulo = campo === "aceitaPets" ? "Aceita pets" : "Acessível";
+    void executar(
+      () => api(base, { method: "PATCH", body: JSON.stringify({ [campo]: ligado }) }),
+      () => `"${rotulo}" ${ligado ? "ligado" : "desligado"} no mapa público.`,
     );
   }
-
-  const { ocupacao, acolhidos, estoque, ocorrenciasAtivas, ultimasMovimentacoes } = dados;
-  const somenteLeitura = !dados.abrigo.ativo;
 
   return (
     <div className="space-y-6">
-      <ToastFlutuante
-        erro={erro}
-        aviso={aviso}
-        aoFecharErro={() => setErro(null)}
-        aoFecharAviso={() => setAviso(null)}
-      />
+      <ToastFlutuante erro={erro} aviso={aviso} aoFecharErro={() => setErro(null)} aoFecharAviso={() => setAviso(null)} />
 
-      {/* Cabeçalho do Abrigo */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-            Visão Geral do Abrigo
-          </span>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">{dados.abrigo.nome}</h1>
-          {abrigoAtivo?.endereco && <p className="text-xs sm:text-sm text-slate-400 mt-0.5">{abrigoAtivo.endereco}</p>}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={somenteLeitura || processando}
-            aria-pressed={Boolean(dados.abrigo.aceitaPets)}
-            onClick={() => alternarPerfilAbrigo("aceitaPets")}
-            className={`min-h-10 rounded-xl border px-3 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-              dados.abrigo.aceitaPets
-                ? "border-teal-500/50 bg-teal-500/20 text-teal-200 hover:bg-teal-500/30"
-                : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            }`}
-          >
-            🐾 {dados.abrigo.aceitaPets ? "Aceita Pets • SIM" : "Aceita Pets • NÃO"}
-          </button>
-          <button
-            type="button"
-            disabled={somenteLeitura || processando}
-            aria-pressed={Boolean(dados.abrigo.acessivelPcd)}
-            onClick={() => alternarPerfilAbrigo("acessivelPcd")}
-            className={`min-h-10 rounded-xl border px-3 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-              dados.abrigo.acessivelPcd
-                ? "border-indigo-500/50 bg-indigo-500/20 text-indigo-200 hover:bg-indigo-500/30"
-                : "border-slate-700 bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            }`}
-          >
-            ♿ {dados.abrigo.acessivelPcd ? "Acessível PCD • SIM" : "Acessível PCD • NÃO"}
-          </button>
-          <button
-            type="button"
-            disabled={somenteLeitura}
-            onClick={() => {
-              setNovaCapacidade(String(ocupacao.capacidadeMaxima));
-              setNovoTelefone(abrigoAtivo?.telefone ?? "");
-              setEditandoOperacao((v) => !v);
-            }}
-            className="min-h-10 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
-          >
-            ⚙️ Capacidade & Contato
-          </button>
-          <button
-            type="button"
-            onClick={() => carregar()}
-            className="min-h-10 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 cursor-pointer"
-          >
-            ↻ Atualizar
-          </button>
-        </div>
-      </div>
+      <CabecalhoPagina titulo="Visão geral" descricao={abrigoAtivo?.endereco}>
+        <Botao disabled={somenteLeitura} onClick={() => setEditandoAbrigo(true)}>
+          Dados do abrigo
+        </Botao>
+        <BotaoIcone icone={RefreshCw} rotulo="Atualizar indicadores" onClick={() => void carregar()} />
+      </CabecalhoPagina>
 
-      {/* Banner de Moderação de Reportes Cidadãos Pendentes */}
-      {(dados.reportesPendentes ?? 0) > 0 && (
-        <div className="rounded-2xl border border-amber-500/50 bg-amber-950/35 p-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-bold text-amber-200">
-              📢 {dados.reportesPendentes} reporte(s) comunitário(s) de vias/alagamentos aguardando moderação
-            </p>
-            <p className="text-xs text-amber-100/80">
-              Moradores enviaram alertas próximos a este abrigo. Aprove para publicar no mapa público ou descarte se for falso alarme.
-            </p>
-          </div>
-          <Link
-            href="/admin/ocorrencias"
-            className="min-h-10 inline-flex items-center rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400"
-          >
-            Revisar Reportes →
-          </Link>
-        </div>
-      )}
-
-      {/* Formulário inline de capacidade e telefone */}
-      {editandoOperacao && (
-        <form
-          onSubmit={salvarOperacao}
-          className="rounded-2xl border border-amber-500/40 bg-slate-900 p-4 flex flex-wrap items-end gap-4"
+      {reportesPendentes > 0 && (
+        <Faixa
+          acoes={
+            <Link href="/admin/ocorrencias" className={classesBotao("secundaria", "sm")}>
+              Revisar
+            </Link>
+          }
         >
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1">Capacidade Máxima (vagas)</label>
-            <input
-              type="number"
-              min={Math.max(1, ocupacao.lotacaoAtual)}
-              required
-              value={novaCapacidade}
-              onChange={(e) => setNovaCapacidade(e.target.value)}
-              className="w-40 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white tabular-nums"
-            />
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs font-medium text-slate-300 mb-1">Telefone de Emergência</label>
-            <input
-              type="text"
-              value={novoTelefone}
-              onChange={(e) => setNovoTelefone(e.target.value)}
-              placeholder="(54) 99999-0000"
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
-            />
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={processando}
-              className="min-h-10 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
-            >
-              Salvar
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditandoOperacao(false)}
-              className="min-h-10 rounded-xl border border-slate-700 px-3.5 py-2 text-xs text-slate-300 cursor-pointer"
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
+          {reportesPendentes === 1 ? "1 reporte de morador aguarda" : `${reportesPendentes} reportes de moradores aguardam`} revisão. Aprove para publicar no
+          mapa ou descarte se for alarme falso.
+        </Faixa>
       )}
 
-      {/* Grade Principal: Ocupação + Triagem Rápida e Status de Infraestrutura */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Card 1: Ocupação e Triagem Rápida */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 flex flex-col justify-between space-y-5">
-          <div>
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="text-base sm:text-lg font-bold text-white">Ocupação e Recepção</h2>
-              <span
-                className={`rounded-full px-3 py-0.5 text-xs font-bold tabular-nums ${
-                  ocupacao.nivel === "VERDE"
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : ocupacao.nivel === "AMARELO"
-                      ? "bg-amber-500/20 text-amber-300"
-                      : "bg-rose-500/20 text-rose-300"
-                }`}
-              >
-                {ROTULO_SEMAFORO[ocupacao.nivel]} • {ocupacao.percentual}%
-              </span>
-            </div>
-
-            {/* Barra de progresso */}
-            <div className="h-3.5 w-full overflow-hidden rounded-full bg-slate-950 border border-slate-800">
-              <div
-                className={`h-full transition-all ${BARRA_OCUPACAO[ocupacao.nivel]}`}
-                style={{ width: `${Math.min(100, ocupacao.percentual)}%` }}
-              />
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-xs text-slate-400">Lotação Total</p>
-                <p className="text-xl font-black text-white tabular-nums">
-                  {ocupacao.lotacaoAtual}
-                  <span className="text-xs font-normal text-slate-400">/{ocupacao.capacidadeMaxima}</span>
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-xs text-slate-400">Vagas Livres</p>
-                <p className="text-xl font-black text-emerald-400 tabular-nums">{ocupacao.vagasDisponiveis}</p>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <p className="text-xs text-slate-400">Cadastrados</p>
-                <p className="text-xl font-black text-sky-300 tabular-nums">{acolhidos.presentes}</p>
-              </div>
-              <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3">
-                <p className="text-xs text-amber-300">Aguardando Cadastro</p>
-                <p className="text-xl font-black text-amber-300 tabular-nums">{acolhidos.naoTriados}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Controle Rápido de Acolhidos Não Triados */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
-            <div>
-              <p className="text-xs font-bold text-slate-200">
-                Chegadas em Massa (Reserva Rápida de Vagas)
-              </p>
-              <p className="text-xs text-slate-400">
-                Reserva vagas imediatamente no mapa público enquanto as famílias aguardam o check-in nominal.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {[-5, -1, 1, 5, 10].map((delta) => (
-                <button
-                  key={delta}
-                  type="button"
-                  disabled={
-                    somenteLeitura ||
-                    processando ||
-                    (delta < 0 && acolhidos.naoTriados === 0) ||
-                    (delta > 0 && ocupacao.vagasDisponiveis < delta)
-                  }
-                  onClick={() => ajustarNaoTriados(delta)}
-                  className={`min-h-12 flex-1 rounded-xl border px-3 py-2 text-sm font-bold tabular-nums transition cursor-pointer disabled:opacity-40 ${
-                    delta > 0
-                      ? "border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"
-                      : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                  }`}
-                >
-                  {delta > 0 ? `+${delta}` : delta}
-                </button>
-              ))}
-              <Link
-                href="/admin/abrigados"
-                className="min-h-12 inline-flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/40 px-3.5 py-2 text-xs font-bold text-sky-200 hover:bg-sky-500/30"
-              >
-                Fazer Check-in →
-              </Link>
-            </div>
-          </div>
-
-          {/* Fluxo das últimas 24h */}
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 pt-2 border-t border-slate-800 tabular-nums">
-            <span>Últimas 24h:</span>
-            <span>Entradas: <strong className="text-slate-200">{acolhidos.entradas24h}</strong></span>
-            <span>Saídas: <strong className="text-slate-200">{acolhidos.desligados24h}</strong></span>
-            <span>Recebidos: <strong className="text-slate-200">{acolhidos.recebidas24h}</strong></span>
-            <span>Transferidos: <strong className="text-slate-200">{acolhidos.enviadas24h}</strong></span>
-          </div>
-        </section>
-
-        {/* Card 2: Status de Infraestrutura e Vias de Acesso */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 flex flex-col justify-between space-y-5">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-base sm:text-lg font-bold text-white">Infraestrutura e Vias de Acesso</h2>
-                <p className="text-xs text-slate-400">
-                  Alertas ativos avisam a população no mapa público em tempo real.
-                </p>
-              </div>
-              <Link
-                href="/admin/ocorrencias"
-                className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-slate-800"
-              >
-                Detalhes →
-              </Link>
-            </div>
-
-            {ocorrenciasAtivas.length === 0 ? (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-sm text-emerald-200">
-                ✓ Energia, água e vias de acesso operando normalmente.
-              </div>
-            ) : (
-              <ul className="space-y-2.5">
-                {ocorrenciasAtivas.map((oc) => (
-                  <li
-                    key={oc.id}
-                    className={`rounded-xl border p-3.5 flex flex-wrap items-center justify-between gap-3 ${
-                      oc.gravidade === "CRITICO"
-                        ? "border-rose-500/40 bg-rose-950/30"
-                        : "border-amber-500/40 bg-amber-950/30"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`rounded px-2 py-0.5 text-xs font-black ${
-                            oc.gravidade === "CRITICO" ? "bg-rose-500 text-slate-950" : "bg-amber-400 text-slate-950"
-                          }`}
-                        >
-                          {oc.gravidade}
-                        </span>
-                        <span className="text-sm font-bold text-white">
-                          {ROTULOS_OCORRENCIA[oc.tipo] ?? oc.tipo}
-                        </span>
-                      </div>
-                      {oc.descricao && <p className="text-xs text-slate-300 mt-1">{oc.descricao}</p>}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={somenteLeitura || processando}
-                      onClick={() => resolverOcorrencia(oc.id)}
-                      className="min-h-9 rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-40 cursor-pointer"
-                    >
-                      ✓ Resolver
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Toggles Rápidos de Incidentes */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-2.5">
-            <p className="text-xs font-bold text-slate-300">
-              Atalhos de Alerta Rápido (toque para ativar ou encerrar):
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
-                { tipo: "SEM_ENERGIA", rotulo: "⚡ Sem Energia" },
-                { tipo: "SEM_AGUA", rotulo: "🚰 Sem Água" },
-                { tipo: "SEM_COMUNICACAO", rotulo: "📡 Sem Sinal" },
-                { tipo: "VIA_BLOQUEADA", rotulo: "🚧 Via Bloqueada" },
-                { tipo: "ALAGAMENTO", rotulo: "🌊 Alagamento" },
-                { tipo: "DESLIZAMENTO", rotulo: "⛰️ Deslizamento" },
-                { tipo: "RISCO_ESTRUTURAL", rotulo: "🏚️ Risco Prédio" },
-              ].map((alerta) => {
-                const jaAtiva = ocorrenciasAtivas.some((o) => o.tipo === alerta.tipo);
-                return (
-                  <button
-                    key={alerta.tipo}
-                    type="button"
-                    disabled={somenteLeitura || processando}
-                    aria-pressed={jaAtiva}
-                    onClick={() => alternarAlertaRapido(alerta.tipo)}
-                    className={`min-h-11 rounded-xl border px-2.5 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-                      jaAtiva
-                        ? "border-rose-500 bg-rose-500/25 text-rose-100 hover:bg-rose-500/35"
-                        : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white"
-                    }`}
-                  >
-                    {jaAtiva ? `${alerta.rotulo} • ATIVO` : alerta.rotulo}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
+      <div className="grid grid-cols-1 gap-x-10 gap-y-6 xl:grid-cols-2">
+        <SecaoOcupacao ocupacao={ocupacao} acolhidos={acolhidos} bloqueado={bloqueado} onAjustarFila={ajustarFila} />
+        <SecaoInfraestrutura ocorrencias={ocorrenciasAtivas} bloqueado={bloqueado} onResolver={resolverOcorrencia} onAlternarAlerta={alternarAlerta} />
       </div>
 
-      {/* Sugestões Automáticas de Remanejamento entre Abrigos (PostGIS Smart Rebalancing) */}
-      {(dados.sugestoesTransferencia?.length ?? 0) > 0 && (
-        <section className="rounded-2xl border border-sky-500/40 bg-slate-900 p-5 sm:p-6 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-wider text-sky-400">
-                Logística Cooperativa entre Abrigos (PostGIS)
-              </span>
-              <h2 className="text-base sm:text-lg font-bold text-white">
-                🔄 Sugestões Inteligentes de Remanejamento de Estoque
-              </h2>
-              <p className="text-xs text-slate-400">
-                Cruzamento geoespacial automático entre itens críticos/urgentes e abrigos próximos com excedente disponível.
-              </p>
-            </div>
-          </div>
+      {sugestoes.length > 0 && <SecaoSugestoes sugestoes={sugestoes} bloqueado={bloqueado} onEnviar={enviarSugestao} />}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {dados.sugestoesTransferencia!.map((s, idx) => (
-              <div
-                key={`${s.direcao}-${s.idItem}-${s.idAbrigoParceiro}-${idx}`}
-                className={`rounded-xl border p-4 flex flex-col justify-between gap-3 ${
-                  s.direcao === "RECEBER"
-                    ? "border-amber-500/40 bg-amber-950/20"
-                    : "border-sky-500/40 bg-sky-950/20"
-                }`}
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-black ${
-                        s.direcao === "RECEBER"
-                          ? "bg-amber-400 text-slate-950"
-                          : "bg-sky-400 text-slate-950"
-                      }`}
-                    >
-                      {s.direcao === "RECEBER" ? "📥 PODE SOLICITAR DE PARCEIRO" : "📤 PODE APOIAR PARCEIRO EM DÉFICIT"}
-                    </span>
-                    <span className="text-xs font-mono font-bold text-slate-300 tabular-nums">
-                      📍 {s.distanciaKm} km
-                    </span>
-                  </div>
+      <div className="grid grid-cols-1 gap-x-10 gap-y-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <SecaoEstoqueEmAlerta
+            itens={estoque.itensCriticos}
+            totalUrgentes={estoque.itensUrgentes}
+            totalBloqueados={estoque.itensBloqueados}
+            bloqueado={bloqueado}
+            onAlterarStatus={alterarStatusItem}
+          />
+        </div>
+        <SecaoMovimentacoes movimentacoes={dados.ultimasMovimentacoes} />
+      </div>
 
-                  <p className="text-sm font-bold text-white">
-                    {s.item}{" "}
-                    <span className="text-xs font-normal text-slate-400">
-                      ({s.categoria} • sugerido: <strong>{s.quantidadeSugerida} {s.unidadeMedida}(s)</strong>)
-                    </span>
-                  </p>
-
-                  <p className="text-xs text-slate-300">
-                    {s.direcao === "RECEBER" ? (
-                      <>
-                        O abrigo <strong>{s.abrigoParceiro}</strong> possui excedente ({s.quantidadeParceiro}{" "}
-                        {s.unidadeMedida}s) enquanto seu saldo atual é <strong>{s.quantidadeAtual}</strong>.
-                      </>
-                    ) : (
-                      <>
-                        O abrigo <strong>{s.abrigoParceiro}</strong> está em alerta crítico ({s.quantidadeParceiro}{" "}
-                        {s.unidadeMedida}s) e você dispõe de <strong>{s.quantidadeAtual}</strong> em estoque.
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
-                  {s.telefoneParceiro ? (
-                    <span className="text-xs text-slate-400">
-                      📞 Contato: <strong className="text-slate-200">{s.telefoneParceiro}</strong>
-                    </span>
-                  ) : (
-                    <span className="text-xs text-slate-500">Sem telefone cadastrado</span>
-                  )}
-
-                  {s.direcao === "ENVIAR" ? (
-                    <button
-                      type="button"
-                      disabled={somenteLeitura || processando}
-                      onClick={() => executarTransferenciaSugerida(s)}
-                      className="min-h-9 rounded-lg bg-sky-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-40 cursor-pointer"
-                    >
-                      🚚 Enviar {s.quantidadeSugerida} {s.unidadeMedida}(s) agora
-                    </button>
-                  ) : (
-                    <Link
-                      href="/admin/inventario"
-                      className="min-h-9 inline-flex items-center rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/25"
-                    >
-                      Ver no Estoque →
-                    </Link>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+      {editandoAbrigo && (
+        <ModalAbrigo
+          capacidade={ocupacao.capacidadeMaxima}
+          lotacaoAtual={ocupacao.lotacaoAtual}
+          telefone={abrigoAtivo?.telefone ?? null}
+          aceitaPets={Boolean(dados.abrigo.aceitaPets)}
+          acessivelPcd={Boolean(dados.abrigo.acessivelPcd)}
+          salvando={processando}
+          onAlternarPerfil={alternarPerfil}
+          onFechar={() => setEditandoAbrigo(false)}
+          onSalvar={(novosDados) =>
+            void executar(
+              () => api(base, { method: "PATCH", body: JSON.stringify(novosDados) }),
+              () => "Capacidade e contato atualizados.",
+            ).then((ok) => ok && setEditandoAbrigo(false))
+          }
+        />
       )}
-
-      {/* Grade Inferior: Suprimentos Críticos e Últimas Movimentações */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Suprimentos Críticos */}
-        <section className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-white">Suprimentos em Alerta</h2>
-              <p className="text-xs text-slate-400">
-                Itens marcados como urgentes aparecem em destaque para doadores no mapa público.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
-              <span className="rounded-lg border border-rose-500/40 bg-rose-950/50 px-2.5 py-1 font-bold text-rose-200">
-                Urgentes: {estoque.itensUrgentes}
-              </span>
-              <span className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 font-bold text-slate-300">
-                Bloqueados: {estoque.itensBloqueados}
-              </span>
-              <Link
-                href="/admin/inventario"
-                className="rounded-lg bg-amber-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-amber-400"
-              >
-                Ir para Estoque →
-              </Link>
-            </div>
-          </div>
-
-          {estoque.itensCriticos.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-center text-sm text-slate-400">
-              ✓ Todos os insumos estão acima do estoque mínimo e sem alertas urgentes.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-800 text-xs text-slate-400">
-                    <th className="pb-2.5 font-semibold">Item</th>
-                    <th className="pb-2.5 font-semibold">Saldo / Mínimo</th>
-                    <th className="pb-2.5 font-semibold">Status</th>
-                    <th className="pb-2.5 text-right font-semibold">Alterar Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70">
-                  {estoque.itensCriticos.map((item) => (
-                    <tr key={item.idItem}>
-                      <td className="py-3 pr-3">
-                        <p className="font-semibold text-white">{item.nome}</p>
-                        <p className="text-xs text-slate-400">{item.unidadeMedida}</p>
-                      </td>
-                      <td className="py-3 pr-3 tabular-nums">
-                        <span className={item.quantidade < item.quantidadeMinima ? "text-rose-400 font-bold" : "text-white"}>
-                          {item.quantidade}
-                        </span>
-                        <span className="text-slate-500"> / mín. {item.quantidadeMinima}</span>
-                      </td>
-                      <td className="py-3 pr-3">
-                        <span
-                          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                            item.statusNecessidade === "URGENTE"
-                              ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
-                              : item.statusNecessidade === "BLOQUEADO"
-                                ? "bg-slate-700 text-slate-300"
-                                : "bg-amber-500/20 text-amber-300"
-                          }`}
-                        >
-                          {item.statusNecessidade}
-                        </span>
-                      </td>
-                      <td className="py-3 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          {(["URGENTE", "NORMAL", "BLOQUEADO"] as const).map((st) => (
-                            <button
-                              key={st}
-                              type="button"
-                              disabled={somenteLeitura || processando || item.statusNecessidade === st}
-                              onClick={() => alterarStatusItem(item.idItem, st)}
-                              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-                                item.statusNecessidade === st
-                                  ? "bg-amber-500 text-slate-950"
-                                  : "border border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                              }`}
-                            >
-                              {st}
-                            </button>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {/* Últimas Movimentações */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-          <h2 className="text-base sm:text-lg font-bold text-white">Últimas Movimentações</h2>
-          {ultimasMovimentacoes.length === 0 ? (
-            <p className="text-sm text-slate-400">Nenhuma movimentação registrada neste abrigo.</p>
-          ) : (
-            <ul className="space-y-2.5">
-              {ultimasMovimentacoes.map((m) => (
-                <li
-                  key={m.id}
-                  className="rounded-xl border border-slate-800 bg-slate-950 p-3 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white truncate">{m.item}</p>
-                    <p className="text-xs text-slate-400 truncate">
-                      {m.usuario} • {ROTULO_TIPO_MOVIMENTACAO[m.tipo] ?? m.tipo}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0 tabular-nums">
-                    <span
-                      className={`text-sm font-bold ${
-                        m.quantidade > 0 ? "text-emerald-400" : "text-amber-400"
-                      }`}
-                    >
-                      {m.quantidade > 0 ? `+${m.quantidade}` : m.quantidade}
-                    </span>
-                    <p className="text-xs text-slate-500">Saldo: {m.quantidadeResultante}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
     </div>
   );
 }

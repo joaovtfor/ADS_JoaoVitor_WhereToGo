@@ -3,6 +3,11 @@
 import Link from "next/link";
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowLeft, ChevronDown, Eye, EyeOff } from "lucide-react";
+import { Botao, BotaoIcone, classesBotao } from "@/components/ui/botao";
+import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
+import { FOCO, juntarClasses } from "@/components/ui/classes";
+import { Icone } from "@/components/ui/icone";
 import { api, mensagemErro } from "@/lib/cliente-api";
 
 interface RespostaLogin {
@@ -107,7 +112,7 @@ const CONTAS_DEMONSTRACAO = [
 
 function IconeGoogle() {
   return (
-    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="size-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="#4285F4"
         d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82Z"
@@ -135,7 +140,7 @@ export default function PaginaLogin() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Estado Google One Tap & Auto-Cadastro
+  // Login com Google e auto-cadastro de voluntário
   const [configGoogle, setConfigGoogle] = useState<ConfigGoogle>({
     clientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? null,
     modoSimulado: false,
@@ -144,13 +149,13 @@ export default function PaginaLogin() {
   const [abrigos, setAbrigos] = useState<AbrigoPublicoResumo[]>([]);
   const [idAbrigoCadastro, setIdAbrigoCadastro] = useState<number | "">("");
 
-  // Prompt flutuante One Tap (modo simulado quando sem GOOGLE_CLIENT_ID)
-  const [oneTapVisivel, setOneTapVisivel] = useState(true);
+  // Formulário de Google simulado (ambiente sem GOOGLE_CLIENT_ID)
   const [modalNovoGoogleAberto, setModalNovoGoogleAberto] = useState(false);
+  const [demoAberto, setDemoAberto] = useState(false);
   const [nomeSimulado, setNomeSimulado] = useState("");
   const [emailSimulado, setEmailSimulado] = useState("");
 
-  // Etapas pós-toque no Google One Tap (seleção de abrigo ou aguardando aprovação)
+  // Etapas depois do login com Google (escolha do abrigo ou aguardando aprovação)
   const [credencialPendente, setCredencialPendente] = useState<{
     credential?: string;
     credencialSimulada?: { nome: string; email: string };
@@ -232,7 +237,6 @@ export default function PaginaLogin() {
             perfilGoogle: resposta.perfilGoogle,
           });
           setModalNovoGoogleAberto(false);
-          setOneTapVisivel(false);
           setCarregando(false);
           return;
         }
@@ -240,7 +244,6 @@ export default function PaginaLogin() {
         if (resposta.status === "PENDENTE_APROVACAO") {
           setCredencialPendente(null);
           setModalNovoGoogleAberto(false);
-          setOneTapVisivel(false);
           setCadastroPendente({
             mensagem: resposta.mensagem,
             usuario: {
@@ -362,377 +365,207 @@ export default function PaginaLogin() {
     }
   }
 
+  const formularioGoogleAberto = modalNovoGoogleAberto && configGoogle.modoSimulado;
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6">
+    <div className="flex min-h-dvh flex-col bg-fundo px-4 py-4 text-texto sm:px-6">
       {configGoogle.clientId && (
-        <Script
-          src="https://accounts.google.com/gsi/client"
-          strategy="afterInteractive"
-          onLoad={() => setScriptGooglePronto(true)}
-        />
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={() => setScriptGooglePronto(true)} />
       )}
 
-      {/* Widget Flutuante Google One Tap (Modo Simulado quando sem GOOGLE_CLIENT_ID) */}
-      {configGoogle.modoSimulado && oneTapVisivel && !credencialPendente && !cadastroPendente && (
-        <aside
-          aria-label="Google One Tap"
-          className="mx-auto mb-3 w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/95 p-4 shadow-2xl backdrop-blur sm:fixed sm:top-4 sm:right-4 sm:z-50 sm:mb-0 sm:w-84 sm:max-w-[calc(100vw-2rem)]"
-        >
-          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <IconeGoogle />
-              <span className="text-xs font-bold text-white">Fazer login com o Google</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOneTapVisivel(false)}
-              className="rounded-lg px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
-              aria-label="Fechar Google One Tap"
-            >
-              ✕
-            </button>
-          </div>
-
-          <p className="mt-2.5 text-xs text-slate-400 leading-snug">
-            Toque em uma conta para entrar com 1 clique ou solicite seu cadastro rápido de voluntário:
-          </p>
-
-          <div className="mt-2.5 space-y-1.5">
-            {CONTAS_DEMONSTRACAO.slice(0, 2).map((conta) => (
-              <button
-                key={conta.email}
-                type="button"
-                disabled={carregando}
-                onClick={() =>
-                  autenticarViaGoogle({
-                    credencialSimulada: { nome: conta.nome, email: conta.email },
-                  })
-                }
-                className="w-full flex items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-950/90 px-3 py-2 text-left hover:border-amber-500/50 hover:bg-slate-800/80 transition cursor-pointer disabled:opacity-50"
-              >
-                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">
-                  {conta.rotulo[0]}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-white truncate">{conta.rotulo}</p>
-                  <p className="text-xs text-slate-400 truncate">{conta.email}</p>
-                </div>
-              </button>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => {
-                setModalNovoGoogleAberto(true);
-                setOneTapVisivel(false);
-              }}
-              className="w-full rounded-xl border border-sky-500/40 bg-sky-500/15 px-3 py-2 text-xs font-bold text-sky-200 hover:bg-sky-500/25 transition cursor-pointer"
-            >
-              + Nova conta Google (Auto-cadastro)
-            </button>
-          </div>
-        </aside>
-      )}
-
-      <header className="mx-auto w-full max-w-md flex items-center justify-between py-2">
-        <Link href="/" prefetch={false} className="flex items-center gap-2.5 text-white hover:opacity-90">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500 text-slate-950 font-black text-lg">
+      <header className="mx-auto flex w-full max-w-sm items-center justify-between">
+        <Link href="/" prefetch={false} className={juntarClasses("flex items-center gap-2.5 rounded-controle", FOCO)}>
+          <span aria-hidden className="flex size-9 items-center justify-center rounded-controle bg-primaria text-corpo font-semibold text-white">
             W
           </span>
-          <div>
-            <span className="font-bold tracking-tight text-lg block leading-none">WhereToGo</span>
-            <span className="text-xs text-slate-400">Rede de Abrigos e Apoio Humanitário</span>
-          </div>
+          <span className="text-titulo font-semibold text-texto">WhereToGo</span>
         </Link>
-        <Link
-          href="/"
-          prefetch={false}
-          className="min-h-10 inline-flex items-center rounded-xl border border-slate-800 bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800"
-        >
-          ← Mapa Público
+        <Link href="/" prefetch={false} className={classesBotao("fantasma", "sm")}>
+          <Icone de={ArrowLeft} tamanho={16} />
+          Mapa público
         </Link>
       </header>
 
-      <main className="mx-auto w-full max-w-md my-auto py-6">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-6 sm:p-8 shadow-2xl">
-          <div className="mb-5">
-            <span className="inline-block rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-xs font-semibold text-amber-300 mb-2">
-              Acesso Operacional
-            </span>
-            <h1 className="text-2xl font-bold text-white">Entrar na Operação</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Acesse com 1 toque pelo Google One Tap ou informe suas credenciais.
+      <main className="mx-auto my-auto w-full max-w-sm py-8">
+        <h1 className="text-titulo font-semibold text-texto">Acesso da equipe</h1>
+        <p className="mt-1 text-corpo text-texto-2">Para coordenadores e voluntários dos abrigos.</p>
+
+        {erro && (
+          <p role="alert" className="mt-5 rounded-controle bg-critico/12 p-3 text-meta text-critico-claro">
+            {erro}
+          </p>
+        )}
+
+        {cadastroPendente && (
+          <div role="status" className="mt-5 space-y-2 rounded-controle bg-ok/12 p-3 text-meta">
+            <p className="font-medium text-ok-claro">Solicitação de acesso registrada</p>
+            <p className="text-texto-2">{cadastroPendente.mensagem}</p>
+            <p className="text-texto-2">
+              {cadastroPendente.usuario.nome} ({cadastroPendente.usuario.email})
+              {cadastroPendente.usuario.abrigo && <> · {cadastroPendente.usuario.abrigo}</>}
             </p>
+            <Botao tamanho="sm" variante="fantasma" onClick={() => setCadastroPendente(null)}>
+              Voltar ao login
+            </Botao>
           </div>
+        )}
 
-          {erro && (
-            <div
-              role="alert"
-              className="mb-5 rounded-xl border border-rose-500/40 bg-rose-950/60 px-4 py-3 text-sm text-rose-200"
-            >
-              <p className="font-semibold text-rose-300">Não foi possível concluir</p>
-              <p className="mt-0.5">{erro}</p>
+        {credencialPendente ? (
+          // Conta Google nova: falta escolher o abrigo onde a pessoa vai atuar.
+          <form onSubmit={concluirSolicitacaoAbrigo} className="mt-6 space-y-4">
+            <div>
+              <h2 className="text-corpo font-medium text-texto">Olá, {credencialPendente.perfilGoogle.nome}</h2>
+              <p className="mt-1 text-meta text-texto-2">
+                Conta verificada ({credencialPendente.perfilGoogle.email}). Escolha o abrigo onde você vai atuar; a coordenação aprova o seu acesso.
+              </p>
             </div>
-          )}
-
-          {/* Confirmação de Cadastro Enviado / Pendente de Aprovação */}
-          {cadastroPendente && (
-            <div
-              role="status"
-              className="mb-6 rounded-2xl border border-emerald-500/40 bg-emerald-950/30 p-4 space-y-2.5 text-sm"
-            >
-              <div className="flex items-center gap-2 text-emerald-300 font-bold">
-                <span>✓ Solicitação de Acesso Registrada</span>
-              </div>
-              <p className="text-slate-200 text-xs leading-relaxed">{cadastroPendente.mensagem}</p>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 text-xs space-y-1">
-                <p className="text-slate-300">
-                  <strong>Voluntário(a):</strong> {cadastroPendente.usuario.nome} ({cadastroPendente.usuario.email})
-                </p>
-                {cadastroPendente.usuario.abrigo && (
-                  <p className="text-amber-300">
-                    <strong>Abrigo solicitado:</strong> {cadastroPendente.usuario.abrigo}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setCadastroPendente(null)}
-                className="text-xs font-semibold text-emerald-300 hover:underline cursor-pointer"
-              >
-                ← Voltar ao login
-              </button>
+            <Campo rotulo="Abrigo de atuação">
+              <select required value={idAbrigoCadastro} onChange={(e) => setIdAbrigoCadastro(Number(e.target.value))} className={CLASSES_CAMPO}>
+                {abrigos.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.nome} ({a.endereco})
+                  </option>
+                ))}
+              </select>
+            </Campo>
+            <div className="flex gap-2">
+              <Botao type="submit" variante="primaria" disabled={carregando || !idAbrigoCadastro} className="flex-1">
+                {carregando ? "Enviando..." : "Solicitar acesso"}
+              </Botao>
+              <Botao onClick={() => setCredencialPendente(null)}>Cancelar</Botao>
             </div>
-          )}
-
-          {/* Etapa complementar quando uma conta Google real nova precisa escolher o abrigo */}
-          {credencialPendente ? (
-            <form onSubmit={concluirSolicitacaoAbrigo} className="mb-6 rounded-2xl border border-sky-500/40 bg-slate-950 p-4 space-y-4">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-sky-300">
-                  Auto-cadastro Google One Tap
-                </span>
-                <h2 className="text-base font-bold text-white mt-0.5">
-                  Olá, {credencialPendente.perfilGoogle.nome}!
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Conta verificada ({credencialPendente.perfilGoogle.email}). Escolha o abrigo onde você vai atuar:
-                </p>
-              </div>
-
-              <div>
-                <label htmlFor="abrigo-google" className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Abrigo de atuação
-                </label>
-                <select
-                  id="abrigo-google"
+          </form>
+        ) : (
+          <>
+            <form onSubmit={submeter} className="mt-6 space-y-4">
+              <Campo rotulo="E-mail">
+                <input
+                  type="email"
                   required
-                  value={idAbrigoCadastro}
-                  onChange={(e) => setIdAbrigoCadastro(Number(e.target.value))}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-white focus:border-amber-400 focus:outline-none"
-                >
-                  {abrigos.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.nome} — {a.endereco}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nome@exemplo.org"
+                  className={CLASSES_CAMPO}
+                />
+              </Campo>
 
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={carregando || !idAbrigoCadastro}
-                  className="flex-1 min-h-11 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
-                >
-                  {carregando ? "Enviando..." : "Solicitar Acesso como Voluntário"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCredencialPendente(null)}
-                  className="min-h-11 rounded-xl border border-slate-700 px-3.5 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-800 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          ) : (
-            <>
-              {/* Botão Principal Google One Tap */}
-              <div className="mb-5">
-                {configGoogle.clientId ? (
-                  <div ref={containerBotaoGoogleRef} className="flex justify-center min-h-11" />
-                ) : (
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setModalNovoGoogleAberto((v) => !v)}
-                      className="w-full min-h-12 flex items-center justify-center gap-3 rounded-xl border border-slate-700 bg-white px-4 py-3 text-sm font-bold text-slate-900 hover:bg-slate-100 transition cursor-pointer shadow"
-                    >
-                      <IconeGoogle />
-                      <span>Continuar com o Google (One Tap)</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Modal Inline de Auto-Cadastro / Login Google Simulado */}
-                {modalNovoGoogleAberto && configGoogle.modoSimulado && (
-                  <form
-                    onSubmit={submeterNovoGoogleSimulado}
-                    className="mt-3 rounded-2xl border border-slate-700 bg-slate-950 p-4 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-white flex items-center gap-2">
-                        <IconeGoogle />
-                        Acesso ou Auto-Cadastro via Google
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setModalNovoGoogleAberto(false)}
-                        className="text-xs text-slate-400 hover:text-white cursor-pointer"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-400 leading-snug">
-                      Se o e-mail já estiver ativo, você entra direto. Se for novo, sua solicitação vai para aprovação do Coordenador do abrigo escolhido.
-                    </p>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">Seu Nome (Conta Google)</label>
-                      <input
-                        type="text"
-                        required
-                        minLength={2}
-                        value={nomeSimulado}
-                        onChange={(e) => setNomeSimulado(e.target.value)}
-                        placeholder="Ex.: Maria Oliveira"
-                        className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">E-mail Google</label>
-                      <input
-                        type="email"
-                        required
-                        value={emailSimulado}
-                        onChange={(e) => setEmailSimulado(e.target.value)}
-                        placeholder="maria.voluntaria@gmail.com"
-                        className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
-                        Abrigo (para novos voluntários)
-                      </label>
-                      <select
-                        value={idAbrigoCadastro}
-                        onChange={(e) => setIdAbrigoCadastro(Number(e.target.value))}
-                        className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-                      >
-                        {abrigos.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={carregando}
-                      className="w-full min-h-11 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
-                    >
-                      {carregando ? "Validando conta Google..." : "Entrar / Solicitar Cadastro com Google"}
-                    </button>
-                  </form>
-                )}
-
-                <div className="relative my-5 flex items-center justify-center">
-                  <div className="border-t border-slate-800 w-full" />
-                  <span className="bg-slate-900 px-3 text-xs uppercase tracking-wider text-slate-500 font-semibold">
-                    ou com e-mail e senha
-                  </span>
-                  <div className="border-t border-slate-800 w-full" />
-                </div>
-              </div>
-
-              <form onSubmit={submeter} className="space-y-4">
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-slate-200 mb-1.5">
-                    E-mail
-                  </label>
+              <Campo rotulo="Senha">
+                <span className="relative block">
                   <input
-                    id="email"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nome@wheretogo.local"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-base text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label htmlFor="senha" className="block text-sm font-medium text-slate-200">
-                      Senha
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSenha((v) => !v)}
-                      className="text-xs font-medium text-amber-400 hover:text-amber-300 cursor-pointer"
-                    >
-                      {mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
-                    </button>
-                  </div>
-                  <input
-                    id="senha"
                     type={mostrarSenha ? "text" : "password"}
                     required
                     autoComplete="current-password"
                     value={senha}
                     onChange={(e) => setSenha(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-base text-white placeholder-slate-500 focus:border-amber-400 focus:outline-none"
+                    className={`${CLASSES_CAMPO} pr-12`}
                   />
-                </div>
+                  <BotaoIcone
+                    icone={mostrarSenha ? EyeOff : Eye}
+                    rotulo={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+                    onClick={() => setMostrarSenha((v) => !v)}
+                    className="absolute top-0 right-0"
+                  />
+                </span>
+              </Campo>
 
-                <button
-                  type="submit"
-                  disabled={carregando}
-                  className="w-full min-h-12 rounded-xl bg-amber-500 px-4 py-3 text-base font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition cursor-pointer"
-                >
-                  {carregando ? "Entrando..." : "Acessar Painel"}
-                </button>
-              </form>
-            </>
-          )}
+              <Botao type="submit" variante="primaria" disabled={carregando} className="w-full">
+                {carregando ? "Entrando..." : "Entrar"}
+              </Botao>
+            </form>
 
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <p className="text-xs font-semibold text-slate-400 mb-2.5">
-              Contas de demonstração (toque para entrar direto):
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {CONTAS_DEMONSTRACAO.map((conta) => (
-                <button
-                  key={conta.email}
-                  type="button"
-                  disabled={carregando}
-                  onClick={() => void entrarComDemo(conta)}
-                  className="flex flex-col items-start rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-left hover:border-amber-500/50 hover:bg-slate-800/70 transition cursor-pointer disabled:opacity-50"
-                >
-                  <span className="text-xs font-bold text-slate-100">{conta.rotulo}</span>
-                  <span className="text-xs text-slate-400 mt-0.5 leading-snug">{conta.descricao}</span>
-                </button>
-              ))}
+            <div className="my-5 flex items-center gap-3 text-meta text-texto-3">
+              <span className="h-px flex-1 bg-borda" />
+              ou
+              <span className="h-px flex-1 bg-borda" />
             </div>
-          </div>
-        </div>
-      </main>
 
-      <footer className="mx-auto w-full max-w-md text-center text-xs text-slate-500 py-2">
-        WhereToGo • Operação Humanitária e Gestão de Abrigos
-      </footer>
+            {configGoogle.clientId ? (
+              <div ref={containerBotaoGoogleRef} className="flex min-h-11 justify-center" />
+            ) : (
+              <Botao aria-expanded={formularioGoogleAberto} onClick={() => setModalNovoGoogleAberto((v) => !v)} className="w-full">
+                <IconeGoogle />
+                Continuar com o Google
+              </Botao>
+            )}
+
+            {formularioGoogleAberto && (
+              <form onSubmit={submeterNovoGoogleSimulado} className="mt-4 space-y-3 border-t border-borda pt-4">
+                <p className="text-meta text-texto-2">
+                  Se o e-mail já tiver acesso, você entra direto. Se for novo, o pedido vai para aprovação da coordenação do abrigo escolhido.
+                </p>
+                <Campo rotulo="Seu nome">
+                  <input
+                    type="text"
+                    required
+                    minLength={2}
+                    value={nomeSimulado}
+                    onChange={(e) => setNomeSimulado(e.target.value)}
+                    placeholder="Maria Oliveira"
+                    className={CLASSES_CAMPO}
+                  />
+                </Campo>
+                <Campo rotulo="E-mail do Google">
+                  <input
+                    type="email"
+                    required
+                    value={emailSimulado}
+                    onChange={(e) => setEmailSimulado(e.target.value)}
+                    placeholder="maria@gmail.com"
+                    className={CLASSES_CAMPO}
+                  />
+                </Campo>
+                <Campo rotulo="Abrigo (para novos voluntários)">
+                  <select value={idAbrigoCadastro} onChange={(e) => setIdAbrigoCadastro(Number(e.target.value))} className={CLASSES_CAMPO}>
+                    {abrigos.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.nome}
+                      </option>
+                    ))}
+                  </select>
+                </Campo>
+                <Botao type="submit" disabled={carregando} className="w-full">
+                  {carregando ? "Validando..." : "Entrar ou solicitar acesso"}
+                </Botao>
+              </form>
+            )}
+          </>
+        )}
+
+        <section className="mt-8 border-t border-borda pt-4">
+          <Botao
+            tamanho="sm"
+            variante="fantasma"
+            icone={ChevronDown}
+            aria-expanded={demoAberto}
+            aria-controls="contas-demonstracao"
+            onClick={() => setDemoAberto((v) => !v)}
+            className="-ml-3"
+          >
+            Contas de demonstração
+          </Botao>
+          {demoAberto && (
+            <ul id="contas-demonstracao" className="mt-1">
+              {CONTAS_DEMONSTRACAO.map((conta) => (
+                <li key={conta.email} className="border-b border-borda last:border-b-0">
+                  <button
+                    type="button"
+                    disabled={carregando}
+                    onClick={() => void entrarComDemo(conta)}
+                    className={juntarClasses(
+                      "-mx-2 flex w-[calc(100%+1rem)] flex-col rounded-controle px-2 py-2.5 text-left transition-colors hover:bg-superficie-2 disabled:opacity-50",
+                      FOCO,
+                    )}
+                  >
+                    <span className="text-corpo text-texto">{conta.rotulo}</span>
+                    <span className="text-meta text-texto-3">{conta.descricao}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </main>
     </div>
   );
 }

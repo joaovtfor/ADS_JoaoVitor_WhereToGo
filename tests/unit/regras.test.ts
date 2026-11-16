@@ -233,3 +233,25 @@ describe("Utilitários", () => {
   });
 });
 
+
+describe("ETag do mapa público", () => {
+  it("o mesmo conteúdo gera o mesmo ETag e conteúdo diferente gera outro", async () => {
+    const { calcularEtag } = await import("@/lib/etag");
+    const a = calcularEtag({ abrigos: [{ id: 1, vagas: 3 }], alertas: [] });
+    expect(calcularEtag({ abrigos: [{ id: 1, vagas: 3 }], alertas: [] })).toBe(a);
+    expect(calcularEtag({ abrigos: [{ id: 1, vagas: 2 }], alertas: [] })).not.toBe(a);
+    expect(a).toMatch(/^W\/"[\w-]+"$/);
+  });
+
+  it("reconhece o ETag no If-None-Match com prefixo fraco, lista de valores ou curinga", async () => {
+    const { calcularEtag, etagConfere } = await import("@/lib/etag");
+    const etag = calcularEtag({ x: 1 });
+    const semPrefixo = etag.replace(/^W\//, "");
+    expect(etagConfere(etag, etag)).toBe(true);
+    expect(etagConfere(semPrefixo, etag)).toBe(true);
+    expect(etagConfere(`"outro", ${etag}`, etag)).toBe(true);
+    expect(etagConfere("*", etag)).toBe(true);
+    expect(etagConfere('"outro"', etag)).toBe(false);
+    expect(etagConfere(null, etag)).toBe(false);
+  });
+});

@@ -5,7 +5,7 @@
   "buildCommand": "npm run db:migrate && npm run build",
   "headers": [
     {
-      "source": "/api/public/(abrigos|alertas|categorias)",
+      "source": "/api/public/(abrigos|alertas|categorias|mapa)",
       "headers": [
         {
           "key": "CDN-Cache-Control",

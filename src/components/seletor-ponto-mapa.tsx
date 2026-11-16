@@ -130,20 +130,16 @@ export default function SeletorPontoMapa({
 
     const iconeAbrigo = L.divIcon({
       className: "wtg-pin-icon",
-      html: `
-        <div style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:9999px;background:#0f172a;color:#38bdf8;border:2px solid #38bdf8;box-shadow:0 2px 8px rgba(0,0,0,0.6);font-size:13px;" title="Localização do Abrigo">
-          🏠
-        </div>
-      `,
-      iconSize: [26, 26],
-      iconAnchor: [13, 13],
+      html: '<div class="wtg-marca-abrigo"></div>',
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
     });
 
     marcadorReferenciaRef.current = L.marker([referenciaAbrigo.lat, referenciaAbrigo.lng], {
       icon: iconeAbrigo,
       interactive: true,
     })
-      .bindTooltip(referenciaAbrigo.nome ? `🏠 ${referenciaAbrigo.nome}` : "🏠 Local do Abrigo", {
+      .bindTooltip(referenciaAbrigo.nome ? `Abrigo: ${referenciaAbrigo.nome}` : "Local do abrigo", {
         direction: "top",
         offset: [0, -10],
       })
@@ -183,16 +179,9 @@ export default function SeletorPontoMapa({
 
     const iconeSelecionado = L.divIcon({
       className: "wtg-pin-icon",
-      html: `
-        <div style="display:flex;flex-direction:column;align-items:center;cursor:grab;">
-          <div style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:9999px;background:#f59e0b;color:#020617;border:2px solid #ffffff;box-shadow:0 4px 12px rgba(0,0,0,0.65);font-size:15px;font-weight:900;">
-            📍
-          </div>
-          <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #f59e0b;margin-top:-1px;" />
-        </div>
-      `,
-      iconSize: [30, 36],
-      iconAnchor: [15, 34],
+      html: '<div class="wtg-marca-ponto"></div>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
     });
 
     if (!marcadorSelecionadoRef.current) {
@@ -226,49 +215,17 @@ export default function SeletorPontoMapa({
     const coordenadasLatLng: [number, number][] = poligono.map((p) => [p.lat, p.lng]);
 
     if (poligono.length === 2) {
-      L.polyline(coordenadasLatLng, {
-        color: "#f43f5e",
-        weight: 2.5,
-        dashArray: "6, 4",
-      }).addTo(grupo);
+      // Mesmo desenho da área de risco no mapa público (classes em globals.css).
+      L.polyline(coordenadasLatLng, { className: "wtg-area wtg-area--critico" }).addTo(grupo);
     } else if (poligono.length >= 3) {
-      L.polygon(coordenadasLatLng, {
-        color: "#f43f5e",
-        weight: 2.5,
-        dashArray: "6, 4",
-        fillColor: "#e11d48",
-        fillOpacity: 0.28,
-      }).addTo(grupo);
-
-      // Marcador central da Área de Risco no centroide
-      const centroLat = poligono.reduce((acc, p) => acc + p.lat, 0) / poligono.length;
-      const centroLng = poligono.reduce((acc, p) => acc + p.lng, 0) / poligono.length;
-      const iconeCentro = L.divIcon({
-        className: "wtg-pin-icon",
-        html: `
-          <div style="display:flex;align-items:center;gap:4px;background:rgba(159,18,57,0.92);color:#ffffff;border:1.5px solid #fda4af;border-radius:9999px;padding:2px 8px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 3px 8px rgba(0,0,0,0.5);">
-            <span>🚨</span>
-            <span>Área de Risco</span>
-          </div>
-        `,
-        iconSize: [104, 22],
-        iconAnchor: [52, 11],
-      });
-      L.marker([centroLat, centroLng], {
-        icon: iconeCentro,
-        interactive: false,
-      }).addTo(grupo);
+      L.polygon(coordenadasLatLng, { className: "wtg-area wtg-area--critico" }).addTo(grupo);
     }
 
-    // Markers numerados e arrastáveis para cada vértice do polígono
+    // Pontos numerados e arrastáveis do contorno
     poligono.forEach((vertice, idx) => {
       const iconeVertice = L.divIcon({
         className: "wtg-pin-icon",
-        html: `
-          <div style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:9999px;background:#e11d48;color:#ffffff;border:2px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.65);font-size:11px;font-weight:900;cursor:grab;">
-            ${idx + 1}
-          </div>
-        `,
+        html: `<div class="wtg-marca-vertice">${idx + 1}</div>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       });
@@ -311,17 +268,15 @@ export default function SeletorPontoMapa({
   }, [modo, poligono]);
 
   return (
-    <div className="relative w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-950">
+    <div className="relative w-full overflow-hidden rounded-controle border border-borda-forte bg-superficie">
       <div
         ref={containerRef}
         aria-label="Mapa interativo para seleção de coordenadas ou área de risco"
         className={`w-full ${alturaClasse} z-0 cursor-crosshair`}
       />
-      <div className="pointer-events-none absolute bottom-2 right-2 z-[400] rounded-lg border border-slate-700/90 bg-slate-950/90 px-2.5 py-1 text-xs font-semibold text-amber-300 shadow backdrop-blur">
-        {modo === "poligono"
-          ? `🔺 Clique no mapa para adicionar marcadores (${poligono.length}/3 mín.) • Arraste para ajustar`
-          : "👆 Clique no mapa ou arraste o pino 📍"}
-      </div>
+      <p className="pointer-events-none absolute bottom-2 left-2 z-[400] rounded-controle border border-borda bg-superficie px-2 py-1 text-meta text-texto-2">
+        {modo === "poligono" ? "Toque no mapa para marcar os pontos; arraste para ajustar" : "Toque no mapa ou arraste o ponto"}
+      </p>
     </div>
   );
 }

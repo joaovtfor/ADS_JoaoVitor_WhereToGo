@@ -1,119 +1,45 @@
 "use client";
 
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { obterEstiloNivel, obterSeloAtualizacao, type AbrigoMapa, type AlertaMapa } from "./tipos";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { Accessibility, MapPin, Megaphone, PawPrint, Search } from "lucide-react";
+import { Botao } from "@/components/ui/botao";
+import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
+import { FOCO, juntarClasses } from "@/components/ui/classes";
+import { Folha } from "@/components/ui/folha";
+import { Icone } from "@/components/ui/icone";
+import { SeloStatus } from "@/components/ui/selo-status";
+import { obterSeloAtualizacao, obterStatusGravidade, obterStatusOcupacao, type AbrigoMapa, type AlertaMapa } from "./tipos";
 
-function Gaveta({
-  titulo,
-  subtitulo,
-  cor,
-  onFechar,
-  children,
-}: {
-  titulo: string;
-  subtitulo: string;
-  cor: string;
-  onFechar: () => void;
-  children: ReactNode;
-}) {
-  const [expandidoMobile, setExpandidoMobile] = useState(false);
-  const [deslocamentoArrasteY, setDeslocamentoArrasteY] = useState(0);
-  const inicioToqueYRef = useRef<number | null>(null);
-
-  const iniciarArraste = (clientY: number) => {
-    inicioToqueYRef.current = clientY;
-    setDeslocamentoArrasteY(0);
-  };
-
-  const moverArraste = (clientY: number) => {
-    if (inicioToqueYRef.current === null) return;
-    setDeslocamentoArrasteY(clientY - inicioToqueYRef.current);
-  };
-
-  const finalizarArraste = () => {
-    if (inicioToqueYRef.current === null) return;
-    const deltaY = deslocamentoArrasteY;
-    inicioToqueYRef.current = null;
-    setDeslocamentoArrasteY(0);
-
-    if (deltaY < -35) {
-      setExpandidoMobile(true);
-    } else if (deltaY > 45) {
-      if (expandidoMobile) {
-        setExpandidoMobile(false);
-      } else {
-        onFechar();
-      }
-    }
-  };
-
-  const classeAlturaMobile = expandidoMobile
-    ? "inset-x-0 bottom-0 h-[100%] max-h-[100%] rounded-none border-x-0 border-b-0"
-    : "inset-x-2 bottom-2 h-[65%] max-h-[65%] rounded-3xl";
-
+/** Painel à esquerda do mapa (folha inferior no celular), com título e resumo no cabeçalho. */
+function Gaveta({ titulo, subtitulo, onFechar, children }: { titulo: string; subtitulo: string; onFechar: () => void; children: ReactNode }) {
   return (
-    <aside
-      aria-label={titulo}
-      style={
-        deslocamentoArrasteY !== 0
-          ? { transform: `translateY(${Math.max(-90, Math.min(180, deslocamentoArrasteY))}px)` }
-          : undefined
+    <Folha
+      rotulo={titulo}
+      rotuloFechar={`Fechar ${titulo.toLowerCase()}`}
+      onFechar={onFechar}
+      lado="esquerda"
+      className="z-[450]"
+      titulo={
+        <>
+          <h2 className="truncate text-titulo font-semibold text-texto">{titulo}</h2>
+          <p className="truncate text-meta text-texto-3">{subtitulo}</p>
+        </>
       }
-      className={`pointer-events-auto absolute z-[450] flex flex-col overflow-hidden border bg-slate-950/95 shadow-2xl backdrop-blur-xl transition-[height,max-height,bottom,border-radius] duration-200 ease-out ${classeAlturaMobile} sm:inset-auto sm:top-24 sm:bottom-16 sm:left-3 sm:h-auto sm:max-h-none sm:w-96 sm:rounded-3xl sm:border ${cor}`}
     >
-      {/* Alça de puxar exclusiva para Mobile */}
-      <div
-        role="button"
-        tabIndex={0}
-        aria-label={expandidoMobile ? "Reduzir painel para ver o mapa" : "Puxar ou tocar para expandir painel em tela cheia"}
-        onClick={() => setExpandidoMobile((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpandidoMobile((v) => !v);
-          }
-        }}
-        onTouchStart={(e) => iniciarArraste(e.touches[0].clientY)}
-        onTouchMove={(e) => moverArraste(e.touches[0].clientY)}
-        onTouchEnd={finalizarArraste}
-        className="flex shrink-0 cursor-grab touch-none flex-col items-center justify-center pt-2 pb-1 select-none active:cursor-grabbing sm:hidden"
-      >
-        <div className="h-1.5 w-12 rounded-full bg-slate-600/90" />
-        <span className="mt-1 text-[10px] font-semibold tracking-wide text-slate-400">
-          {expandidoMobile ? "⬇ Puxe para baixo para ver o mapa" : "⬆ Puxe ou toque para tela cheia"}
-        </span>
-      </div>
+      {children}
+    </Folha>
+  );
+}
 
-      <div
-        onTouchStart={(e) => iniciarArraste(e.touches[0].clientY)}
-        onTouchMove={(e) => moverArraste(e.touches[0].clientY)}
-        onTouchEnd={finalizarArraste}
-        className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5 sm:py-3"
-      >
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-white sm:text-base">{titulo}</h2>
-          <p className="truncate text-xs text-slate-400">{subtitulo}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setExpandidoMobile((v) => !v)}
-            className="flex h-9 items-center justify-center rounded-full border border-slate-700 bg-slate-900 px-2.5 text-[11px] font-bold text-slate-200 hover:bg-slate-800 sm:hidden"
-          >
-            {expandidoMobile ? "⬇ Mapa" : "⬆ Expandir"}
-          </button>
-          <button
-            type="button"
-            onClick={onFechar}
-            aria-label={`Fechar ${titulo.toLowerCase()}`}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-sm font-bold text-slate-400 hover:text-white"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 space-y-2 overflow-y-auto overscroll-contain p-3">{children}</div>
-    </aside>
+/** Mensagem de resultado dentro de um painel (envio feito, erro de rede...). */
+function Retorno({ nivel, children }: { nivel: "ok" | "critico"; children: ReactNode }) {
+  return (
+    <p
+      role={nivel === "critico" ? "alert" : "status"}
+      className={juntarClasses("rounded-controle p-3 text-meta", nivel === "ok" ? "bg-ok/12 text-ok-claro" : "bg-critico/12 text-critico-claro")}
+    >
+      {children}
+    </p>
   );
 }
 
@@ -127,14 +53,14 @@ interface PropriedadesPainelAlertas {
 }
 
 const TIPOS_REPORTE_CIDADAO = [
-  { tipo: "VIA_BLOQUEADA", rotulo: "🚧 Via bloqueada / Queda de barreira" },
-  { tipo: "ALAGAMENTO", rotulo: "🌊 Alagamento na via" },
-  { tipo: "DESLIZAMENTO", rotulo: "⛰️ Risco de deslizamento" },
-  { tipo: "RISCO_ESTRUTURAL", rotulo: "🏚️ Risco estrutural" },
-  { tipo: "OUTRO", rotulo: "⚠️ Outro incidente" },
+  { tipo: "VIA_BLOQUEADA", rotulo: "Via bloqueada ou queda de barreira" },
+  { tipo: "ALAGAMENTO", rotulo: "Alagamento na via" },
+  { tipo: "DESLIZAMENTO", rotulo: "Risco de deslizamento" },
+  { tipo: "RISCO_ESTRUTURAL", rotulo: "Risco estrutural" },
+  { tipo: "OUTRO", rotulo: "Outro incidente" },
 ] as const;
 
-/** Lista de vias bloqueadas e áreas de risco ativas + Formulário de Reporte Cidadão (crowdsourcing moderado). */
+/** Vias bloqueadas e áreas de risco ativas, com o formulário de reporte do cidadão (moderado pela coordenação). */
 export function PainelAlertas({
   alertas,
   abrigos = [],
@@ -199,173 +125,105 @@ export function PainelAlertas({
 
   return (
     <Gaveta
-      titulo={`Vias e áreas de risco (${alertas.length})`}
-      subtitulo="Toque para ver no mapa ou reporte um bloqueio"
-      cor="border-rose-500/40"
+      titulo="Vias e áreas de risco"
+      subtitulo={alertas.length === 1 ? "1 alerta ativo" : `${alertas.length} alertas ativos`}
       onFechar={onFechar}
     >
-      <div className="rounded-2xl border border-amber-500/35 bg-slate-900/90 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-xs font-bold text-amber-300">📢 Viu uma via interditada ou alagamento?</p>
-            <p className="text-[11px] text-slate-400">Envie para a fila de moderação da coordenação.</p>
-          </div>
-          <button
-            type="button"
+      <div className="space-y-3 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-corpo text-texto-2">Viu uma via interditada ou um alagamento?</p>
+          <Botao
+            tamanho="sm"
+            icone={Megaphone}
+            aria-expanded={formAberto}
             onClick={() => {
               setFormAberto((v) => !v);
               setFeedback(null);
             }}
-            className="min-h-9 shrink-0 rounded-xl bg-amber-500 px-3 text-xs font-bold text-slate-950 hover:bg-amber-400"
           >
-            {formAberto ? "Fechar" : "+ Reportar"}
-          </button>
+            {formAberto ? "Cancelar" : "Reportar"}
+          </Botao>
         </div>
 
-        {feedback && (
-          <p
-            role="status"
-            className={`mt-2 rounded-xl border px-2.5 py-1.5 text-xs font-semibold ${
-              feedback.tipo === "ok"
-                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
-                : "border-rose-500/40 bg-rose-500/15 text-rose-200"
-            }`}
-          >
-            {feedback.texto}
-          </p>
-        )}
+        {feedback && <Retorno nivel={feedback.tipo === "ok" ? "ok" : "critico"}>{feedback.texto}</Retorno>}
 
         {formAberto && (
-          <form onSubmit={enviarReporte} className="mt-3 space-y-2 border-t border-slate-800 pt-2.5">
-            <div>
-              <label htmlFor="reporte-tipo" className="block text-[11px] font-bold text-slate-300">
-                Tipo de ocorrência
-              </label>
-              <select
-                id="reporte-tipo"
-                value={tipo}
-                onChange={(e) => setTipo(e.target.value)}
-                className="mt-1 h-9 w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 text-xs text-white"
-              >
+          <form onSubmit={enviarReporte} className="space-y-3">
+            <Campo rotulo="Tipo de ocorrência">
+              <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={CLASSES_CAMPO}>
                 {TIPOS_REPORTE_CIDADAO.map((item) => (
                   <option key={item.tipo} value={item.tipo}>
                     {item.rotulo}
                   </option>
                 ))}
               </select>
-            </div>
+            </Campo>
 
             {abrigos.length > 0 && (
-              <div>
-                <label htmlFor="reporte-abrigo" className="block text-[11px] font-bold text-slate-300">
-                  Abrigo de referência (opcional)
-                </label>
-                <select
-                  id="reporte-abrigo"
-                  value={idAbrigo}
-                  onChange={(e) => setIdAbrigo(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 text-xs text-white"
-                >
-                  <option value="">Mais próximo automaticamente (PostGIS)</option>
+              <Campo rotulo="Abrigo de referência (opcional)">
+                <select value={idAbrigo} onChange={(e) => setIdAbrigo(e.target.value)} className={CLASSES_CAMPO}>
+                  <option value="">O mais próximo de você</option>
                   {abrigos.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.nome}
                     </option>
                   ))}
                 </select>
-              </div>
+              </Campo>
             )}
 
-            <div>
-              <label htmlFor="reporte-descricao" className="block text-[11px] font-bold text-slate-300">
-                Descrição e ponto de referência *
-              </label>
+            <Campo rotulo="O que aconteceu e onde" dica="Será revisado pela coordenação antes de aparecer no mapa.">
               <textarea
-                id="reporte-descricao"
                 required
-                rows={2}
+                rows={3}
                 maxLength={400}
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
-                placeholder="Ex.: Água cobrindo a ponte da Av. Brasil próximo ao cruzamento..."
-                className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-2 text-xs text-white placeholder-slate-500"
+                placeholder="Água cobrindo a ponte da Av. Brasil, perto do cruzamento"
+                className={`${CLASSES_CAMPO} py-2`}
               />
-            </div>
+            </Campo>
 
             <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                maxLength={100}
-                value={relatorNome}
-                onChange={(e) => setRelatorNome(e.target.value)}
-                placeholder="Seu nome (opcional)"
-                aria-label="Seu nome (opcional)"
-                className="h-9 rounded-xl border border-slate-700 bg-slate-950 px-2.5 text-xs text-white placeholder-slate-500"
-              />
-              <input
-                type="text"
-                maxLength={40}
-                value={relatorContato}
-                onChange={(e) => setRelatorContato(e.target.value)}
-                placeholder="Telefone (opcional)"
-                aria-label="Telefone (opcional)"
-                className="h-9 rounded-xl border border-slate-700 bg-slate-950 px-2.5 text-xs text-white placeholder-slate-500"
-              />
+              <Campo rotulo="Seu nome (opcional)">
+                <input type="text" maxLength={100} value={relatorNome} onChange={(e) => setRelatorNome(e.target.value)} className={CLASSES_CAMPO} />
+              </Campo>
+              <Campo rotulo="Telefone (opcional)">
+                <input type="tel" maxLength={40} value={relatorContato} onChange={(e) => setRelatorContato(e.target.value)} className={CLASSES_CAMPO} />
+              </Campo>
             </div>
 
-            <button
-              type="submit"
-              disabled={enviando || !descricao.trim()}
-              className="min-h-10 w-full rounded-xl bg-amber-500 px-3 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
-            >
-              {enviando ? "Enviando reporte..." : "Enviar para validação da equipe"}
-            </button>
+            <Botao type="submit" variante="primaria" disabled={enviando || !descricao.trim()} className="w-full">
+              {enviando ? "Enviando..." : "Enviar para a coordenação"}
+            </Botao>
           </form>
         )}
       </div>
 
+      {alertas.length === 0 && <p className="border-t border-borda py-4 text-corpo text-texto-2">Nenhum alerta ativo no momento.</p>}
+
       {alertas.map((alerta) => {
-        const selo = obterSeloAtualizacao(alerta.dataRegistro);
+        const gravidade = obterStatusGravidade(alerta.gravidade);
         return (
-          <article
-            key={alerta.id}
-            className={`space-y-2 rounded-2xl border p-3 ${alerta.gravidade === "CRITICO" ? "border-rose-500/40 bg-rose-950/25" : "border-amber-500/40 bg-amber-950/25"}`}
-          >
+          <article key={alerta.id} className="border-t border-borda py-4">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="text-sm font-bold text-white">
-                {alerta.tipo === "AREA_RISCO" ? "🔺" : "🚧"} {alerta.descricaoTipo}
-              </h3>
-              <div className="flex shrink-0 items-center gap-1">
-                <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${selo.classe}`}>
-                  {selo.icone} {selo.rotulo}
-                </span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-xs font-bold ${alerta.gravidade === "CRITICO" ? "bg-rose-500 text-slate-950" : "bg-amber-400 text-slate-950"}`}
-                >
-                  {alerta.gravidade === "CRITICO" ? "Crítico" : "Alerta"}
-                </span>
-              </div>
+              <h3 className="text-corpo font-medium text-texto">{alerta.descricaoTipo}</h3>
+              <SeloStatus nivel={gravidade.nivel} forma="preenchido" className="shrink-0">
+                {gravidade.rotulo}
+              </SeloStatus>
             </div>
-            {alerta.descricao && <p className="text-sm text-slate-200">{alerta.descricao}</p>}
-            {!alerta.localizacaoPropria && <p className="text-xs text-slate-400">Local exato não informado: alerta no próprio abrigo.</p>}
-            <div className="flex items-center justify-between gap-2 border-t border-slate-800/80 pt-2">
-              <span className="truncate text-xs text-slate-400">Abrigo: {alerta.abrigo.nome}</span>
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onVerNoMapa(alerta)}
-                  className="min-h-12 rounded-lg border border-rose-500/40 bg-rose-500/20 px-3 text-xs font-bold text-rose-200 hover:bg-rose-500/30 sm:min-h-9"
-                >
-                  🎯 No mapa
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onVerAbrigo(alerta.abrigo.id)}
-                  className="min-h-12 rounded-lg border border-slate-700 bg-slate-900 px-3 text-xs font-bold text-slate-200 hover:bg-slate-800 sm:min-h-9"
-                >
-                  🏠 Abrigo
-                </button>
-              </div>
+            {alerta.descricao && <p className="mt-1 text-corpo text-texto-2">{alerta.descricao}</p>}
+            <p className="mt-1 text-meta text-texto-3">
+              {obterSeloAtualizacao(alerta.dataRegistro).rotulo} · Perto de {alerta.abrigo.nome}
+              {!alerta.localizacaoPropria && " · local exato não informado"}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Botao tamanho="sm" icone={MapPin} onClick={() => onVerNoMapa(alerta)}>
+                Ver no mapa
+              </Botao>
+              <Botao tamanho="sm" variante="fantasma" onClick={() => onVerAbrigo(alerta.abrigo.id)}>
+                Ver abrigo
+              </Botao>
             </div>
           </article>
         );
@@ -383,79 +241,73 @@ interface PropriedadesListaAbrigos {
   onFechar: () => void;
 }
 
-/** Lista rápida dos abrigos que atendem aos filtros. */
+/** Lista dos abrigos que atendem aos filtros: uma linha por abrigo, com o número de vagas à direita. */
 export function ListaAbrigos({ abrigos, carregando, idSelecionado, onSelecionar, onLimparFiltros, onFechar }: PropriedadesListaAbrigos) {
   return (
     <Gaveta
-      titulo={`Abrigos na região (${abrigos.length})`}
-      subtitulo="Toque em um abrigo para ver os detalhes"
-      cor="border-slate-700/80"
+      titulo="Abrigos"
+      subtitulo={abrigos.length === 1 ? "1 abrigo com os filtros atuais" : `${abrigos.length} abrigos com os filtros atuais`}
       onFechar={onFechar}
     >
       {carregando && abrigos.length === 0 ? (
-        <p className="p-4 text-center text-sm text-slate-400">Carregando abrigos...</p>
+        <p className="py-6 text-center text-corpo text-texto-2">Carregando abrigos...</p>
       ) : abrigos.length === 0 ? (
-        <div className="space-y-3 p-4 text-center">
-          <p className="text-sm font-semibold text-slate-300">Nenhum abrigo encontrado com estes filtros.</p>
-          <button type="button" onClick={onLimparFiltros} className="min-h-12 rounded-xl bg-amber-500 px-4 text-sm font-bold text-slate-950">
-            Limpar filtros
-          </button>
+        <div className="space-y-3 py-6 text-center">
+          <p className="text-corpo text-texto-2">Nenhum abrigo encontrado com estes filtros.</p>
+          <Botao onClick={onLimparFiltros}>Limpar filtros</Botao>
         </div>
       ) : (
-        abrigos.map((abrigo) => {
-          const estilo = obterEstiloNivel(abrigo.ocupacao.nivel);
-          const selo = obterSeloAtualizacao(abrigo.atualizadoEm);
-          const selecionado = abrigo.id === idSelecionado;
-          return (
-            <button
-              key={abrigo.id}
-              type="button"
-              onClick={() => onSelecionar(abrigo.id)}
-              className={`w-full rounded-2xl border p-3 text-left transition ${
-                selecionado
-                  ? "border-amber-500 bg-slate-900 ring-1 ring-amber-500/40"
-                  : abrigo.destaque
-                    ? "border-sky-500/50 bg-sky-950/20 hover:bg-slate-900"
-                    : "border-slate-800/90 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span className="line-clamp-1 text-sm font-bold text-white">
-                  {abrigo.destaque ? "⭐ " : ""}
-                  {abrigo.nome}
-                </span>
-                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold tabular-nums ${estilo.badge}`}>
-                  {estilo.simbolo} {abrigo.ocupacao.vagasDisponiveis > 0 ? `${abrigo.ocupacao.vagasDisponiveis} vagas` : "Lotado"}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400">
-                <span className="truncate">{abrigo.endereco}</span>
-                {abrigo.distanciaKm !== null && (
-                  <span className="shrink-0 font-bold text-sky-300 tabular-nums">{abrigo.distanciaKm.toFixed(1)} km</span>
-                )}
-              </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${selo.classe}`}>
-                  {selo.icone} {selo.rotulo}
-                </span>
-                {abrigo.aceitaPets && (
-                  <span className="rounded-full border border-teal-500/40 bg-teal-500/15 px-2 py-0.5 text-[10px] font-bold text-teal-200">
-                    🐾 Aceita pets
+        <ul className="-mx-4">
+          {abrigos.map((abrigo) => {
+            const status = obterStatusOcupacao(abrigo.ocupacao);
+            const vagas = Math.max(0, abrigo.ocupacao.vagasDisponiveis);
+            const selecionado = abrigo.id === idSelecionado;
+            return (
+              <li key={abrigo.id} className="border-b border-borda last:border-b-0">
+                <button
+                  type="button"
+                  aria-current={selecionado ? "true" : undefined}
+                  onClick={() => onSelecionar(abrigo.id)}
+                  className={juntarClasses(
+                    "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors -outline-offset-2",
+                    FOCO,
+                    selecionado ? "bg-primaria/12" : "hover:bg-superficie-2",
+                  )}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-corpo font-medium text-texto">{abrigo.nome}</span>
+                    <span className="mt-0.5 block truncate text-meta text-texto-3">{abrigo.endereco}</span>
+                    <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-texto-2">
+                      <SeloStatus nivel={status.nivel}>{status.rotulo}</SeloStatus>
+                      {abrigo.distanciaKm !== null && <span className="tabular-nums">{abrigo.distanciaKm.toFixed(1)} km</span>}
+                      {abrigo.aceitaPets && (
+                        <span className="inline-flex items-center gap-1">
+                          <Icone de={PawPrint} tamanho={14} />
+                          Pets
+                        </span>
+                      )}
+                      {abrigo.acessivelPcd && (
+                        <span className="inline-flex items-center gap-1">
+                          <Icone de={Accessibility} tamanho={14} />
+                          Acessível
+                        </span>
+                      )}
+                    </span>
+                    {abrigo.destaque && <span className="mt-1 block text-meta text-primaria-clara">Precisa do que você quer doar</span>}
+                    {abrigo.emAreaDeRisco && <span className="mt-1 block text-meta text-critico-claro">Dentro de área de risco</span>}
+                    {abrigo.rotaCruzaAreaRisco && (
+                      <span className="mt-1 block text-meta text-critico-claro">O caminho direto passa por área de risco</span>
+                    )}
                   </span>
-                )}
-                {abrigo.acessivelPcd && (
-                  <span className="rounded-full border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 text-[10px] font-bold text-indigo-200">
-                    ♿ PCD
+                  <span className="shrink-0 text-right">
+                    <span className="block text-titulo font-semibold tabular-nums text-texto">{vagas}</span>
+                    <span className="block text-meta text-texto-3">{vagas === 1 ? "vaga" : "vagas"}</span>
                   </span>
-                )}
-              </div>
-              {abrigo.emAreaDeRisco && <p className="mt-1 text-xs font-bold text-rose-300">🔺 Dentro de área de risco</p>}
-              {abrigo.rotaCruzaAreaRisco && (
-                <p className="mt-1 text-xs font-bold text-rose-300">⚠️ Trajeto direto cruza área de risco</p>
-              )}
-            </button>
-          );
-        })
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Gaveta>
   );
@@ -474,7 +326,7 @@ interface ResultadoFamiliarPublico {
   };
 }
 
-/** Busca pública de familiares acolhidos ("Encontre um Familiar" - protegida pela LGPD). */
+/** Busca pública de familiares acolhidos, com os dados pessoais protegidos (LGPD). */
 export function PainelBuscaFamiliar({
   onVerAbrigo,
   onFechar,
@@ -483,20 +335,21 @@ export function PainelBuscaFamiliar({
   onFechar: () => void;
 }) {
   const [termo, setTermo] = useState("");
-  const [resultados, setResultados] = useState<ResultadoFamiliarPublico[] | null>(null);
+  const [resultados, setResultados] = useState<{ termo: string; itens: ResultadoFamiliarPublico[] } | null>(null);
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   async function buscar(e: FormEvent) {
     e.preventDefault();
-    if (termo.trim().length < 3) {
+    const busca = termo.trim();
+    if (busca.length < 3) {
       setErro("Digite ao menos 3 letras do nome ou o CPF da pessoa.");
       return;
     }
     setBuscando(true);
     setErro(null);
     try {
-      const resposta = await fetch(`/api/public/acolhidos?busca=${encodeURIComponent(termo.trim())}`);
+      const resposta = await fetch(`/api/public/acolhidos?busca=${encodeURIComponent(busca)}`);
       const json = (await resposta.json()) as {
         dados?: ResultadoFamiliarPublico[];
         erro?: { mensagem?: string };
@@ -504,7 +357,7 @@ export function PainelBuscaFamiliar({
       if (!resposta.ok) {
         setErro(json.erro?.mensagem ?? "Não foi possível realizar a consulta.");
       } else {
-        setResultados(json.dados ?? []);
+        setResultados({ termo: busca, itens: json.dados ?? [] });
       }
     } catch {
       setErro("Sem conexão para consultar a base de acolhidos no momento.");
@@ -514,80 +367,43 @@ export function PainelBuscaFamiliar({
   }
 
   return (
-    <Gaveta
-      titulo="🔍 Encontre um familiar"
-      subtitulo="Consulta pública protegida (LGPD) de pessoas acolhidas"
-      cor="border-teal-500/40"
-      onFechar={onFechar}
-    >
-      <form onSubmit={buscar} className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/90 p-3">
-        <label htmlFor="busca-familiar-input" className="block text-xs font-bold text-slate-300">
-          Nome ou CPF do familiar
-        </label>
-        <div className="flex gap-2">
+    <Gaveta titulo="Encontrar familiar" subtitulo="Pessoas acolhidas nos abrigos agora" onFechar={onFechar}>
+      <form onSubmit={buscar} className="space-y-3 py-4">
+        <Campo rotulo="Nome ou CPF" dica="Por privacidade, parte do nome é abreviada e o CPF aparece mascarado." erro={erro}>
           <input
-            id="busca-familiar-input"
             type="search"
             value={termo}
             onChange={(e) => setTermo(e.target.value)}
-            placeholder="Ex.: Maria Oliveira ou CPF..."
-            className="h-10 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 text-xs text-white placeholder-slate-500 focus:border-teal-400 focus:outline-none"
+            placeholder="Maria Oliveira"
+            className={CLASSES_CAMPO}
           />
-          <button
-            type="submit"
-            disabled={buscando}
-            className="h-10 shrink-0 rounded-xl bg-teal-400 px-3.5 text-xs font-bold text-slate-950 hover:bg-teal-300 disabled:opacity-50"
-          >
-            {buscando ? "..." : "Buscar"}
-          </button>
-        </div>
-        <p className="text-[11px] text-slate-400">
-          🔒 Por privacidade (LGPD), nomes intermediários são abreviados e o CPF é exibido de forma mascarada.
-        </p>
+        </Campo>
+        <Botao type="submit" variante="primaria" icone={Search} disabled={buscando} className="w-full">
+          {buscando ? "Buscando..." : "Buscar"}
+        </Botao>
       </form>
 
-      {erro && (
-        <p role="alert" className="rounded-xl border border-rose-500/40 bg-rose-950/40 p-3 text-xs font-semibold text-rose-200">
-          {erro}
+      {resultados !== null && resultados.itens.length === 0 && !erro && (
+        <p className="border-t border-borda py-4 text-corpo text-texto-2">
+          Nenhuma pessoa acolhida encontrada para &ldquo;{resultados.termo}&rdquo;. Confira a grafia ou tente pelo CPF.
         </p>
       )}
 
-      {resultados !== null && resultados.length === 0 && !erro && (
-        <p className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-center text-xs text-slate-400">
-          Nenhum acolhido com status <strong>PRESENTE</strong> encontrado para &ldquo;{termo}&rdquo;.
-        </p>
-      )}
-
-      {resultados?.map((item) => (
-        <article key={item.id} className="space-y-2 rounded-2xl border border-teal-500/30 bg-slate-900/80 p-3">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-bold text-white">{item.nomeExibicao}</h3>
-              {item.cpfMascarado && <p className="text-[11px] text-slate-400 tabular-nums">CPF: {item.cpfMascarado}</p>}
-            </div>
-            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
-              ● Acolhido(a)
-            </span>
-          </div>
-
-          <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-2.5 text-xs">
-            <p className="font-bold text-teal-300">🏠 {item.abrigo.nome}</p>
-            <p className="mt-0.5 text-slate-400">{item.abrigo.endereco}</p>
-            {item.abrigo.telefone && <p className="mt-0.5 text-slate-300">📞 {item.abrigo.telefone}</p>}
-          </div>
-
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <span className="text-[11px] text-slate-400">
-              Entrada: {new Date(item.dataEntrada).toLocaleDateString("pt-BR")}
-            </span>
-            <button
-              type="button"
-              onClick={() => onVerAbrigo(item.abrigo.id)}
-              className="min-h-9 rounded-xl bg-teal-400 px-3 text-xs font-bold text-slate-950 hover:bg-teal-300"
-            >
-              🏠 Ver abrigo no mapa
-            </button>
-          </div>
+      {resultados?.itens.map((item) => (
+        <article key={item.id} className="border-t border-borda py-4">
+          <h3 className="text-corpo font-medium text-texto">{item.nomeExibicao}</h3>
+          <p className="text-meta text-texto-3 tabular-nums">
+            {item.cpfMascarado && <>CPF {item.cpfMascarado} · </>}
+            Entrada em {new Date(item.dataEntrada).toLocaleDateString("pt-BR")}
+          </p>
+          <p className="mt-2 text-corpo text-texto">{item.abrigo.nome}</p>
+          <p className="text-meta text-texto-2">
+            {item.abrigo.endereco}
+            {item.abrigo.telefone && <> · {item.abrigo.telefone}</>}
+          </p>
+          <Botao tamanho="sm" icone={MapPin} onClick={() => onVerAbrigo(item.abrigo.id)} className="mt-3">
+            Ver abrigo no mapa
+          </Botao>
         </article>
       ))}
     </Gaveta>

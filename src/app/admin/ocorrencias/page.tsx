@@ -1,69 +1,49 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import type { VerticePoligono } from "@/components/seletor-ponto-mapa";
+import { Botao } from "@/components/ui/botao";
+import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
+import { Chip } from "@/components/ui/chip";
+import { Modal } from "@/components/ui/modal";
+import { CabecalhoPagina, EstadoVazio, Secao } from "@/components/ui/pagina";
+import { SeloStatus } from "@/components/ui/selo-status";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
+import { rotuloOcorrencia } from "../rotulos";
+import { FormOcorrencia } from "./form-ocorrencia";
+import { estaAtiva, estaPendente, statusDaOcorrencia, type Ocorrencia } from "./tipos";
 
-const SeletorPontoMapa = dynamic(() => import("@/components/seletor-ponto-mapa"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-52 w-full items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-xs text-slate-400">
-      Carregando seletor de mapa...
-    </div>
-  ),
-});
-
-interface Ocorrencia {
-  id: number;
-  idAbrigo: number;
-  tipo: string;
-  gravidade: "ALERTA" | "CRITICO";
-  statusValidacao?: "PENDENTE" | "APROVADA" | "REJEITADA";
-  relatorNome?: string | null;
-  relatorContato?: string | null;
-  origemCidada?: boolean;
-  descricao: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  poligono: VerticePoligono[] | null;
-  dataRegistro: string;
-  dataResolucao: string | null;
-  registradoPor: string;
-  resolvidoPor: string | null;
+function formatarMomento(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-const TIPOS_OCORRENCIA = [
-  { tipo: "AREA_RISCO", rotulo: "🔺 Área de Risco", gravidadePadrao: "CRITICO" as const },
-  { tipo: "VIA_BLOQUEADA", rotulo: "🚧 Via de Acesso Bloqueada", gravidadePadrao: "CRITICO" as const },
-  { tipo: "ALAGAMENTO", rotulo: "🌊 Alagamento no Entorno", gravidadePadrao: "CRITICO" as const },
-  { tipo: "DESLIZAMENTO", rotulo: "⛰️ Risco de Deslizamento", gravidadePadrao: "CRITICO" as const },
-  { tipo: "RISCO_ESTRUTURAL", rotulo: "🏚️ Risco Estrutural", gravidadePadrao: "CRITICO" as const },
-  { tipo: "SEM_ENERGIA", rotulo: "⚡ Sem Energia Elétrica", gravidadePadrao: "ALERTA" as const },
-  { tipo: "SEM_AGUA", rotulo: "🚰 Sem Abastecimento de Água", gravidadePadrao: "ALERTA" as const },
-  { tipo: "SEM_COMUNICACAO", rotulo: "📡 Sem Internet / Telefone", gravidadePadrao: "ALERTA" as const },
-  { tipo: "OUTRO", rotulo: "⚠️ Outra Ocorrência", gravidadePadrao: "ALERTA" as const },
-];
+/** Encerrar um alerta pede confirmação e aceita uma observação (o que foi feito). */
+function ModalResolver({ ocorrencia, salvando, onConfirmar, onFechar }: { ocorrencia: Ocorrencia; salvando: boolean; onConfirmar: (observacao: string | null) => void; onFechar: () => void }) {
+  const [observacao, setObservacao] = useState("");
 
-/**
- * As bordas do contorno, na ordem em que os pontos foram marcados, se cruzam
- * (ex.: cantos clicados em "Z")? Ao publicar, o servidor liga os pontos em
- * volta do centro; aqui só avisamos para a prévia não confundir.
- */
-function bordasSeCruzam(pontos: VerticePoligono[]): boolean {
-  const n = pontos.length;
-  if (n < 4) return false;
-  const lado = (a: VerticePoligono, b: VerticePoligono, c: VerticePoligono) =>
-    Math.sign((b.lng - a.lng) * (c.lat - a.lat) - (b.lat - a.lat) * (c.lng - a.lng));
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 2; j < n; j++) {
-      if (i === 0 && j === n - 1) continue; // arestas vizinhas pelo fechamento do anel
-      const [a, b, c, d] = [pontos[i], pontos[(i + 1) % n], pontos[j], pontos[(j + 1) % n]];
-      if (lado(a, b, c) * lado(a, b, d) < 0 && lado(c, d, a) * lado(c, d, b) < 0) return true;
-    }
+  function enviar(e: FormEvent) {
+    e.preventDefault();
+    onConfirmar(observacao.trim() || null);
   }
-  return false;
+
+  return (
+    <Modal titulo={`Encerrar: ${rotuloOcorrencia(ocorrencia.tipo).toLowerCase()}`} onFechar={onFechar}>
+      <form onSubmit={enviar} className="space-y-4">
+        <p className="text-meta text-texto-2">O alerta sai do mapa público e o estado do abrigo é recalculado.</p>
+        <Campo rotulo="O que foi feito (opcional)">
+          <input type="text" value={observacao} onChange={(e) => setObservacao(e.target.value)} className={CLASSES_CAMPO} />
+        </Campo>
+        <div className="flex justify-end gap-2 pt-1">
+          <Botao variante="fantasma" onClick={onFechar}>
+            Cancelar
+          </Botao>
+          <Botao type="submit" variante="primaria" disabled={salvando}>
+            {salvando ? "Encerrando..." : "Encerrar alerta"}
+          </Botao>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 export default function PaginaOcorrencias() {
@@ -77,26 +57,12 @@ export default function PaginaOcorrencias() {
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-
-  // Formulário de nova ocorrência
-  const [tipo, setTipo] = useState("VIA_BLOQUEADA");
-  const [gravidade, setGravidade] = useState<"ALERTA" | "CRITICO">("CRITICO");
-  const [descricao, setDescricao] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
-  const [poligono, setPoligono] = useState<VerticePoligono[]>([]);
-  const [mostrarSeletorMapa, setMostrarSeletorMapa] = useState(true);
-  const [observacaoResolucao, setObservacaoResolucao] = useState<Record<number, string>>({});
-
-  const modoPoligono = tipo === "AREA_RISCO" || poligono.length > 0;
+  const [resolvendo, setResolvendo] = useState<Ocorrencia | null>(null);
 
   const carregar = useCallback(async () => {
     if (!idAbrigoAtivo) return;
     try {
-      const lista = await api<Ocorrencia[]>(
-        `/api/abrigos/${idAbrigoAtivo}/ocorrencias${somenteAtivas ? "?ativas=true" : ""}`,
-      );
-      setOcorrencias(lista);
+      setOcorrencias(await api<Ocorrencia[]>(`/api/abrigos/${idAbrigoAtivo}/ocorrencias${somenteAtivas ? "?ativas=true" : ""}`));
       setErro(null);
     } catch (err) {
       setErro(mensagemErro(err));
@@ -109,584 +75,149 @@ export default function PaginaOcorrencias() {
     void Promise.resolve().then(carregar);
   }, [carregar]);
 
-  function selecionarTipo(novoTipo: string) {
-    setTipo(novoTipo);
-    const info = TIPOS_OCORRENCIA.find((t) => t.tipo === novoTipo);
-    if (info) setGravidade(info.gravidadePadrao);
-    if (novoTipo === "AREA_RISCO") {
-      setMostrarSeletorMapa(true);
-    } else if (poligono.length > 0) {
-      setPoligono([]);
+  /** Toda ação aqui muda o estado do abrigo: recarrega a lista e o cabeçalho. */
+  async function executar(acao: () => Promise<unknown>, mensagem: string): Promise<boolean> {
+    if (!idAbrigoAtivo || somenteLeitura) return false;
+    setEnviando(true);
+    setErro(null);
+    try {
+      await acao();
+      await Promise.all([carregar(), recarregarAbrigos()]);
+      setAviso(mensagem);
+      return true;
+    } catch (err) {
+      setErro(mensagemErro(err));
+      return false;
+    } finally {
+      setEnviando(false);
     }
   }
 
-  function usarLocalDoAbrigo() {
-    if (!abrigoAtivo) return;
-    setLatitude(String(abrigoAtivo.latitude));
-    setLongitude(String(abrigoAtivo.longitude));
-  }
+  if (!idAbrigoAtivo) return <EstadoVazio>Selecione um abrigo no topo para ver os alertas de infraestrutura.</EstadoVazio>;
 
-  function gerarPoligonoInicialEntorno() {
-    const baseLat = latitude.trim() !== "" ? Number(latitude) : (abrigoAtivo?.latitude ?? -28.258);
-    const baseLng = longitude.trim() !== "" ? Number(longitude) : (abrigoAtivo?.longitude ?? -52.406);
-    const novos: VerticePoligono[] = [
-      { lat: Number((baseLat + 0.0022).toFixed(6)), lng: Number((baseLng - 0.0022).toFixed(6)) },
-      { lat: Number((baseLat + 0.0022).toFixed(6)), lng: Number((baseLng + 0.0022).toFixed(6)) },
-      { lat: Number((baseLat - 0.0018).toFixed(6)), lng: Number((baseLng + 0.0026).toFixed(6)) },
-      { lat: Number((baseLat - 0.0018).toFixed(6)), lng: Number((baseLng - 0.0026).toFixed(6)) },
-    ];
-    setPoligono(novos);
-    setLatitude(baseLat.toFixed(6));
-    setLongitude(baseLng.toFixed(6));
-    setMostrarSeletorMapa(true);
-  }
-
-  function capturarGpsNavegador() {
-    if (!("geolocation" in navigator)) {
-      setErro("Geolocalização não suportada neste navegador.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLatitude(pos.coords.latitude.toFixed(6));
-        setLongitude(pos.coords.longitude.toFixed(6));
-      },
-      () => setErro("Não foi possível obter a localização GPS do dispositivo."),
+  const base = `/api/abrigos/${idAbrigoAtivo}/ocorrencias`;
+  const moderar = (ocorrencia: Ocorrencia, acao: "APROVAR" | "REJEITAR") =>
+    void executar(
+      () => api(`${base}/${ocorrencia.id}/moderacao`, { method: "POST", body: JSON.stringify({ acao, observacao: null }) }),
+      acao === "APROVAR" ? "Reporte aprovado e publicado no mapa." : "Reporte descartado.",
     );
-  }
-
-  async function registrar(e: FormEvent) {
-    e.preventDefault();
-    if (!idAbrigoAtivo || somenteLeitura) return;
-
-    if (tipo === "AREA_RISCO" && poligono.length < 3) {
-      setErro("Clique no mapa para posicionar ao menos 3 marcadores que delimitem a área de risco (polígono).");
-      return;
-    }
-
-    setEnviando(true);
-    setErro(null);
-    try {
-      const corpo: Record<string, unknown> = {
-        tipo,
-        gravidade,
-        descricao: descricao.trim() || null,
-      };
-      if (poligono.length >= 3) {
-        // O rótulo da área é posicionado pelo servidor, sempre dentro do polígono.
-        corpo.poligono = poligono;
-      } else if (latitude.trim() !== "" && longitude.trim() !== "") {
-        corpo.latitude = Number(latitude);
-        corpo.longitude = Number(longitude);
-      }
-
-      await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias`, {
-        method: "POST",
-        body: JSON.stringify(corpo),
-      });
-      setDescricao("");
-      setLatitude("");
-      setLongitude("");
-      setPoligono([]);
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(
-        tipo === "AREA_RISCO"
-          ? "Área de risco (polígono) demarcada e publicada no mapa público."
-          : "Alerta de infraestrutura publicado no mapa.",
-      );
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  async function resolver(idOcorrencia: number) {
-    if (!idAbrigoAtivo || somenteLeitura) return;
-    setEnviando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${idOcorrencia}/resolucao`, {
-        method: "POST",
-        body: JSON.stringify({ observacao: observacaoResolucao[idOcorrencia]?.trim() || null }),
-      });
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso("Ocorrência encerrada e status do abrigo atualizado.");
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  async function moderar(idOcorrencia: number, acao: "APROVAR" | "REJEITAR") {
-    if (!idAbrigoAtivo || somenteLeitura) return;
-    setEnviando(true);
-    setErro(null);
-    try {
-      await api(`/api/abrigos/${idAbrigoAtivo}/ocorrencias/${idOcorrencia}/moderacao`, {
-        method: "POST",
-        body: JSON.stringify({
-          acao,
-          observacao: observacaoResolucao[idOcorrencia]?.trim() || null,
-        }),
-      });
-      await Promise.all([carregar(), recarregarAbrigos()]);
-      setAviso(
-        acao === "APROVAR"
-          ? "Reporte cidadão aprovado e publicado imediatamente no mapa público!"
-          : "Reporte cidadão descartado.",
-      );
-    } catch (err) {
-      setErro(mensagemErro(err));
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  if (!idAbrigoAtivo) {
-    return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-slate-400">
-        Selecione um abrigo no topo para gerenciar ocorrências de infraestrutura.
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
-      <ToastFlutuante
-        erro={erro}
-        aviso={aviso}
-        aoFecharErro={() => setErro(null)}
-        aoFecharAviso={() => setAviso(null)}
+      <ToastFlutuante erro={erro} aviso={aviso} aoFecharErro={() => setErro(null)} aoFecharAviso={() => setAviso(null)} />
+
+      <CabecalhoPagina
+        titulo="Infraestrutura e acesso"
+        descricao="Vias bloqueadas, áreas de risco e falhas de energia ou água. O que estiver ativo aparece para a população no mapa."
       />
 
-      <div>
-        <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-          Infraestrutura, Vias de Acesso e Áreas de Risco
-        </span>
-        <h1 className="text-xl sm:text-2xl font-bold text-white">
-          {abrigoAtivo?.nome}
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-          Comunique interdições de vias, demarque polígonos de áreas de risco ou reporte falhas de energia/água para orientar o deslocamento seguro da população.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Formulário de Registro (Coordenador / Admin) */}
+      <div className="grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-12">
         {podeGerenciar && (
-          <section className="lg:col-span-5 rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4">
-            <h2 className="text-base sm:text-lg font-bold text-white">Registrar Nova Ocorrência</h2>
-
-            <form onSubmit={registrar} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                  1. Tipo de Incidente
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {TIPOS_OCORRENCIA.map((item) => {
-                    const selecionado = tipo === item.tipo;
-                    const ehAreaRisco = item.tipo === "AREA_RISCO";
-                    return (
-                      <button
-                        key={item.tipo}
-                        type="button"
-                        disabled={somenteLeitura}
-                        onClick={() => selecionarTipo(item.tipo)}
-                        className={`min-h-11 rounded-xl border p-2.5 text-left text-xs font-bold transition cursor-pointer disabled:opacity-40 ${
-                          ehAreaRisco ? "sm:col-span-2" : ""
-                        } ${
-                          selecionado
-                            ? ehAreaRisco
-                              ? "border-rose-400 bg-rose-500/20 text-rose-200"
-                              : "border-amber-400 bg-amber-500/20 text-amber-200"
-                            : "border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800"
-                        }`}
-                      >
-                        {item.rotulo}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                  2. Gravidade do Impacto
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["ALERTA", "CRITICO"] as const).map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      disabled={somenteLeitura}
-                      onClick={() => setGravidade(g)}
-                      className={`min-h-11 rounded-xl border py-2 text-xs font-black transition cursor-pointer disabled:opacity-40 ${
-                        gravidade === g
-                          ? g === "CRITICO"
-                            ? "border-rose-400 bg-rose-500 text-slate-950"
-                            : "border-amber-400 bg-amber-400 text-slate-950"
-                          : "border-slate-800 bg-slate-950 text-slate-300"
-                      }`}
-                    >
-                      {g === "CRITICO" ? "🚨 CRÍTICO (Risco / Interdição)" : "⚠️ ALERTA (Operação Parcial)"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  3. Descrição ou Rota Alternativa {tipo === "OUTRO" && "(Obrigatória)"}
-                </label>
-                <textarea
-                  rows={3}
-                  disabled={somenteLeitura}
-                  required={tipo === "OUTRO"}
-                  value={descricao}
-                  onChange={(e) => setDescricao(e.target.value)}
-                  placeholder={
-                    tipo === "AREA_RISCO"
-                      ? "Ex.: Encosta instável e risco de inundação severa neste quarteirão. Evite transitar dentro do perímetro demarcado."
-                      : "Ex.: Ponte principal interditada; acesse pela rua lateral Norte."
-                  }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-base sm:text-sm text-white placeholder-slate-500 disabled:opacity-50"
-                />
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3.5 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-xs font-semibold text-slate-200 block">
-                      {modoPoligono
-                        ? `4. Demarcação do Polígono de Risco (${poligono.length} marcadores)`
-                        : "4. Localização do Bloqueio (opcional)"}
-                    </span>
-                    {modoPoligono && (
-                      <span className="text-xs text-rose-300">
-                        Clique em 3 ou mais pontos no mapa para cercar a área de risco.
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      disabled={somenteLeitura}
-                      onClick={() => setMostrarSeletorMapa((v) => !v)}
-                      className={`rounded-lg border px-2.5 py-1 text-xs font-bold cursor-pointer ${
-                        mostrarSeletorMapa
-                          ? "border-amber-500/50 bg-amber-500/20 text-amber-300"
-                          : "border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-                      }`}
-                    >
-                      🗺️ {mostrarSeletorMapa ? "Ocultar Mapa" : "Marcar no Mapa"}
-                    </button>
-                    {modoPoligono ? (
-                      <>
-                        <button
-                          type="button"
-                          disabled={somenteLeitura}
-                          onClick={gerarPoligonoInicialEntorno}
-                          className="rounded-lg border border-rose-500/40 bg-rose-950/50 px-2.5 py-1 text-xs font-bold text-rose-200 hover:bg-rose-900/50 disabled:opacity-40 cursor-pointer"
-                        >
-                          🔺 Gerar Perímetro Base
-                        </button>
-                        {poligono.length > 0 && (
-                          <>
-                            <button
-                              type="button"
-                              disabled={somenteLeitura}
-                              onClick={() => setPoligono((ant) => ant.slice(0, -1))}
-                              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
-                            >
-                              ↩️ Desfazer
-                            </button>
-                            <button
-                              type="button"
-                              disabled={somenteLeitura}
-                              onClick={() => setPoligono([])}
-                              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-rose-300 hover:bg-slate-800 cursor-pointer"
-                            >
-                              🗑️ Limpar
-                            </button>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          disabled={somenteLeitura}
-                          onClick={usarLocalDoAbrigo}
-                          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
-                        >
-                          🏠 Usar Abrigo
-                        </button>
-                        <button
-                          type="button"
-                          disabled={somenteLeitura}
-                          onClick={capturarGpsNavegador}
-                          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-amber-300 hover:bg-slate-800 disabled:opacity-40 cursor-pointer"
-                        >
-                          📍 Meu GPS
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {mostrarSeletorMapa && !somenteLeitura && (
-                  <SeletorPontoMapa
-                    latitude={latitude.trim() !== "" ? Number(latitude) : null}
-                    longitude={longitude.trim() !== "" ? Number(longitude) : null}
-                    referenciaAbrigo={
-                      abrigoAtivo
-                        ? {
-                            lat: abrigoAtivo.latitude,
-                            lng: abrigoAtivo.longitude,
-                            nome: abrigoAtivo.nome,
-                          }
-                        : null
-                    }
-                    modo={modoPoligono ? "poligono" : "ponto"}
-                    poligono={poligono}
-                    aoAlterarPoligono={setPoligono}
-                    aoSelecionarCoordenada={(lat, lng) => {
-                      setLatitude(String(lat));
-                      setLongitude(String(lng));
-                    }}
-                    alturaClasse="h-60"
-                  />
-                )}
-
-                {modoPoligono && poligono.length > 0 && (
-                  <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-3 py-2 text-xs text-rose-200 flex flex-wrap items-center justify-between gap-2">
-                    <span>
-                      {poligono.length < 3
-                        ? `⚠️ Adicione mais ${3 - poligono.length} marcador(es) no mapa para fechar o polígono.`
-                        : `✅ Polígono fechado com ${poligono.length} marcadores demarcados.`}
-                    </span>
-                    {bordasSeCruzam(poligono) && (
-                      <span className="w-full text-amber-200">
-                        As linhas estão se cruzando (pontos fora da ordem do contorno). Ao publicar, os pontos serão ligados em
-                        volta do centro da área. Se preferir, arraste os marcadores antes.
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    disabled={somenteLeitura}
-                    value={latitude}
-                    onChange={(e) => setLatitude(e.target.value)}
-                    placeholder="Latitude (-28.2486)"
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-base sm:text-xs text-white tabular-nums"
-                  />
-                  <input
-                    type="number"
-                    step="any"
-                    disabled={somenteLeitura}
-                    value={longitude}
-                    onChange={(e) => setLongitude(e.target.value)}
-                    placeholder="Longitude (-52.4230)"
-                    className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-base sm:text-xs text-white tabular-nums"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={somenteLeitura || enviando}
-                className="w-full min-h-12 rounded-xl bg-amber-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
-              >
-                {enviando
-                  ? "Publicando Alerta..."
-                  : tipo === "AREA_RISCO"
-                    ? "Publicar Área de Risco no Mapa"
-                    : "Publicar Alerta no Mapa"}
-              </button>
-            </form>
-          </section>
+          <Secao titulo="Novo alerta" className="lg:col-span-5">
+            <FormOcorrencia
+              abrigo={abrigoAtivo}
+              somenteLeitura={somenteLeitura}
+              enviando={enviando}
+              onErro={setErro}
+              onRegistrar={(corpo, ehAreaDeRisco) =>
+                executar(
+                  () => api(base, { method: "POST", body: JSON.stringify(corpo) }),
+                  ehAreaDeRisco ? "Área de risco publicada no mapa." : "Alerta publicado no mapa.",
+                )
+              }
+            />
+          </Secao>
         )}
 
-        {/* Lista de Ocorrências */}
-        <section
-          className={`${podeGerenciar ? "lg:col-span-7" : "lg:col-span-12"} rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6 space-y-4`}
+        <Secao
+          titulo={somenteAtivas ? "Alertas ativos" : "Todos os alertas"}
+          className={podeGerenciar ? "lg:col-span-7" : "lg:col-span-12"}
+          acoes={
+            <>
+              <Chip ativo={somenteAtivas} onClick={() => setSomenteAtivas(true)}>
+                Ativos
+              </Chip>
+              <Chip ativo={!somenteAtivas} onClick={() => setSomenteAtivas(false)}>
+                Todos
+              </Chip>
+            </>
+          }
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base sm:text-lg font-bold text-white">
-              {somenteAtivas ? "Alertas Ativos" : "Histórico Completo"}
-            </h2>
-            <div className="inline-flex rounded-xl border border-slate-800 bg-slate-950 p-1">
-              <button
-                type="button"
-                onClick={() => setSomenteAtivas(true)}
-                className={`rounded-lg px-3 py-1 text-xs font-bold cursor-pointer ${
-                  somenteAtivas ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Ativas
-              </button>
-              <button
-                type="button"
-                onClick={() => setSomenteAtivas(false)}
-                className={`rounded-lg px-3 py-1 text-xs font-bold cursor-pointer ${
-                  !somenteAtivas ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-white"
-                }`}
-              >
-                Todas / Resolvidas
-              </button>
-            </div>
-          </div>
-
           {carregando ? (
-            <p className="py-8 text-center text-sm text-slate-400">Carregando ocorrências...</p>
+            <EstadoVazio>Carregando alertas...</EstadoVazio>
           ) : ocorrencias.length === 0 ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-8 text-center text-sm text-slate-400">
-              Nenhuma ocorrência encontrada neste filtro.
-            </div>
+            <EstadoVazio>{somenteAtivas ? "Nenhum alerta ativo neste abrigo." : "Nenhum alerta registrado neste abrigo."}</EstadoVazio>
           ) : (
-            <ul className="space-y-3">
-              {ocorrencias.map((oc) => {
-                const rotulo = TIPOS_OCORRENCIA.find((t) => t.tipo === oc.tipo)?.rotulo ?? oc.tipo;
-                const ativa = !oc.dataResolucao && oc.statusValidacao !== "REJEITADA";
-                const pendenteModeracao = oc.statusValidacao === "PENDENTE" && !oc.dataResolucao;
+            <ul className="border-t border-borda">
+              {ocorrencias.map((ocorrencia) => {
+                const status = statusDaOcorrencia(ocorrencia);
+                const pendente = estaPendente(ocorrencia);
                 return (
-                  <li
-                    key={oc.id}
-                    className={`rounded-xl border p-4 space-y-3 ${
-                      !ativa
-                        ? "border-slate-800 bg-slate-950/60 opacity-80"
-                        : pendenteModeracao
-                          ? "border-sky-500/60 bg-sky-950/30"
-                          : oc.gravidade === "CRITICO"
-                            ? "border-rose-500/40 bg-rose-950/25"
-                            : "border-amber-500/40 bg-amber-950/25"
-                    }`}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded px-2 py-0.5 text-xs font-black ${
-                              oc.statusValidacao === "REJEITADA"
-                                ? "bg-slate-700 text-slate-300"
-                                : pendenteModeracao
-                                  ? "bg-sky-400 text-slate-950"
-                                  : !ativa
-                                    ? "bg-emerald-500/20 text-emerald-300"
-                                    : oc.gravidade === "CRITICO"
-                                      ? "bg-rose-500 text-slate-950"
-                                      : "bg-amber-400 text-slate-950"
-                            }`}
-                          >
-                            {oc.statusValidacao === "REJEITADA"
-                              ? "DESCARTADA"
-                              : pendenteModeracao
-                                ? "AGUARDANDO MODERAÇÃO"
-                                : ativa
-                                  ? oc.gravidade
-                                  : "RESOLVIDA"}
-                          </span>
-                          <h3 className="text-base font-bold text-white">{rotulo}</h3>
-                          {oc.origemCidada && (
-                            <span className="rounded-full border border-sky-400/50 bg-sky-500/20 px-2 py-0.5 text-xs font-bold text-sky-200">
-                              📢 Reporte Cidadão
-                            </span>
-                          )}
-                          {oc.poligono && oc.poligono.length >= 3 && (
-                            <span className="rounded-full border border-rose-400/50 bg-rose-500/20 px-2 py-0.5 text-xs font-bold text-rose-200">
-                              🔺 Polígono ({oc.poligono.length} marcadores)
-                            </span>
-                          )}
-                        </div>
-                        {oc.descricao && (
-                          <p className="text-sm text-slate-200 mt-1.5 whitespace-pre-line">{oc.descricao}</p>
-                        )}
-                      </div>
-                      <span className="text-xs text-slate-400 tabular-nums">
-                        {new Date(oc.dataRegistro).toLocaleString("pt-BR")}
+                  <li key={ocorrencia.id} className="border-b border-borda py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                      <h3 className="text-corpo font-medium text-texto">{rotuloOcorrencia(ocorrencia.tipo)}</h3>
+                      <SeloStatus nivel={status.nivel}>{status.rotulo}</SeloStatus>
+                    </div>
+                    {ocorrencia.descricao && <p className="mt-1 text-corpo whitespace-pre-line text-texto-2">{ocorrencia.descricao}</p>}
+                    <p className="mt-1 flex flex-wrap gap-x-3 text-meta text-texto-3 tabular-nums">
+                      <span>{formatarMomento(ocorrencia.dataRegistro)}</span>
+                      <span>
+                        {ocorrencia.origemCidada ? "Reporte de morador: " : "Por "}
+                        {ocorrencia.registradoPor}
+                        {ocorrencia.relatorContato && ` (${ocorrencia.relatorContato})`}
                       </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
-                      <div>
+                      {ocorrencia.poligono && ocorrencia.poligono.length >= 3 ? (
+                        <span>Área demarcada no mapa</span>
+                      ) : (
+                        ocorrencia.latitude !== null && ocorrencia.longitude !== null && <span>Local marcado no mapa</span>
+                      )}
+                      {ocorrencia.resolvidoPor && ocorrencia.dataResolucao && (
                         <span>
-                          Registrado por: <strong className="text-slate-300">{oc.registradoPor}</strong>
-                          {oc.relatorContato && (
-                            <span className="ml-1.5 text-sky-300">({oc.relatorContato})</span>
-                          )}
+                          {ocorrencia.statusValidacao === "REJEITADA" ? "Descartado" : "Resolvido"} por {ocorrencia.resolvidoPor} em{" "}
+                          {formatarMomento(ocorrencia.dataResolucao)}
                         </span>
-                        {oc.latitude !== null && oc.longitude !== null && (
-                          <span className="ml-3 font-mono text-xs text-amber-300 tabular-nums">
-                            📍 {oc.latitude.toFixed(4)}, {oc.longitude.toFixed(4)}
-                          </span>
-                        )}
-                        {oc.resolvidoPor && (
-                          <span className="ml-3 text-emerald-300">
-                            • {oc.statusValidacao === "REJEITADA" ? "Descartado" : "Resolvido"} por {oc.resolvidoPor} em{" "}
-                            {new Date(oc.dataResolucao!).toLocaleString("pt-BR")}
-                          </span>
+                      )}
+                    </p>
+
+                    {estaAtiva(ocorrencia) && podeGerenciar && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {pendente ? (
+                          <>
+                            <Botao tamanho="sm" disabled={somenteLeitura || enviando} onClick={() => moderar(ocorrencia, "APROVAR")}>
+                              Aprovar e publicar
+                            </Botao>
+                            <Botao tamanho="sm" variante="fantasma" disabled={somenteLeitura || enviando} onClick={() => moderar(ocorrencia, "REJEITAR")}>
+                              Descartar
+                            </Botao>
+                          </>
+                        ) : (
+                          <Botao tamanho="sm" disabled={somenteLeitura || enviando} onClick={() => setResolvendo(ocorrencia)}>
+                            Resolver
+                          </Botao>
                         )}
                       </div>
-
-                      {ativa && podeGerenciar && (
-                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                          {pendenteModeracao ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={somenteLeitura || enviando}
-                                onClick={() => moderar(oc.id, "APROVAR")}
-                                className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 cursor-pointer"
-                              >
-                                ✅ Aprovar e Publicar no Mapa
-                              </button>
-                              <button
-                                type="button"
-                                disabled={somenteLeitura || enviando}
-                                onClick={() => moderar(oc.id, "REJEITAR")}
-                                className="min-h-9 rounded-lg border border-rose-500/40 bg-rose-950/50 px-3 py-1.5 text-xs font-bold text-rose-200 hover:bg-rose-900/60 disabled:opacity-40 cursor-pointer"
-                              >
-                                ✕ Descartar
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <input
-                                type="text"
-                                disabled={somenteLeitura}
-                                placeholder="Observação de resolução (opcional)"
-                                value={observacaoResolucao[oc.id] ?? ""}
-                                onChange={(e) =>
-                                  setObservacaoResolucao((ant) => ({ ...ant, [oc.id]: e.target.value }))
-                                }
-                                className="flex-1 sm:w-56 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-base sm:text-xs text-white"
-                              />
-                              <button
-                                type="button"
-                                disabled={somenteLeitura || enviando}
-                                onClick={() => resolver(oc.id)}
-                                className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 cursor-pointer"
-                              >
-                                ✓ Resolver
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </li>
                 );
               })}
             </ul>
           )}
-        </section>
+        </Secao>
       </div>
+
+      {resolvendo && (
+        <ModalResolver
+          ocorrencia={resolvendo}
+          salvando={enviando}
+          onFechar={() => setResolvendo(null)}
+          onConfirmar={(observacao) =>
+            void executar(
+              () => api(`${base}/${resolvendo.id}/resolucao`, { method: "POST", body: JSON.stringify({ observacao }) }),
+              "Alerta encerrado.",
+            ).then((ok) => ok && setResolvendo(null))
+          }
+        />
+      )}
     </div>
   );
 }

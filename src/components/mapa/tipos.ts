@@ -1,5 +1,8 @@
 // Tipos, rótulos e regras de apresentação compartilhados pelo mapa público.
 
+import { Accessibility, Baby, BedDouble, Droplets, HeartHandshake, Package, PawPrint, Pill, Shirt, SprayCan, Utensils, type LucideIcon } from "lucide-react";
+import type { NivelStatus } from "@/components/ui/selo-status";
+
 export type NivelOcupacaoPublico = "VERDE" | "AMARELO" | "VERMELHO";
 export type StatusInfraPublico = "NORMAL" | "ALERTA" | "CRITICO";
 
@@ -86,26 +89,40 @@ export type FiltroRapido =
   | "ACESSIVEL_PCD"
   | "DESTAQUE";
 
-export const PILULAS_FILTRO: ReadonlyArray<{ id: FiltroRapido; rotulo: string }> = [
-  { id: "TODOS", rotulo: "Todos" },
-  { id: "COM_VAGAS", rotulo: "🟢 Com vagas" },
-  { id: "PRECISA_DOACOES", rotulo: "🚨 Precisa de doações" },
-  { id: "ACEITA_PETS", rotulo: "🐾 Aceita pets" },
-  { id: "ACESSIVEL_PCD", rotulo: "♿ Acessível PCD" },
-  { id: "INFRA_NORMAL", rotulo: "🛣️ Acesso normal" },
-  { id: "DESTAQUE", rotulo: "⭐ Prioritários" },
+export interface OpcaoFiltroRapido {
+  id: FiltroRapido;
+  rotulo: string;
+  /** Versão curta para o atalho no celular. */
+  rotuloCurto: string;
+  icone?: LucideIcon;
+}
+
+/** Filtros de abrigo, na ordem em que aparecem no painel de filtros. */
+export const FILTROS_RAPIDOS: ReadonlyArray<OpcaoFiltroRapido> = [
+  { id: "COM_VAGAS", rotulo: "Com vagas", rotuloCurto: "Com vagas" },
+  { id: "ACEITA_PETS", rotulo: "Aceita pets", rotuloCurto: "Pets", icone: PawPrint },
+  { id: "PRECISA_DOACOES", rotulo: "Precisa de doações", rotuloCurto: "Doações", icone: HeartHandshake },
+  { id: "ACESSIVEL_PCD", rotulo: "Acessível", rotuloCurto: "Acessível", icone: Accessibility },
+  { id: "INFRA_NORMAL", rotulo: "Sem alertas de acesso", rotuloCurto: "Sem alertas" },
 ];
 
-export const ICONE_CATEGORIA: Record<string, string> = {
-  agua: "💧",
-  alimentos: "🍲",
-  higiene: "🧼",
-  medicamentos: "💊",
-  roupas: "🧥",
-  "cama-e-banho": "🛏️",
-  infantil: "🍼",
-  animais: "🐾",
+/** Os três filtros mais usados ficam visíveis como atalho; o resto fica no painel (DESIGN.md §5.1). */
+export const ATALHOS_FILTRO: ReadonlyArray<OpcaoFiltroRapido> = FILTROS_RAPIDOS.slice(0, 3);
+
+const ICONE_POR_CATEGORIA: Record<string, LucideIcon> = {
+  agua: Droplets,
+  alimentos: Utensils,
+  higiene: SprayCan,
+  medicamentos: Pill,
+  roupas: Shirt,
+  "cama-e-banho": BedDouble,
+  infantil: Baby,
+  animais: PawPrint,
 };
+
+export function obterIconeCategoria(slug: string): LucideIcon {
+  return ICONE_POR_CATEGORIA[slug] ?? Package;
+}
 
 export const ROTULO_OCORRENCIA: Record<string, string> = {
   AREA_RISCO: "Área de risco demarcada no entorno",
@@ -119,40 +136,26 @@ export const ROTULO_OCORRENCIA: Record<string, string> = {
   OUTRO: "Alerta operacional no abrigo",
 };
 
-/** Semáforo de lotação (cor sempre acompanhada de símbolo e rótulo). */
-export function obterEstiloNivel(nivel: NivelOcupacaoPublico) {
-  if (nivel === "VERDE") {
-    return {
-      simbolo: "●",
-      rotulo: "Livre",
-      badge: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
-      barra: "bg-emerald-500",
-    };
-  }
-  if (nivel === "AMARELO") {
-    return {
-      simbolo: "▲",
-      rotulo: "Atenção",
-      badge: "border-amber-500/40 bg-amber-500/15 text-amber-300",
-      barra: "bg-amber-500",
-    };
-  }
-  return {
-    simbolo: "■",
-    rotulo: "Lotado / Crítico",
-    badge: "border-rose-500/40 bg-rose-500/15 text-rose-300",
-    barra: "bg-rose-500",
-  };
+export interface StatusApresentacao {
+  nivel: NivelStatus;
+  rotulo: string;
 }
 
-export function obterEstiloInfra(status: StatusInfraPublico) {
-  if (status === "CRITICO") {
-    return { icone: "🚨", rotulo: "Acesso ou infraestrutura crítica", classe: "border-rose-500/40 bg-rose-500/15 text-rose-300" };
-  }
-  if (status === "ALERTA") {
-    return { icone: "⚡", rotulo: "Atenção na infraestrutura", classe: "border-amber-500/40 bg-amber-500/15 text-amber-300" };
-  }
-  return { icone: "✅", rotulo: "Infraestrutura normal", classe: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" };
+/** Estado de lotação: a cor vem do nível; o rótulo diz o mesmo em texto. */
+export function obterStatusOcupacao(ocupacao: OcupacaoPublica): StatusApresentacao {
+  if (ocupacao.nivel === "VERDE") return { nivel: "ok", rotulo: "Com vagas" };
+  if (ocupacao.nivel === "AMARELO") return { nivel: "atencao", rotulo: "Quase cheio" };
+  return { nivel: "critico", rotulo: ocupacao.vagasDisponiveis > 0 ? "Últimas vagas" : "Lotado" };
+}
+
+export function obterStatusInfra(status: StatusInfraPublico): StatusApresentacao {
+  if (status === "CRITICO") return { nivel: "critico", rotulo: "Acesso ou infraestrutura crítica" };
+  if (status === "ALERTA") return { nivel: "atencao", rotulo: "Atenção na infraestrutura" };
+  return { nivel: "ok", rotulo: "Infraestrutura normal" };
+}
+
+export function obterStatusGravidade(gravidade: "ALERTA" | "CRITICO"): StatusApresentacao {
+  return gravidade === "CRITICO" ? { nivel: "critico", rotulo: "Crítico" } : { nivel: "atencao", rotulo: "Alerta" };
 }
 
 export function formatarHorario(iso: string): string {
@@ -161,39 +164,16 @@ export function formatarHorario(iso: string): string {
 }
 
 /**
- * Selo de atualização recente (Freshness Badge): indica a confiabilidade temporal
- * do último reporte de lotação/estoque do abrigo ou alerta.
+ * Há quanto tempo o dado foi atualizado. `desatualizado` (mais de 6 h) é o
+ * único caso que merece destaque: vagas e alertas podem ter mudado.
  */
-export function obterSeloAtualizacao(iso: string): { icone: string; rotulo: string; classe: string } {
+export function obterSeloAtualizacao(iso: string): { rotulo: string; desatualizado: boolean } {
   const ms = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(ms) || ms < 0 || ms <= 2 * 60_000) {
-    return {
-      icone: "🟢",
-      rotulo: "Atualizado agora",
-      classe: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
-    };
-  }
+  if (Number.isNaN(ms) || ms <= 2 * 60_000) return { rotulo: "Atualizado agora", desatualizado: false };
   const minutos = Math.round(ms / 60_000);
-  if (minutos <= 30) {
-    return {
-      icone: "🟢",
-      rotulo: `Há ${minutos} min`,
-      classe: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
-    };
-  }
+  if (minutos <= 30) return { rotulo: `Há ${minutos} min`, desatualizado: false };
   const horas = Math.max(1, Math.round(minutos / 60));
-  if (horas <= 6) {
-    return {
-      icone: "🟡",
-      rotulo: `Há ${horas}h`,
-      classe: "border-amber-500/40 bg-amber-500/15 text-amber-300",
-    };
-  }
-  return {
-    icone: "🟠",
-    rotulo: horas < 24 ? `Há ${horas}h` : `Há ${Math.floor(horas / 24)}d`,
-    classe: "border-orange-500/40 bg-orange-500/15 text-orange-300",
-  };
+  return { rotulo: horas < 24 ? `Há ${horas} h` : `Há ${Math.floor(horas / 24)} d`, desatualizado: horas > 6 };
 }
 
 /** Texto de resumo para compartilhar (WhatsApp, área de transferência). */

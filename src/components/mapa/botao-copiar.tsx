@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { Botao } from "@/components/ui/botao";
 
 interface PropriedadesBotaoCopiar {
   texto: string;
   rotulo: string;
   rotuloCopiado: string;
+  /** Só para layout (largura, margem). */
   className?: string;
 }
 
 /** Copia para a área de transferência com confirmação visual por 3 s. */
-export function BotaoCopiar({ texto, rotulo, rotuloCopiado, className = "" }: PropriedadesBotaoCopiar) {
+export function BotaoCopiar({ texto, rotulo, rotuloCopiado, className }: PropriedadesBotaoCopiar) {
   const [copiado, setCopiado] = useState(false);
   const [falhou, setFalhou] = useState(false);
 
@@ -32,12 +35,8 @@ export function BotaoCopiar({ texto, rotulo, rotuloCopiado, className = "" }: Pr
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => void copiar()}
-      className={`min-h-12 w-full rounded-xl border px-3 text-sm font-bold transition ${className}`}
-    >
-      {copiado ? rotuloCopiado : falhou ? "Não foi possível copiar: selecione o texto acima" : rotulo}
-    </button>
+    <Botao tamanho="sm" icone={copiado ? Check : Copy} onClick={() => void copiar()} className={className}>
+      {copiado ? rotuloCopiado : falhou ? "Não deu para copiar: selecione o texto" : rotulo}
+    </Botao>
   );
 }

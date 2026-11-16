@@ -1,20 +1,83 @@
 @import "tailwindcss";
 
+/*
+ * Tokens de design (DESIGN.md v2, "preto e azul").
+ * Os valores vivem aqui; os componentes usam só as classes geradas no @theme
+ * (bg-superficie, text-texto-2, border-borda, bg-primaria, text-critico...).
+ * Regra: azul = ação e seleção; verde/âmbar/vermelho = estado; o resto é neutro.
+ */
 :root,
 html {
   color-scheme: dark;
-  --background: #020617;
-  --foreground: #f8fafc;
+
+  /* Superfícies: do preto puro (OLED) para cima */
+  --wtg-fundo: #000000;
+  --wtg-superficie: #0b0d12;
+  --wtg-superficie-2: #14171d;
+  --wtg-superficie-3: #1e222a;
+  --wtg-borda: #1f242d;
+  --wtg-borda-forte: #333a46;
+
+  /* Texto: três níveis, todos com contraste >= 4.5:1 sobre as superfícies */
+  --wtg-texto: #f4f6f8;
+  --wtg-texto-2: #a9b1bd;
+  --wtg-texto-3: #7c8696;
+
+  /* Azul: a única cor de marca, ação primária, seleção e foco */
+  --wtg-primaria: #2563eb;
+  --wtg-primaria-forte: #1d4ed8;
+  --wtg-primaria-clara: #60a5fa;
+
+  /* Semáforo: usado somente para comunicar estado */
+  --wtg-ok: #22c55e;
+  --wtg-ok-claro: #4ade80;
+  --wtg-atencao: #f59e0b;
+  --wtg-atencao-claro: #fbbf24;
+  --wtg-critico: #ef4444;
+  --wtg-critico-claro: #f87171;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-fundo: var(--wtg-fundo);
+  --color-superficie: var(--wtg-superficie);
+  --color-superficie-2: var(--wtg-superficie-2);
+  --color-superficie-3: var(--wtg-superficie-3);
+  --color-borda: var(--wtg-borda);
+  --color-borda-forte: var(--wtg-borda-forte);
+
+  --color-texto: var(--wtg-texto);
+  --color-texto-2: var(--wtg-texto-2);
+  --color-texto-3: var(--wtg-texto-3);
+
+  --color-primaria: var(--wtg-primaria);
+  --color-primaria-forte: var(--wtg-primaria-forte);
+  --color-primaria-clara: var(--wtg-primaria-clara);
+
+  --color-ok: var(--wtg-ok);
+  --color-ok-claro: var(--wtg-ok-claro);
+  --color-atencao: var(--wtg-atencao);
+  --color-atencao-claro: var(--wtg-atencao-claro);
+  --color-critico: var(--wtg-critico);
+  --color-critico-claro: var(--wtg-critico-claro);
+
+  /* Dois raios: controles (botão, campo, chip) e contêineres (painel, folha) */
+  --radius-controle: 0.5rem;
+  --radius-painel: 0.875rem;
+
+  /* Quatro tamanhos de texto: text-meta, text-corpo, text-titulo, text-numero */
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.125rem;
+  --text-corpo: 0.9375rem;
+  --text-corpo--line-height: 1.375rem;
+  --text-titulo: 1.125rem;
+  --text-titulo--line-height: 1.5rem;
+  --text-numero: 1.75rem;
+  --text-numero--line-height: 2rem;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--wtg-fundo);
+  color: var(--wtg-texto);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -43,15 +106,219 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Ajustes para o container do Leaflet no tema escuro Crisis-First */
-.leaflet-container {
-  background-color: #090d16;
+/* ---------- Mapa (Leaflet), DESIGN.md §5.1 ---------- */
+/* Seletor repetido: precisa vencer o leaflet.css, que é carregado depois deste arquivo. */
+.leaflet-container.leaflet-container {
+  background-color: var(--wtg-superficie);
   font-family: inherit;
+}
+
+/*
+ * Mapa base neutro: os mesmos tiles de antes, em cinza e invertidos, para que
+ * a única cor sobre o mapa seja a dos pinos. O filtro fica no painel de tiles
+ * (uma camada só), não em cada imagem.
+ */
+.leaflet-tile-pane {
+  filter: grayscale(1) invert(1) brightness(0.95) contrast(1.05);
+}
+
+.leaflet-container .leaflet-bar {
+  overflow: hidden;
+  border: 1px solid var(--wtg-borda-forte) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.leaflet-container .leaflet-bar a,
+.leaflet-container .leaflet-bar a.leaflet-disabled {
+  background: var(--wtg-superficie);
+  color: var(--wtg-texto-2);
+  border-bottom-color: var(--wtg-borda);
+}
+
+.leaflet-container .leaflet-bar a:hover {
+  background: var(--wtg-superficie-2);
+  color: var(--wtg-texto);
+}
+
+/* No toque o zoom é por pinça; os botões só ocupariam espaço. */
+@media (pointer: coarse) {
+  .leaflet-control-zoom {
+    display: none;
+  }
+}
+
+.leaflet-container .leaflet-control-attribution {
+  background: rgb(0 0 0 / 0.65);
+  color: var(--wtg-texto-3);
+  font-size: 11px;
+}
+
+.leaflet-container .leaflet-control-attribution a {
+  color: var(--wtg-texto-2);
+}
+
+.leaflet-container .leaflet-tooltip {
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--wtg-borda-forte);
+  border-radius: 8px;
+  background: var(--wtg-superficie);
+  box-shadow: none;
+  color: var(--wtg-texto-2);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: normal;
+}
+
+.leaflet-container .leaflet-tooltip strong {
+  display: block;
+  color: var(--wtg-texto);
+  font-weight: 500;
+}
+
+.leaflet-container .leaflet-tooltip-top::before {
+  border-top-color: var(--wtg-borda-forte);
+}
+
+.leaflet-container .leaflet-tooltip-bottom::before {
+  border-bottom-color: var(--wtg-borda-forte);
+}
+
+.leaflet-container .leaflet-tooltip-left::before {
+  border-left-color: var(--wtg-borda-forte);
+}
+
+.leaflet-container .leaflet-tooltip-right::before {
+  border-right-color: var(--wtg-borda-forte);
 }
 
 .wtg-pin-icon {
   background: transparent !important;
   border: none !important;
+}
+
+/* Pino de abrigo: o número de vagas na cor do estado. Nada além disso. */
+.wtg-pino {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wtg-pino__corpo {
+  position: relative;
+  display: flex;
+  min-width: 34px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  border: 2px solid var(--wtg-fundo);
+  border-radius: 8px;
+  color: #06110a;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.wtg-pino--ok .wtg-pino__corpo {
+  background: var(--wtg-ok);
+}
+
+.wtg-pino--atencao .wtg-pino__corpo {
+  background: var(--wtg-atencao);
+}
+
+.wtg-pino--critico .wtg-pino__corpo {
+  background: var(--wtg-critico);
+}
+
+.wtg-pino--selecionado .wtg-pino__corpo {
+  outline: 2px solid var(--wtg-primaria-clara);
+  outline-offset: 2px;
+}
+
+/* Com filtro de doação ativo, quem não precisa do item fica apagado. */
+.wtg-pino--apagado {
+  opacity: 0.35;
+}
+
+/* Único indicador extra: há alerta de acesso ou infraestrutura neste abrigo. */
+.wtg-pino__aviso {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--wtg-fundo);
+  border-radius: 9999px;
+  background: var(--wtg-texto);
+}
+
+.wtg-pino__nome {
+  max-width: 180px;
+  margin-top: 6px;
+  overflow: hidden;
+  padding: 2px 8px;
+  border: 1px solid var(--wtg-borda-forte);
+  border-radius: 6px;
+  background: var(--wtg-superficie);
+  color: var(--wtg-texto);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Alerta com local próprio (via bloqueada, alagamento...) */
+.wtg-alerta {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid currentColor;
+  border-radius: 8px;
+  background: var(--wtg-superficie);
+  cursor: pointer;
+}
+
+.wtg-alerta--critico {
+  color: var(--wtg-critico-claro);
+}
+
+.wtg-alerta--atencao {
+  color: var(--wtg-atencao-claro);
+}
+
+/* Área de risco: contorno tracejado e preenchimento leve */
+.wtg-area {
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  fill-opacity: 0.12;
+}
+
+.wtg-area--critico {
+  stroke: var(--wtg-critico);
+  fill: var(--wtg-critico);
+}
+
+.wtg-area--atencao {
+  stroke: var(--wtg-atencao);
+  fill: var(--wtg-atencao);
+}
+
+/* Você está aqui */
+.wtg-voce {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--wtg-fundo);
+  border-radius: 9999px;
+  background: var(--wtg-primaria-clara);
+  box-shadow: 0 0 0 7px rgb(96 165 250 / 0.22);
 }
 
 /* Barra horizontal de filtros rápidos com scroll suave em touch e desktop */
@@ -78,7 +345,40 @@ body {
 }
 
 .barra-filtros-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(245, 158, 11, 0.7);
+  background-color: rgba(148, 163, 184, 0.6);
 }
 
 
+
+/* Seletor de local do painel (alertas de infraestrutura) */
+.wtg-marca-abrigo {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--wtg-fundo);
+  border-radius: 4px;
+  background: var(--wtg-texto);
+}
+
+.wtg-marca-ponto {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--wtg-texto);
+  border-radius: 9999px;
+  background: var(--wtg-primaria);
+  cursor: grab;
+}
+
+.wtg-marca-vertice {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--wtg-fundo);
+  border-radius: 9999px;
+  background: var(--wtg-critico);
+  color: #06110a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: grab;
+}

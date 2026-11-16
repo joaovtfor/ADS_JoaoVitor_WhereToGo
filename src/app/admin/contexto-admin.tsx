@@ -6,14 +6,25 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type ReactNode,
 } from "react";
-import { api, ErroClienteApi, mensagemErro } from "@/lib/cliente-api";
+import { CircleUser, KeyRound, LayoutDashboard, LogOut, Map, Package, Settings, TriangleExclamationPoint, Users, type LucideIcon } from "lucide-react";
+import { Botao } from "@/components/ui/botao";
+import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
+import { FOCO, juntarClasses } from "@/components/ui/classes";
+import { Icone } from "@/components/ui/icone";
+import { CLASSES_ITEM_MENU, ItemMenu, Menu } from "@/components/ui/menu";
+import { Modal } from "@/components/ui/modal";
+import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
+import { api, mensagemErro } from "@/lib/cliente-api";
 import { ROTULO_PAPEL, ROTULO_STATUS_INFRA } from "./rotulos";
+
+// As telas do painel importam o toast daqui.
+export { ToastFlutuante } from "@/components/ui/toast";
 
 export type PapelUsuario = "ADMIN" | "COORDENADOR" | "VOLUNTARIO";
 export type NivelOcupacao = "VERDE" | "AMARELO" | "VERMELHO";
@@ -74,151 +85,178 @@ export function useAdmin(): ContextoAdminValor {
   return ctx;
 }
 
-export function ToastFlutuante({
-  erro,
-  aviso,
-  aoFecharErro,
-  aoFecharAviso,
-}: {
-  erro: string | null;
-  aviso: string | null;
-  aoFecharErro: () => void;
-  aoFecharAviso: () => void;
-}) {
-  useEffect(() => {
-    if (!aviso) return;
-    const timer = window.setTimeout(() => {
-      aoFecharAviso();
-    }, 3500);
-    return () => window.clearTimeout(timer);
-  }, [aviso, aoFecharAviso]);
+const NIVEL_OCUPACAO: Record<NivelOcupacao, NivelStatus> = { VERDE: "ok", AMARELO: "atencao", VERMELHO: "critico" };
+const NIVEL_INFRA: Record<StatusInfraestrutura, NivelStatus> = { NORMAL: "ok", ALERTA: "atencao", CRITICO: "critico" };
 
-  if (!erro && !aviso) return null;
+// Último abrigo escolhido pelo ADMIN, guardado no navegador. Lido com
+// useSyncExternalStore para o HTML do servidor e a primeira renderização no
+// navegador coincidirem (o servidor não conhece o localStorage).
+const CHAVE_ABRIGO = "wtg_abrigo_admin";
+const EVENTO_ABRIGO = "wtg:abrigo-admin";
 
+function assinarAbrigoSalvo(aoMudar: () => void) {
+  window.addEventListener("storage", aoMudar);
+  window.addEventListener(EVENTO_ABRIGO, aoMudar);
+  return () => {
+    window.removeEventListener("storage", aoMudar);
+    window.removeEventListener(EVENTO_ABRIGO, aoMudar);
+  };
+}
+
+function lerAbrigoSalvo(): number | null {
+  try {
+    const id = Number(window.localStorage.getItem(CHAVE_ABRIGO));
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null; // localStorage indisponível
+  }
+}
+
+interface Aba {
+  href: string;
+  icone: LucideIcon;
+  rotulo: string;
+  /** Versão que cabe na barra inferior do celular (cinco itens em 375 px). */
+  rotuloCurto?: string;
+}
+
+/** Navegação alinhada ao RBAC e ao proxy.ts: cada perfil vê só o que pode abrir. */
+function abasDoPapel(papel: PapelUsuario): Aba[] {
+  if (papel === "VOLUNTARIO") {
+    return [
+      { href: "/admin/inventario", icone: Package, rotulo: "Estoque" },
+      { href: "/admin/abrigados", icone: Users, rotulo: "Acolhidos" },
+    ];
+  }
+  return [
+    { href: "/admin/dashboard", icone: LayoutDashboard, rotulo: "Visão geral", rotuloCurto: "Resumo" },
+    { href: "/admin/inventario", icone: Package, rotulo: "Estoque" },
+    { href: "/admin/ocorrencias", icone: TriangleExclamationPoint, rotulo: "Infra" },
+    { href: "/admin/abrigados", icone: Users, rotulo: "Acolhidos" },
+    { href: "/admin/geral", icone: Settings, rotulo: papel === "ADMIN" ? "Gestão" : "Equipe" },
+  ];
+}
+
+function LinkAba({ aba, ativa, curto = false, className }: { aba: Aba; ativa: boolean; curto?: boolean; className: string }) {
   return (
-    <div
-      aria-live="polite"
-      className="fixed bottom-20 md:bottom-6 right-4 left-4 sm:left-auto sm:w-full sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-none"
+    <Link
+      href={aba.href}
+      prefetch={false}
+      aria-current={ativa ? "page" : undefined}
+      aria-label={aba.rotulo}
+      className={juntarClasses(
+        "flex flex-col items-center justify-center gap-1 rounded-controle text-meta transition-colors",
+        FOCO,
+        ativa ? "bg-primaria/15 text-primaria-clara" : "text-texto-2 hover:bg-superficie-2 hover:text-texto",
+        className,
+      )}
     >
-      {erro && (
-        <div
-          role="alert"
-          className="pointer-events-auto flex items-start justify-between gap-3 rounded-2xl border border-rose-500/50 bg-slate-900/95 px-4 py-3 text-sm text-rose-200 shadow-2xl backdrop-blur"
-        >
-          <div className="min-w-0">
-            <p className="font-bold text-rose-300 text-xs uppercase tracking-wider">Atenção</p>
-            <p className="mt-0.5 leading-snug">{erro}</p>
-          </div>
-          <button
-            type="button"
-            onClick={aoFecharErro}
-            className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
-            aria-label="Fechar alerta de erro"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      {aviso && (
-        <div
-          role="status"
-          className="pointer-events-auto flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/50 bg-slate-900/95 px-4 py-3 text-sm text-emerald-200 shadow-2xl backdrop-blur"
-        >
-          <p className="font-medium leading-snug">✓ {aviso}</p>
-          <button
-            type="button"
-            onClick={aoFecharAviso}
-            className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
-            aria-label="Fechar aviso"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-    </div>
+      <Icone de={aba.icone} tamanho={20} />
+      <span className="max-w-full truncate">{curto ? (aba.rotuloCurto ?? aba.rotulo) : aba.rotulo}</span>
+    </Link>
   );
 }
 
-const CORES_OCUPACAO: Record<NivelOcupacao, string> = {
-  VERDE: "bg-emerald-950/70 text-emerald-300 border-emerald-700/60",
-  AMARELO: "bg-amber-950/70 text-amber-300 border-amber-600/60",
-  VERMELHO: "bg-rose-950/70 text-rose-300 border-rose-600/60",
-};
-
-const CORES_INFRA: Record<StatusInfraestrutura, string> = {
-  NORMAL: "bg-emerald-950/70 text-emerald-300 border-emerald-700/60",
-  ALERTA: "bg-amber-950/70 text-amber-300 border-amber-600/60",
-  CRITICO: "bg-rose-950/70 text-rose-200 border-rose-600/60",
-};
-
-
-export function AdminShell({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
-  const [usuario, setUsuario] = useState<UsuarioPerfil | null>(null);
-  const [abrigos, setAbrigos] = useState<AbrigoAdmin[]>([]);
-  const [idAbrigoSelecionado, setIdAbrigoSelecionado] = useState<number | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erroFatal, setErroFatal] = useState<string | null>(null);
-  const [reativandoAbrigo, setReativandoAbrigo] = useState(false);
-
-  // Modal de alteração de senha
-  const [modalSenhaAberto, setModalSenhaAberto] = useState(false);
+function ModalSenha({ onFechar }: { onFechar: () => void }) {
   const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
-  const [statusSenha, setStatusSenha] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
-  const [salvandoSenha, setSalvandoSenha] = useState(false);
+  const [status, setStatus] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  async function alterarSenha(e: FormEvent) {
+    e.preventDefault();
+    setStatus(null);
+    setSalvando(true);
+    try {
+      await api("/api/auth/senha", { method: "PUT", body: JSON.stringify({ senhaAtual, novaSenha }) });
+      setStatus({ tipo: "ok", texto: "Senha alterada." });
+      setSenhaAtual("");
+      setNovaSenha("");
+    } catch (err) {
+      setStatus({ tipo: "erro", texto: mensagemErro(err) });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <Modal titulo="Alterar senha" onFechar={onFechar}>
+      <form onSubmit={alterarSenha} className="space-y-4">
+        {status && (
+          <p
+            role={status.tipo === "erro" ? "alert" : "status"}
+            className={juntarClasses(
+              "rounded-controle p-3 text-meta",
+              status.tipo === "ok" ? "bg-ok/12 text-ok-claro" : "bg-critico/12 text-critico-claro",
+            )}
+          >
+            {status.texto}
+          </p>
+        )}
+        <Campo rotulo="Senha atual">
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            value={senhaAtual}
+            onChange={(e) => setSenhaAtual(e.target.value)}
+            className={CLASSES_CAMPO}
+          />
+        </Campo>
+        <Campo rotulo="Nova senha" dica="No mínimo 8 caracteres.">
+          <input
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={novaSenha}
+            onChange={(e) => setNovaSenha(e.target.value)}
+            className={CLASSES_CAMPO}
+          />
+        </Campo>
+        <div className="flex justify-end gap-2">
+          <Botao variante="fantasma" onClick={onFechar}>
+            Fechar
+          </Botao>
+          <Botao type="submit" variante="primaria" disabled={salvando}>
+            {salvando ? "Salvando..." : "Salvar senha"}
+          </Botao>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+interface PropriedadesAdminShell {
+  /** Perfil e abrigos chegam do servidor, junto com a página (ver layout.tsx). */
+  usuario: UsuarioPerfil;
+  abrigosIniciais: AbrigoAdmin[];
+  children: ReactNode;
+}
+
+/**
+ * Casca do painel (DESIGN.md §5.2): cabeçalho de uma linha com o abrigo ativo e
+ * a conta, navegação lateral no desktop e barra inferior no celular.
+ */
+export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesAdminShell) {
+  const pathname = usePathname();
+  const [abrigos, setAbrigos] = useState<AbrigoAdmin[]>(abrigosIniciais);
+  const [idEscolhido, setIdEscolhido] = useState<number | null>(null);
+  const idSalvo = useSyncExternalStore(assinarAbrigoSalvo, lerAbrigoSalvo, () => null);
+  const [reativandoAbrigo, setReativandoAbrigo] = useState(false);
+  const [modalSenhaAberto, setModalSenhaAberto] = useState(false);
 
   const recarregarAbrigos = useCallback(async () => {
-    const lista = await api<AbrigoAdmin[]>("/api/abrigos");
-    setAbrigos(lista);
-  }, []);
-
-  useEffect(() => {
-    let ativo = true;
-    async function inicializar() {
-      try {
-        const [perfil, listaAbrigos] = await Promise.all([
-          api<UsuarioPerfil>("/api/auth/me"),
-          api<AbrigoAdmin[]>("/api/abrigos"),
-        ]);
-        if (!ativo) return;
-        setUsuario(perfil);
-        setAbrigos(listaAbrigos);
-
-        if (perfil.idAbrigo) {
-          setIdAbrigoSelecionado(perfil.idAbrigo);
-        } else {
-          const salvo = Number(window.localStorage.getItem("wtg_abrigo_admin"));
-          const inicial =
-            listaAbrigos.find((a) => a.id === salvo)?.id ??
-            listaAbrigos.find((a) => a.ativo)?.id ??
-            listaAbrigos[0]?.id ??
-            null;
-          setIdAbrigoSelecionado(inicial);
-        }
-      } catch (err) {
-        if (!ativo) return;
-        if (err instanceof ErroClienteApi && err.status === 401) {
-          window.location.assign(new URL("/login?sessao=expirada", window.location.origin).href);
-          return;
-        }
-        setErroFatal(mensagemErro(err));
-      } finally {
-        if (ativo) setCarregando(false);
-      }
-    }
-    inicializar();
-    return () => {
-      ativo = false;
-    };
+    setAbrigos(await api<AbrigoAdmin[]>("/api/abrigos"));
   }, []);
 
   const selecionarAbrigo = useCallback((id: number) => {
-    setIdAbrigoSelecionado(id);
+    setIdEscolhido(id);
     try {
-      window.localStorage.setItem("wtg_abrigo_admin", String(id));
+      window.localStorage.setItem(CHAVE_ABRIGO, String(id));
+      window.dispatchEvent(new Event(EVENTO_ABRIGO));
     } catch {
-      // Ignora indisponibilidade de localStorage
+      // Sem localStorage a escolha vale só para esta sessão.
     }
   }, []);
 
@@ -230,386 +268,144 @@ export function AdminShell({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const idAbrigoAtivo = usuario?.papel === "ADMIN" ? idAbrigoSelecionado : (usuario?.idAbrigo ?? null);
-  const abrigoAtivo = useMemo(
-    () => abrigos.find((a) => a.id === idAbrigoAtivo) ?? null,
-    [abrigos, idAbrigoAtivo],
+  // ADMIN escolhe o abrigo (a última escolha fica salva); os demais ficam no próprio.
+  const idAbrigoAtivo = useMemo(() => {
+    if (usuario.papel !== "ADMIN") return usuario.idAbrigo;
+    const existe = (id: number | null) => (id !== null && abrigos.some((a) => a.id === id) ? id : null);
+    return existe(idEscolhido) ?? existe(idSalvo) ?? abrigos.find((a) => a.ativo)?.id ?? abrigos[0]?.id ?? null;
+  }, [usuario, abrigos, idEscolhido, idSalvo]);
+
+  const abrigoAtivo = useMemo(() => abrigos.find((a) => a.id === idAbrigoAtivo) ?? null, [abrigos, idAbrigoAtivo]);
+  const contexto = useMemo(
+    () => ({ usuario, abrigos, abrigoAtivo, idAbrigoAtivo, selecionarAbrigo, recarregarAbrigos, sair }),
+    [usuario, abrigos, abrigoAtivo, idAbrigoAtivo, selecionarAbrigo, recarregarAbrigos, sair],
   );
 
   async function reativarAbrigoAtual() {
     if (!abrigoAtivo) return;
     setReativandoAbrigo(true);
     try {
-      await api(`/api/abrigos/${abrigoAtivo.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ ativo: true }),
-      });
+      await api(`/api/abrigos/${abrigoAtivo.id}`, { method: "PATCH", body: JSON.stringify({ ativo: true }) });
       await recarregarAbrigos();
     } finally {
       setReativandoAbrigo(false);
     }
   }
 
-  async function alterarSenha(e: FormEvent) {
-    e.preventDefault();
-    setStatusSenha(null);
-    setSalvandoSenha(true);
-    try {
-      await api("/api/auth/senha", {
-        method: "PUT",
-        body: JSON.stringify({ senhaAtual, novaSenha }),
-      });
-      setStatusSenha({ tipo: "ok", texto: "Senha alterada com sucesso." });
-      setSenhaAtual("");
-      setNovaSenha("");
-    } catch (err) {
-      setStatusSenha({ tipo: "erro", texto: mensagemErro(err) });
-    } finally {
-      setSalvandoSenha(false);
-    }
-  }
-
-  if (carregando) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
-        <div className="text-center space-y-2">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
-          <p className="text-sm text-slate-400">Carregando operação...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (erroFatal || !usuario) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center p-6">
-        <div className="max-w-md rounded-2xl border border-rose-500/40 bg-slate-900 p-6 text-center space-y-4">
-          <p className="text-rose-300 font-semibold">{erroFatal ?? "Sessão expirada."}</p>
-          <Link
-            href="/login"
-            prefetch={false}
-            className="inline-block rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950"
-          >
-            Ir para Login
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  // Navegação alinhada estritamente ao RBAC e proxy.ts
-  const abas =
-    usuario.papel === "VOLUNTARIO"
-      ? [
-          { href: "/admin/inventario", icone: "📦", rotulo: "Estoque", rotuloCurto: "Estoque" },
-          { href: "/admin/abrigados", icone: "👥", rotulo: "Acolhidos & Check-in", rotuloCurto: "Acolhidos" },
-        ]
-      : [
-          { href: "/admin/dashboard", icone: "📊", rotulo: "Visão Geral", rotuloCurto: "Visão Geral" },
-          { href: "/admin/inventario", icone: "📦", rotulo: "Estoque", rotuloCurto: "Estoque" },
-          { href: "/admin/ocorrencias", icone: "🚧", rotulo: "Infraestrutura", rotuloCurto: "Infra" },
-          { href: "/admin/abrigados", icone: "👥", rotulo: "Acolhidos", rotuloCurto: "Acolhidos" },
-          {
-            href: "/admin/geral",
-            icone: usuario.papel === "ADMIN" ? "🌐" : "🛡️",
-            rotulo: usuario.papel === "ADMIN" ? "Governança Global" : "Equipe & Auditoria",
-            rotuloCurto: "Gestão",
-          },
-        ];
-
+  const abas = abasDoPapel(usuario.papel);
+  const abaAtiva = (aba: Aba) => pathname === aba.href || pathname.startsWith(`${aba.href}/`);
   const ehEscopoGlobal = usuario.papel === "ADMIN" && pathname.startsWith("/admin/geral");
+  const primeiroNome = usuario.nome.split(" ")[0];
 
   return (
-    <ContextoAdmin.Provider
-      value={{
-        usuario,
-        abrigos,
-        abrigoAtivo,
-        idAbrigoAtivo,
-        selecionarAbrigo,
-        recarregarAbrigos,
-        sair,
-      }}
-    >
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-        {/* Barra Superior Enxuta */}
-        <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
-          <div className="mx-auto max-w-7xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Link href={usuario.redirecionarPara} prefetch={false} className="flex items-center gap-2.5">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500 text-slate-950 font-black text-lg">
-                  W
-                </span>
-                <div>
-                  <span className="font-bold text-white leading-none block">WhereToGo</span>
-                  <span className="text-xs text-slate-400">{ROTULO_PAPEL[usuario.papel]}</span>
-                </div>
-              </Link>
+    <ContextoAdmin.Provider value={contexto}>
+      <div className="flex min-h-dvh flex-col bg-fundo text-texto">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-borda bg-superficie px-3 sm:px-4">
+          <Link
+            href={usuario.redirecionarPara}
+            prefetch={false}
+            aria-label="WhereToGo: início do painel"
+            className={juntarClasses("flex size-9 shrink-0 items-center justify-center rounded-controle bg-primaria text-corpo font-semibold text-white", FOCO)}
+          >
+            W
+          </Link>
 
-              {/* Contexto do Abrigo ou Indicador de Escopo Global (Desktop) */}
-              <div className="hidden md:flex items-center gap-2 pl-3 border-l border-slate-800">
-                {ehEscopoGlobal ? (
-                  <span className="rounded-lg border border-indigo-500/40 bg-indigo-950/60 px-3 py-1 text-xs font-semibold text-indigo-200">
-                    🌐 Escopo Global • Todos os Abrigos ({abrigos.length})
-                  </span>
-                ) : usuario.papel === "ADMIN" ? (
-                  <div className="flex items-center gap-2">
-                    <label htmlFor="seletor-abrigo" className="text-xs text-slate-400">
-                      Abrigo:
-                    </label>
-                    <select
-                      id="seletor-abrigo"
-                      value={idAbrigoAtivo ?? ""}
-                      onChange={(e) => selecionarAbrigo(Number(e.target.value))}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white focus:border-amber-400 focus:outline-none"
-                    >
-                      {abrigos.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.nome} ({a.ocupacao.lotacaoAtual}/{a.ocupacao.capacidadeMaxima})
-                          {!a.ativo ? " [ARQUIVADO]" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <span className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-slate-200">
-                    {abrigoAtivo?.nome ?? usuario.abrigo ?? "Abrigo"}
-                  </span>
-                )}
-
-                {!ehEscopoGlobal && abrigoAtivo && (
-                  <>
-                    <span
-                      className={`rounded-full border px-2.5 py-0.5 text-xs font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
-                    >
-                      Vagas: {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima} (
-                      {abrigoAtivo.ocupacao.percentual}%)
-                    </span>
-                    <span
-                      className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${CORES_INFRA[abrigoAtivo.statusInfraestrutura]}`}
-                    >
-                      Infra: {ROTULO_STATUS_INFRA[abrigoAtivo.statusInfraestrutura]}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="text-right hidden sm:block mr-1">
-                <p className="text-xs font-semibold text-white leading-tight">{usuario.nome}</p>
-                <p className="text-xs text-amber-400">{ROTULO_PAPEL[usuario.papel]}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setStatusSenha(null);
-                  setModalSenhaAberto(true);
-                }}
-                className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 cursor-pointer"
-              >
-                Senha
-              </button>
-              <Link
-                href="/"
-                prefetch={false}
-                className="rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800"
-              >
-                Mapa
-              </Link>
-              <button
-                type="button"
-                onClick={sair}
-                className="rounded-lg border border-rose-500/30 bg-rose-950/50 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-900/60 cursor-pointer"
-              >
-                Sair
-              </button>
-            </div>
-          </div>
-
-          {/* Barra Mobile de Contexto do Abrigo */}
-          <div className="mx-auto max-w-7xl px-4 pb-2 md:pb-0 flex flex-col gap-2">
-            <div className="flex md:hidden items-center justify-between gap-2">
-              {ehEscopoGlobal ? (
-                <span className="w-full rounded-lg border border-indigo-500/40 bg-indigo-950/50 px-3 py-1.5 text-xs font-semibold text-indigo-200 text-center">
-                  🌐 Escopo Global • Todos os Abrigos ({abrigos.length})
-                </span>
-              ) : usuario.papel === "ADMIN" ? (
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            {ehEscopoGlobal ? (
+              <p className="truncate text-corpo font-medium text-texto">
+                Todos os abrigos <span className="font-normal text-texto-3 tabular-nums">({abrigos.length})</span>
+              </p>
+            ) : usuario.papel === "ADMIN" ? (
+              <div className="min-w-0 max-w-xs flex-1">
                 <select
-                  aria-label="Selecionar abrigo"
+                  aria-label="Abrigo ativo"
                   value={idAbrigoAtivo ?? ""}
                   onChange={(e) => selecionarAbrigo(Number(e.target.value))}
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white"
+                  className={CLASSES_CAMPO}
                 >
                   {abrigos.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.nome} ({a.ocupacao.lotacaoAtual}/{a.ocupacao.capacidadeMaxima})
-                      {!a.ativo ? " [ARQUIVADO]" : ""}
+                      {a.nome}
+                      {a.ativo ? "" : " (arquivado)"}
                     </option>
                   ))}
                 </select>
-              ) : (
-                <span className="truncate text-xs font-semibold text-slate-300">
-                  📍 {abrigoAtivo?.nome ?? usuario.abrigo}
-                </span>
-              )}
+              </div>
+            ) : (
+              <p className="truncate text-corpo font-medium text-texto">{abrigoAtivo?.nome ?? usuario.abrigo ?? "Abrigo"}</p>
+            )}
 
-              {!ehEscopoGlobal && abrigoAtivo && (
-                <span
-                  className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-bold tabular-nums ${CORES_OCUPACAO[abrigoAtivo.ocupacao.nivel]}`}
-                >
-                  {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima}
-                </span>
-              )}
-            </div>
-
-            {/* Abas Horizontais (Desktop >= md) */}
-            <nav className="hidden md:flex items-center gap-1 overflow-x-auto">
-              {abas.map((aba) => {
-                const ativa = pathname === aba.href || pathname.startsWith(`${aba.href}/`);
-                return (
-                  <Link
-                    key={aba.href}
-                    href={aba.href}
-                    prefetch={false}
-                    className={`whitespace-nowrap rounded-t-lg px-3.5 py-2 text-xs sm:text-sm font-semibold border-b-2 transition flex items-center gap-1.5 ${
-                      ativa
-                        ? "border-amber-400 text-amber-300 bg-slate-900/80"
-                        : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40"
-                    }`}
-                  >
-                    <span>{aba.icone}</span>
-                    <span>{aba.rotulo}</span>
-                  </Link>
-                );
-              })}
-            </nav>
+            {!ehEscopoGlobal && abrigoAtivo && (
+              <>
+                <SeloStatus nivel={NIVEL_OCUPACAO[abrigoAtivo.ocupacao.nivel]} className="shrink-0 tabular-nums">
+                  <span>
+                    {abrigoAtivo.ocupacao.lotacaoAtual}/{abrigoAtivo.ocupacao.capacidadeMaxima}
+                    <span className="hidden md:inline"> ocupadas</span>
+                  </span>
+                </SeloStatus>
+                {abrigoAtivo.statusInfraestrutura !== "NORMAL" && (
+                  <span className="hidden shrink-0 md:block">
+                    <SeloStatus nivel={NIVEL_INFRA[abrigoAtivo.statusInfraestrutura]}>
+                      Infraestrutura: {ROTULO_STATUS_INFRA[abrigoAtivo.statusInfraestrutura].toLowerCase()}
+                    </SeloStatus>
+                  </span>
+                )}
+              </>
+            )}
           </div>
+
+          <Menu rotulo={`Conta de ${usuario.nome}`} icone={CircleUser} texto={<span className="hidden max-w-32 truncate sm:inline">{primeiroNome}</span>}>
+            <div className="border-b border-borda px-3 py-2">
+              <p className="truncate text-corpo font-medium text-texto">{usuario.nome}</p>
+              <p className="truncate text-meta text-texto-3">{ROTULO_PAPEL[usuario.papel]}</p>
+            </div>
+            <ItemMenu icone={KeyRound} onClick={() => setModalSenhaAberto(true)}>
+              Alterar senha
+            </ItemMenu>
+            <Link href="/" prefetch={false} role="menuitem" className={CLASSES_ITEM_MENU}>
+              <Icone de={Map} />
+              Ver mapa público
+            </Link>
+            <ItemMenu icone={LogOut} onClick={() => void sair()}>
+              Sair
+            </ItemMenu>
+          </Menu>
         </header>
 
-        {/* Banner de Aviso caso o abrigo selecionado esteja inativo/arquivado */}
         {!ehEscopoGlobal && abrigoAtivo && !abrigoAtivo.ativo && (
-          <div className="border-b border-amber-500/40 bg-amber-950/60 px-4 py-2.5">
-            <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
-              <span>
-                ⚠️ <strong>{abrigoAtivo.nome}</strong> está arquivado (somente leitura). Reative o abrigo para
-                registrar movimentações, check-in ou alertas.
-              </span>
-              {usuario.papel === "ADMIN" && (
-                <button
-                  type="button"
-                  disabled={reativandoAbrigo}
-                  onClick={reativarAbrigoAtual}
-                  className="rounded-lg bg-amber-500 px-3 py-1 font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
-                >
-                  {reativandoAbrigo ? "Reativando..." : "Reativar Abrigo"}
-                </button>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-borda bg-atencao/12 px-4 py-2 text-meta text-atencao-claro">
+            <p>
+              {abrigoAtivo.nome} está arquivado e só pode ser consultado. Reative o abrigo para registrar movimentações, check-in ou alertas.
+            </p>
+            {usuario.papel === "ADMIN" && (
+              <Botao tamanho="sm" disabled={reativandoAbrigo} onClick={() => void reativarAbrigoAtual()}>
+                {reativandoAbrigo ? "Reativando..." : "Reativar abrigo"}
+              </Botao>
+            )}
           </div>
         )}
 
-        {/* Conteúdo Principal (com padding-bottom extra no mobile por conta da Bottom Bar) */}
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6 pb-24 md:pb-8">{children}</main>
+        <div className="flex flex-1">
+          <nav
+            aria-label="Seções do painel"
+            className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-24 shrink-0 flex-col gap-1 border-r border-borda bg-superficie p-2 lg:flex"
+          >
+            {abas.map((aba) => (
+              <LinkAba key={aba.href} aba={aba} ativa={abaAtiva(aba)} className="px-1 py-3" />
+            ))}
+          </nav>
 
-        {/* Barra de Navegação Inferior Fixa no Mobile (< md) — Ergonomia Thumb-First */}
-        <nav
-          aria-label="Navegação principal mobile"
-          className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800 bg-slate-950/95 backdrop-blur px-2 py-1"
-        >
-          <div className="mx-auto max-w-md flex items-center justify-around gap-1">
-            {abas.map((aba) => {
-              const ativa = pathname === aba.href || pathname.startsWith(`${aba.href}/`);
-              return (
-                <Link
-                  key={aba.href}
-                  href={aba.href}
-                  prefetch={false}
-                  className={`min-h-13 flex-1 flex flex-col items-center justify-center rounded-xl py-1 px-1.5 text-xs font-semibold transition ${
-                    ativa
-                      ? "bg-amber-500/15 text-amber-300"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <span className="text-base leading-none mb-1">{aba.icone}</span>
-                  <span className="truncate max-w-full">{aba.rotuloCurto}</span>
-                </Link>
-              );
-            })}
-          </div>
+          {/* Espaço extra embaixo no celular, por causa da barra de navegação fixa. */}
+          <main className="mx-auto w-full max-w-7xl min-w-0 flex-1 p-4 pb-24 sm:p-6 sm:pb-24 lg:pb-8">{children}</main>
+        </div>
+
+        <nav aria-label="Seções do painel" className="fixed inset-x-0 bottom-0 z-40 flex gap-1 border-t border-borda bg-superficie px-2 py-1 lg:hidden">
+          {abas.map((aba) => (
+            <LinkAba key={aba.href} aba={aba} ativa={abaAtiva(aba)} curto className="min-h-14 min-w-0 flex-1 px-1" />
+          ))}
         </nav>
 
-        {/* Modal de Alteração de Senha */}
-        {modalSenhaAberto && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
-            <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-white">Alterar Minha Senha</h2>
-                <button
-                  type="button"
-                  onClick={() => setModalSenhaAberto(false)}
-                  className="text-slate-400 hover:text-white text-sm cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {statusSenha && (
-                <div
-                  className={`mb-4 rounded-xl border px-3.5 py-2.5 text-xs ${
-                    statusSenha.tipo === "ok"
-                      ? "border-emerald-500/40 bg-emerald-950/60 text-emerald-200"
-                      : "border-rose-500/40 bg-rose-950/60 text-rose-200"
-                  }`}
-                >
-                  {statusSenha.texto}
-                </div>
-              )}
-
-              <form onSubmit={alterarSenha} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Senha atual</label>
-                  <input
-                    type="password"
-                    required
-                    value={senhaAtual}
-                    onChange={(e) => setSenhaAtual(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Nova senha (mínimo 8 caracteres)
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={novaSenha}
-                    onChange={(e) => setNovaSenha(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-base sm:text-sm text-white"
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalSenhaAberto(false)}
-                    className="rounded-xl border border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-300 cursor-pointer"
-                  >
-                    Fechar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={salvandoSenha}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 cursor-pointer"
-                  >
-                    {salvandoSenha ? "Salvando..." : "Atualizar Senha"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        {modalSenhaAberto && <ModalSenha onFechar={() => setModalSenhaAberto(false)} />}
       </div>
     </ContextoAdmin.Provider>
   );

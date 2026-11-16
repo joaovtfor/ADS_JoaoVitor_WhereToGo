@@ -43,8 +43,15 @@ export function definirCookieSessao(resposta: NextResponse, token: string, expir
  * Tokens encerrados por logout ou emitidos antes de uma troca de senha
  * (versão de sessão diferente) também são recusados.
  */
-export async function obterUsuario(req: NextRequest): Promise<UsuarioSessao | null> {
-  const token = extrairToken(req);
+export function obterUsuario(req: NextRequest): Promise<UsuarioSessao | null> {
+  return obterUsuarioPorToken(extrairToken(req));
+}
+
+/**
+ * A mesma validação de `obterUsuario`, a partir do token já extraído. Usada
+ * pelo layout do painel, que lê o cookie no servidor sem passar por uma rota da API.
+ */
+export async function obterUsuarioPorToken(token: string | null | undefined): Promise<UsuarioSessao | null> {
   if (!token) return null;
 
   const claims = await verificarToken(token);

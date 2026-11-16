@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { QrCode } from "lucide-react";
+import { Botao } from "@/components/ui/botao";
 import { BotaoCopiar } from "./botao-copiar";
+import { LinhaFicha } from "./linha-ficha";
 
 interface PropriedadesCartaoPix {
   pix: { chave: string; titular: string | null; brCode: string } | null;
@@ -33,65 +36,50 @@ function QrCodePix({ brCode }: { brCode: string }) {
     };
   }, [brCode]);
 
-  if (falhou) return <p className="text-xs text-rose-300">Não foi possível gerar o QR. Use o código copia e cola abaixo.</p>;
-  if (imagem?.brCode !== brCode) return <div className="mx-auto h-52 w-52 animate-pulse rounded-xl bg-slate-800" />;
+  if (falhou) return <p className="text-meta text-critico-claro">Não foi possível gerar o QR Code. Use o código copia e cola abaixo.</p>;
+  if (imagem?.brCode !== brCode) return <div className="size-52 animate-pulse rounded-controle bg-superficie-2" />;
   // eslint-disable-next-line @next/next/no-img-element -- data URL gerada localmente
-  return <img src={imagem.dataUrl} alt="QR Code PIX oficial do abrigo" width={208} height={208} className="mx-auto rounded-xl bg-white" />;
+  return <img src={imagem.dataUrl} alt="QR Code PIX oficial do abrigo" width={208} height={208} className="rounded-controle bg-white" />;
 }
 
+/** Doação em dinheiro: chave oficial do abrigo, com QR Code sob demanda. */
 export function CartaoPix({ pix, carregando }: PropriedadesCartaoPix) {
   const [mostrarQr, setMostrarQr] = useState(false);
 
   return (
-    <section className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/75 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Doação em dinheiro (PIX)</h3>
-        {pix && (
-          <button
-            type="button"
-            onClick={() => setMostrarQr((v) => !v)}
-            className="min-h-12 rounded-xl border border-slate-700 bg-slate-950 px-3 text-xs font-bold text-amber-300 hover:bg-slate-800 sm:min-h-9"
-          >
-            {mostrarQr ? "Ocultar QR" : "📱 Ver QR Code"}
-          </button>
-        )}
-      </div>
-
+    <LinhaFicha icone={QrCode} rotulo="Doar por PIX">
       {carregando ? (
-        <p className="text-sm text-slate-400">Carregando dados de doação...</p>
+        <span className="text-texto-2">Carregando dados de doação...</span>
       ) : pix ? (
-        <>
-          <p className="text-xs text-slate-400">Chave oficial cadastrada pela coordenação do abrigo:</p>
-          <p className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-200 break-all">{pix.chave}</p>
-          {pix.titular && (
-            <p className="text-xs text-slate-400">
-              Titular: <strong className="text-slate-200">{pix.titular}</strong>
-            </p>
-          )}
+        <div className="space-y-2">
+          <p className="font-mono text-meta break-all text-texto">{pix.chave}</p>
+          <p className="text-meta text-texto-3">
+            Chave oficial cadastrada pela coordenação do abrigo.
+            {pix.titular && (
+              <>
+                {" "}
+                Titular: <span className="text-texto-2">{pix.titular}</span>
+              </>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <BotaoCopiar texto={pix.chave} rotulo="Copiar chave" rotuloCopiado="Chave copiada" />
+            <Botao tamanho="sm" variante="fantasma" aria-expanded={mostrarQr} onClick={() => setMostrarQr((v) => !v)}>
+              {mostrarQr ? "Ocultar QR Code" : "Ver QR Code"}
+            </Botao>
+          </div>
 
           {mostrarQr && (
-            <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-3 text-center">
+            <div className="space-y-2 pt-2">
               <QrCodePix brCode={pix.brCode} />
-              <p className="text-xs text-slate-400">Escaneie no app do seu banco ou copie o código abaixo.</p>
-              <BotaoCopiar
-                texto={pix.brCode}
-                rotulo="📲 Copiar PIX copia e cola"
-                rotuloCopiado="✅ Código copiado!"
-                className="border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
-              />
+              <p className="text-meta text-texto-3">Escaneie no app do seu banco ou copie o código.</p>
+              <BotaoCopiar texto={pix.brCode} rotulo="Copiar código copia e cola" rotuloCopiado="Código copiado" />
             </div>
           )}
-
-          <BotaoCopiar
-            texto={pix.chave}
-            rotulo="📋 Copiar chave PIX"
-            rotuloCopiado="✅ Chave copiada!"
-            className="border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
-          />
-        </>
+        </div>
       ) : (
-        <p className="text-sm text-slate-400">Este abrigo recebe apenas doações de suprimentos no momento.</p>
+        <span className="text-texto-2">Este abrigo recebe apenas doações de suprimentos no momento.</span>
       )}
-    </section>
+    </LinhaFicha>
   );
 }

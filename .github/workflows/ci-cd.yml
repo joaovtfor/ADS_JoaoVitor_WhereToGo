@@ -1,4 +1,6 @@
-name: CI/CD — Testes PostGIS & Build de Produção (WhereToGo)
+# Integração contínua: valida cada push e PR. O deploy não acontece aqui: o Render
+# publica a branch main por conta própria (Blueprint em render.yaml).
+name: CI — Lint, Testes PostGIS e Build de Produção (WhereToGo)
 
 on:
   push:
