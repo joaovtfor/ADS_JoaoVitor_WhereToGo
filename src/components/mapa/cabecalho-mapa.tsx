@@ -36,10 +36,9 @@ export function CabecalhoMapa({
 }: PropriedadesCabecalhoMapa) {
   return (
     <header className="relative z-[700] flex shrink-0 items-center gap-2 bg-superficie px-3 pt-2 sm:px-4">
-      <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-controle bg-primaria text-corpo font-semibold text-white">
-        W
-      </span>
-      <h1 className="sr-only text-titulo font-semibold text-texto md:not-sr-only md:mr-3">WhereToGo</h1>
+      <img src="/logos/pin-claro.webp" alt="" width={29} height={36} className="h-9 w-auto shrink-0 object-contain" />
+      <img src="/logos/logotipo-claro.webp" alt="" width={142} height={18} className="hidden h-4.5 w-auto shrink-0 object-contain md:mr-3 md:block" />
+      <h1 className="sr-only">WhereToGo</h1>
 
       <div className="relative min-w-0 flex-1 md:max-w-md">
         <Icone de={Search} tamanho={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-texto-3" />

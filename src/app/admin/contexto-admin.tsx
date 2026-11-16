@@ -305,9 +305,9 @@ export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesA
             href={usuario.redirecionarPara}
             prefetch={false}
             aria-label="WhereToGo: início do painel"
-            className={juntarClasses("flex size-9 shrink-0 items-center justify-center rounded-controle bg-primaria text-corpo font-semibold text-white", FOCO)}
+            className={juntarClasses("flex size-9 shrink-0 items-center justify-center rounded-controle", FOCO)}
           >
-            W
+            <img src="/logos/pin-claro.webp" alt="" width={29} height={36} className="h-9 w-auto shrink-0 object-contain" />
           </Link>
 
           <div className="flex min-w-0 flex-1 items-center gap-3">

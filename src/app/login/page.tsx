@@ -374,11 +374,8 @@ export default function PaginaLogin() {
       )}
 
       <header className="mx-auto flex w-full max-w-sm items-center justify-between">
-        <Link href="/" prefetch={false} className={juntarClasses("flex items-center gap-2.5 rounded-controle", FOCO)}>
-          <span aria-hidden className="flex size-9 items-center justify-center rounded-controle bg-primaria text-corpo font-semibold text-white">
-            W
-          </span>
-          <span className="text-titulo font-semibold text-texto">WhereToGo</span>
+        <Link href="/" prefetch={false} className={juntarClasses("flex items-center rounded-controle", FOCO)}>
+          <img src="/logos/logo-completa-clara.webp" alt="WhereToGo" width={130} height={44} className="h-11 w-auto object-contain" />
         </Link>
         <Link href="/" prefetch={false} className={classesBotao("fantasma", "sm")}>
           <Icone de={ArrowLeft} tamanho={16} />

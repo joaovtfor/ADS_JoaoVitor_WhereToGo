@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   applicationName: "WhereToGo",
   description: "Plataforma de gestão de crise: abrigos, vagas, doações e alertas em tempo real.",
   appleWebApp: { capable: true, title: "WhereToGo", statusBarStyle: "black-translucent" },
-  icons: { apple: "/icone-192.png" },
+  icons: { apple: "/icone-maskable-512.png" },
 };
 
 export const viewport: Viewport = {

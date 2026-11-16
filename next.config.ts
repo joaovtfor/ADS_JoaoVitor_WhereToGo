@@ -55,6 +55,13 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // Logos estáticas em WebP cacheadas por longo prazo na CDN e no navegador (3G).
+        source: "/logos/:arquivo*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
         // Manifesto PWA cacheado na CDN com revalidação em background.
         source: "/manifest.webmanifest",
         headers: [
