@@ -50,7 +50,7 @@ Regras de uso:
 - **Texto colorido** usa sempre a variante clara (`text-ok-claro`, `text-primaria-clara`), que tem contraste de pelo menos 4,5:1 sobre as superfícies.
 - **Estado nunca depende só da cor.** Todo selo de status tem rótulo em texto; todo pino tem número.
 - **Um estado, um sinal.** Nada de emoji + bolinha + cor + texto para a mesma informação: bolinha colorida e texto bastam.
-- **Tema:** somente escuro (`color-scheme: dark`). Os tokens estão em `:root`, então um tema claro pode ser acrescentado depois redefinindo só os `--wtg-*`. O plano do tema claro está na seção 8.
+- **Tema:** claro e escuro. Por padrão segue o aparelho ("Sistema"); a pessoa pode fixar um deles em "Aparência" (seção 8). Cada token traz os dois valores em `light-dark(claro, escuro)`: a tabela acima mostra os do escuro, e os do claro estão na seção 8.3. Toda cor nova entra como token com os dois valores e passa pelo `scripts/contraste-wcag.js` nos dois temas.
 
 ### 2.2. Tipografia
 
@@ -112,7 +112,8 @@ Toda tela é montada com estes componentes. Se um padrão novo aparecer em duas 
 
 | `Folha` | `folha.tsx` | Painel deslizante: folha inferior arrastável no celular, painel lateral no desktop. O arraste usa só `transform`, fora do estado do React. |
 
-| `Menu` / `ItemMenu` | `menu.tsx` | Menu suspenso para ações de uso ocasional. Fecha ao escolher, ao clicar fora e com Esc. |
+| `Menu` / `ItemMenu` | `menu.tsx` | Menu suspenso para ações de uso ocasional. Fecha ao escolher, ao clicar fora e com Esc. `ItemMenu` aceita `className` só para separar grupos (`border-t border-borda`). |
+| `SeletorTema` | `seletor-tema.tsx` | Bloco "Aparência" (Sistema / Claro / Escuro) para o fim de um `Menu`. Escolher não fecha o menu (seção 8). |
 | `Modal` | `modal.tsx` | Janela para uma tarefa curta (trocar senha, confirmar). |
 | `ProvedorToast` / `useToast` / `RegiaoToasts` | `toast.tsx` | Retorno de ação (seção 5.5). `useToast().mostrar("Salvo")` em qualquer componente dentro do provedor; `RegiaoToasts` decide onde a pilha aparece. |
 | `ToastFlutuante` | `toast.tsx` | O mesmo toast, controlado por `erro` / `aviso`, no canto inferior das telas do painel. |
@@ -131,7 +132,7 @@ Toda tela é montada com estes componentes. Se um padrão novo aparecer em duas 
 
 O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço que ocupa.
 
-- **Cabeçalho (uma linha):** marca, busca e duas ações: `Filtros` e `Lista`. Acesso da equipe, busca de familiar e atualização manual ficam no menu (ícone de hambúrguer, à direita). Os "três pontos" ficam só para o menu de ações de uma linha de lista no painel.
+- **Cabeçalho (uma linha):** marca, busca e duas ações: `Filtros` e `Lista`. Acesso da equipe, busca de familiar, atualização manual e a escolha de **Aparência** (seção 8.1) ficam no menu (ícone de hambúrguer, à direita). Os "três pontos" ficam só para o menu de ações de uma linha de lista no painel.
 - **Filtros:** no máximo três atalhos visíveis (`Com vagas`, `Aceita pets`, `Precisa de doações`) e um botão `Filtros` que abre uma folha com todos os demais (categorias de doação, acessibilidade, distância, alertas). O botão mostra quantos filtros estão ativos. "Limpar" é um botão fantasma, não um alerta.
 - **Pinos:** um retângulo arredondado com o **número de vagas**, preenchido com a cor do estado (ok, atenção, crítico). Lotado mostra `0`. No máximo um indicador extra: um ponto de aviso quando há problema de infraestrutura. Selecionado ganha anel azul. Nome do abrigo só aparece no pino selecionado.
 - **Você está aqui:** ponto azul (`primaria-clara`) com halo.
@@ -144,6 +145,7 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
   4. Linhas simples separadas por divisória: energia, água, acessibilidade, itens urgentes para doação.
 - **Abrigos perto de mim** (botão de localização na barra de resumo): sempre lê a localização de novo e abre o abrigo mais próximo **pela distância**, mesmo com outro abrigo aberto. Desligar a localização fica no painel `Filtros`, seção "Distância".
 - **Legenda:** recolhida por padrão, atrás de um botão de ajuda.
+- **Movimento reduzido** (preferência do aparelho): o mapa vai direto ao abrigo ou ao alerta, sem voo nem zoom animado (`movimentoReduzido()` em `mapa-publico-leaflet.tsx`). Folhas e toasts já respeitavam a preferência.
 - **Tooltips do mapa** (áreas de risco, vias): `width: max-content` com limite de 260 px, para o texto quebrar em linhas largas e não em uma coluna estreita.
 
 ### 5.2. Painel operacional (`/admin/**`)
@@ -209,9 +211,11 @@ A migração visual foi feita por fase e está completa: nenhuma tela usa mais a
 
 ---
 
-## 8. Tema claro (planejado, ainda não implementado)
+## 8. Tema claro (concluído)
 
 **Por quê:** o tema escuro economiza bateria em telas OLED, mas sob sol forte (doação na rua, abrigo ao ar livre) um tema claro é mais legível. Por isso a proposta é oferecer os dois, com o sistema operacional decidindo por padrão.
+
+**Padrão:** "Sistema" (`TEMA_PADRAO` em `src/lib/tema.ts`): quem nunca escolheu vê o tema do aparelho. Durante a implantação (fases A a C) o padrão ficou no escuro, para ninguém ver o tema claro antes de o mapa e as logos estarem adaptados; passou a "Sistema" na fase D.
 
 ### 8.1. Onde a pessoa troca o tema
 
@@ -230,11 +234,20 @@ O controle é um grupo de três opções (`role="radiogroup"`, cada botão com `
 1. **Uma definição por token.** Cada `--wtg-*` em `:root` passa a ter os dois valores com `light-dark()`: `--wtg-fundo: light-dark(#f4f6f8, #000000)`. Quem escolhe o valor é o `color-scheme` do `<html>`:
    - `data-tema="sistema"` → `color-scheme: light dark` (segue o sistema operacional);
    - `data-tema="claro"` → `color-scheme: light`;
-   - `data-tema="escuro"` ou atributo ausente → `color-scheme: dark` (o padrão de hoje, também sem JavaScript).
+   - `data-tema="escuro"` ou atributo ausente → `color-scheme: dark` (o servidor sempre escreve o atributo; a ausência é só uma rede de segurança).
    Os componentes não mudam: continuam usando `bg-superficie`, `text-texto-2`... e campos, barras de rolagem e o `<select>` nativo acompanham o `color-scheme`.
-2. **Sem piscar na primeira pintura.** A escolha fica no `localStorage` (`wtg:tema`). Um script curto embutido no `<head>` do `src/app/layout.tsx` aplica o `data-tema` antes de a página aparecer (`<html suppressHydrationWarning>`). Cookie não serve aqui: ler `cookies()` no layout raiz tornaria todas as rotas dinâmicas e quebraria a pré-renderização parcial do mapa (`cacheComponents`). A CSP já aceita script embutido (limitação documentada em `next.config.ts`), então nada muda nela.
-3. **Hook `useTema()`** em `src/components/ui/tema.tsx`: lê e grava a escolha, atualiza o `data-tema` e a `<meta name="theme-color">` (barra do navegador e do app instalado), e ouve `prefers-color-scheme` quando a escolha é "Sistema".
+2. **Sem piscar na primeira pintura.** A escolha fica no `localStorage` (`wtg:tema`). O servidor escreve `<html data-tema="sistema">` (o padrão, que também vale sem JavaScript) e um script curto no `<head>` do `src/app/layout.tsx` (`SCRIPT_TEMA`, em `src/lib/tema.ts`) troca pela escolha salva antes de a página aparecer (`<html suppressHydrationWarning>`). Cookie não serve aqui: ler `cookies()` no layout raiz tornaria todas as rotas dinâmicas e quebraria a pré-renderização parcial do mapa (`cacheComponents`). A CSP já aceita script embutido (limitação documentada em `next.config.ts`), então nada muda nela.
+3. **`src/components/ui/tema.tsx`** (cliente):
+   - `useTema()` devolve `tema` (a escolha), `temaEfetivo` (`claro`/`escuro`, já resolvendo "Sistema") e `definirTema()`. Usa `useSyncExternalStore`: todos os componentes que o usam acompanham a troca, sem provedor.
+   - `definirTema(tema)` grava no `localStorage`, aplica o `data-tema` e acerta a `<meta name="theme-color">` (barra do navegador e do app instalado).
+   - `SincronizadorTema`, montado uma vez no layout raiz: reaplica o tema antes da pintura (no desenvolvimento, o Strict Mode do React remonta o `<html>` e apaga o atributo do script), acompanha a troca de claro/escuro do aparelho quando a escolha é "Sistema" e sincroniza as outras abas abertas (evento `storage`).
 4. **Variante do Tailwind para o que não é cor** (imagens, filtros): `@custom-variant claro` em `globals.css`, que vale com `data-tema="claro"` ou com `data-tema="sistema"` dentro de `@media (prefers-color-scheme: light)`. Uso: `claro:hidden`.
+
+5. **Seletor** (`src/components/ui/seletor-tema.tsx`, `SeletorTema`): bloco "Aparência" para o fim de um `Menu`. As opções são `menuitemradio` com `aria-checked`, dentro de um `role="group"`; escolher não fecha o menu. A troca desliga as transições por um instante (`semTransicoes` em `tema.tsx`): sem isso, botões com `transition-colors` mudariam 150 ms depois do resto e a tela passaria por um quadro meio claro, meio escuro.
+6. **Imagens por tema** (`wtg-so-escuro` / `wtg-so-claro` em `globals.css`): as duas versões vão no HTML e o CSS esconde a do outro tema, já na primeira pintura. As regras só escondem (`!important`); quando a versão aparece, vale o display das classes do componente. Com `loading="lazy"`, a versão escondida não é baixada. Usado em `Logo`.
+7. **Navegadores antigos:** o Tailwind (Lightning CSS) já converte cada `light-dark()` em um par de variáveis (`--lightningcss-light` / `--lightningcss-dark`) que as regras de `color-scheme` ligam e desligam. O tema funciona sem suporte nativo a `light-dark()`, então não há fallback separado.
+
+**Para testar pelo console** (ou no login, que não tem seletor): `localStorage.setItem("wtg:tema", "claro")` (ou `"sistema"`, `"escuro"`) e recarregar; `localStorage.removeItem("wtg:tema")` volta ao padrão.
 
 ### 8.3. Paleta clara (proposta, contraste conferido)
 
@@ -264,20 +277,35 @@ Levantado com uma busca por cores fixas em `src/` e `globals.css`:
 | `globals.css` `.leaflet-tile-pane` | `grayscale(1) invert(1)` (mapa escuro) | só `grayscale(1)`, sem inverter, para continuar neutro e os pinos serem a única cor. |
 | `globals.css` créditos do mapa | `rgb(0 0 0 / 0.65)` | token de superfície com transparência. |
 | `globals.css` `.wtg-voce` | halo `rgb(96 165 250 / 0.22)` | `color-mix()` com `--wtg-primaria-clara`. |
-| `src/components/ui/logo.tsx` | só as versões claras da marca | trocar pelas versões `*-escura.webp` (já existem em `public/logos`) com a variante `claro:`. |
-| `src/app/layout.tsx` (`viewport`) | `themeColor: "#0b0d12"`, `colorScheme: "dark"` | `themeColor` com as duas cores por `media` e `colorScheme: "light dark"`; o `useTema()` acerta a meta quando a escolha é manual. |
-| `src/app/manifest.ts` | cores do app instalado fixas no escuro | manter: o manifesto não varia por tema; só a abertura do app usa essa cor. |
-| `src/components/ui/modal.tsx` | véu `bg-black/70` | funciona nos dois; no claro, `bg-black/50`. |
+| `src/components/ui/logo.tsx` | só as versões claras da marca | as duas versões, com `wtg-so-escuro` / `wtg-so-claro` (seção 8.2, item 6). |
+| Legenda do mapa (`barra-resumo.tsx`) | "Ponto branco no pino" | o ponto de aviso usa `--wtg-texto` e fica escuro no tema claro: "Ponto no canto do pino". |
+| `src/app/layout.tsx` (`viewport`) | `themeColor: "#0b0d12"`, `colorScheme: "dark"` | `themeColor` com uma cor por `media` (claro `#FFFFFF`, escuro `#0B0D12`) e `colorScheme: "light dark"`. Com escolha manual, o `SincronizadorTema` põe a cor do tema escolhido nas duas metas; em "Sistema", devolve cada uma à sua. |
+| `src/app/layout.tsx` (`appleWebApp`) | `statusBarStyle: "black-translucent"` | `"default"`: no iPhone, o texto da barra de status era sempre branco (sumia sobre o cabeçalho claro) e o cabeçalho ficava por baixo do relógio. Com `default`, a barra é opaca e o conteúdo começa abaixo dela. **Conferir em um iPhone real** (app adicionado à tela de início): não há como emular aqui. |
+| `src/app/manifest.ts` | cores do app instalado fixas no escuro | manter: o manifesto não varia por tema; só a tela de abertura do app instalado usa essa cor. |
+| `public/sw.js` | logos fora do cache offline | as logos do mapa, nos dois temas, entram no cache na instalação do service worker (`/logos/*` com cache primeiro). Sem isso, trocar de tema sem rede deixava a logo quebrada (a página só baixa a do tema atual). |
+| `src/components/ui/modal.tsx` | véu preto a 70% | mantido no escuro; no claro, 45% (`claro:` no véu), porque 70% sobre fundo branco escurece demais. |
 | `src/components/mapa/cartao-pix.tsx` | QR Code em `bg-white` | manter: QR precisa de fundo branco para ser lido. |
 | `src/app/login/page.tsx` | cores oficiais do Google | manter (exceção já prevista na seção 5.3). |
 
 ### 8.5. Ordem de execução
 
-| Fase | Escopo | Pronto quando |
-| :--- | :--- | :--- |
-| A | Tokens com `light-dark()`, `data-tema` + script no `<head>`, `useTema()`, `@custom-variant claro`, `theme-color`. | Trocar o `data-tema` pelo console muda o app inteiro, sem piscar ao recarregar. |
-| B | Mapa público: filtro dos tiles, créditos, "você está aqui", logos e o seletor no menu de hambúrguer. | Mapa legível nos dois temas, pinos iguais. |
-| C | Login e painel: seletor no menu da conta e revisão tela a tela (estoque, visão geral, acolhidos, infraestrutura, gestão). | Nenhuma tela com texto ou borda sumindo. |
-| D | Qualidade: contraste automático (axe/Lighthouse) nos dois temas, captura das telas principais, movimento reduzido, app instalado (barra de status), modo offline. | Sem violação de contraste; esta seção vira "Concluída" e a regra de tema da seção 2.1 é atualizada. |
+| Fase | Escopo | Pronto quando | Estado |
+| :--- | :--- | :--- | :--- |
+| A | Tokens com `light-dark()`, `data-tema` + script no `<head>`, `useTema()`, `@custom-variant claro`, `theme-color`. | Trocar o `data-tema` pelo console muda o app inteiro, sem piscar ao recarregar. | Concluída |
+| B | Mapa público: filtro dos tiles, créditos, "você está aqui", logos e o seletor no menu de hambúrguer. | Mapa legível nos dois temas, pinos iguais. | Concluída |
+| C | Login e painel: seletor no menu da conta e revisão tela a tela (estoque, visão geral, acolhidos, infraestrutura, gestão). | Nenhuma tela com texto ou borda sumindo. | Concluída |
+| D | Qualidade: contraste automático nos dois temas, captura das telas principais, movimento reduzido, app instalado (barra de status), modo offline. Padrão passa a "Sistema". | Sem violação de contraste; esta seção vira "Concluída" e a regra de tema da seção 2.1 é atualizada. | Concluída |
 
-**Riscos a conferir na fase A:** `light-dark()` exige navegadores de 2024 em diante (Chrome 123, Safari 17.5, Firefox 120). Como os tokens são variáveis CSS, um navegador antigo não "volta" para uma declaração anterior: a cor ficaria vazia. Por isso entra um bloco `@supports not (color: light-dark(#000, #fff))` que redefine os `--wtg-*` com os valores escuros de hoje. As cores com opacidade do Tailwind (`bg-primaria/15`) viram `color-mix()` sobre o token; conferir no navegador que continuam corretas com `light-dark()`.
+**Riscos conferidos:**
+
+- `light-dark()` nativo exige navegadores de 2024 em diante (Chrome 123, Safari 17.5, Firefox 120). Na fase B ficou claro que o CSS servido nem usa a função nativa: o Lightning CSS a converte em variáveis que funcionam em qualquer navegador (seção 8.2, item 7). O fallback `@supports not` criado na fase A deixava navegadores antigos sempre no escuro e foi removido.
+- As cores com opacidade do Tailwind (`bg-critico/12`) viram `color-mix(in oklab, var(--wtg-critico) 12%, transparent)`. Os sólidos do semáforo e o azul são iguais nos dois temas, então os fundos tingidos não mudam; os textos sobre eles usam os tokens `-claro`, que mudam. Conferido no navegador na ficha do abrigo e na visão geral do painel.
+- Mapa no claro (fase B): os tiles ficam em cinza sem inverter (`grayscale(1) brightness(1.04) contrast(0.92)`), pinos e áreas de risco iguais aos do escuro. Conferido em "Claro" e em "Sistema" com o aparelho claro e escuro, no desktop e no celular.
+- Revisão das telas (fase C): uma busca por cores fixas em `src/` só achou o véu do modal (ajustado), o `text-white` do botão primário e o fundo branco do QR Code PIX (os dois ficam de propósito). Depois, um script no navegador mediu o contraste WCAG de cada texto visível, compondo os fundos translúcidos: visão geral, estoque, infraestrutura, acolhidos, as quatro abas de gestão, login, e no mapa a ficha, a lista, os filtros, o menu, os alertas e a legenda. Resultado: nenhum texto abaixo de 4,5:1 (3:1 para texto grande) no tema claro, e o mesmo no escuro. Conferido também o painel no celular (barra de navegação inferior e menu da conta).
+- Qualidade (fase D), no build de produção:
+  - **Contraste:** o script virou `scripts/contraste-wcag.js` (colar no console da tela aberta). No lugar de axe/Lighthouse, que não estão no projeto, ele mede só contraste, mas texto a texto e compondo os fundos tingidos. Com o padrão "Sistema", as telas do painel no aparelho escuro (1.304 textos) também deram zero abaixo do mínimo; somado à fase C, todas as telas estão cobertas nos dois temas. Em produção a CSP bloqueia `eval`: cole o arquivo direto no console.
+  - **Padrão "Sistema":** sem escolha salva, o app abre claro no aparelho claro e escuro no escuro; escolher "Escuro" e voltar a "Sistema" devolve as duas metas `theme-color` às cores de cada modo.
+  - **Offline:** com o servidor parado, a página veio do service worker e a troca de tema mostrou a logo do outro tema a partir do cache.
+  - **Movimento reduzido:** com a preferência simulada, o mapa salta direto para o abrigo (sem posições intermediárias); sem ela, continua voando até lá.
+  - **Capturas** do mapa (desktop e celular) e da visão geral do painel, nos dois modos do aparelho, revisadas uma a uma.
+  - **Pendente fora do alcance deste ambiente:** confirmar a barra de status em um iPhone com o app instalado (seção 8.4).

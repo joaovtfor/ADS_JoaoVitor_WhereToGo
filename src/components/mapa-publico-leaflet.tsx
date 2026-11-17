@@ -22,6 +22,11 @@ interface PropriedadesMapaLeaflet {
 const CENTRO_PADRAO: [number, number] = [-28.258, -52.406];
 const ZOOM_PADRAO = 13;
 
+/** Movimento reduzido no aparelho: o mapa vai direto ao lugar, sem voo nem zoom animado. */
+function movimentoReduzido(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /** Triângulo de alerta (mesmo desenho do ícone do sistema), para os marcadores em HTML do Leaflet. */
 const SVG_ALERTA =
   '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
@@ -119,10 +124,14 @@ export default function MapaPublicoLeaflet({
     const container = containerRef.current;
     if (!container || mapaRef.current) return;
 
+    const animar = !movimentoReduzido();
     const mapa = L.map(container, {
       center: CENTRO_PADRAO,
       zoom: ZOOM_PADRAO,
       zoomControl: false,
+      zoomAnimation: animar,
+      fadeAnimation: animar,
+      markerZoomAnimation: animar,
     });
 
     L.control.zoom({ position: "topleft", zoomInTitle: "Aproximar", zoomOutTitle: "Afastar" }).addTo(mapa);
@@ -297,7 +306,7 @@ export default function MapaPublicoLeaflet({
     const deslocamentoY = telaLarga ? 0 : mapa.getSize().y * 0.31;
     const centroCompensado = mapa.unproject(L.point(pontoAlvo.x + deslocamentoX, pontoAlvo.y + deslocamentoY), zoomDestino);
 
-    mapa.flyTo(centroCompensado, zoomDestino, { animate: true, duration: 0.5 });
+    mapa.flyTo(centroCompensado, zoomDestino, { animate: !movimentoReduzido(), duration: 0.5 });
   }, [idSelecionado, focoTick, abrigos]);
 
   // 6. Centraliza em uma coordenada de alerta quando acionado no painel de alertas (RF09)
@@ -307,7 +316,7 @@ export default function MapaPublicoLeaflet({
 
     ultimoFocoCoordTickRef.current = focoCoordenada.tick;
     mapa.stop();
-    mapa.flyTo([focoCoordenada.lat, focoCoordenada.lng], Math.max(mapa.getZoom(), 15), { animate: true, duration: 0.5 });
+    mapa.flyTo([focoCoordenada.lat, focoCoordenada.lng], Math.max(mapa.getZoom(), 15), { animate: !movimentoReduzido(), duration: 0.5 });
   }, [focoCoordenada]);
 
   // 7. Enquadra todos os abrigos visíveis quando pedido pela barra de resumo
@@ -315,7 +324,7 @@ export default function MapaPublicoLeaflet({
     if (enquadrarTick === ultimoEnquadrarTickRef.current) return;
     ultimoEnquadrarTickRef.current = enquadrarTick;
     const bounds = camadaAbrigosRef.current?.getBounds();
-    if (bounds?.isValid()) mapaRef.current?.fitBounds(bounds.pad(0.22), { maxZoom: 15 });
+    if (bounds?.isValid()) mapaRef.current?.fitBounds(bounds.pad(0.22), { maxZoom: 15, animate: !movimentoReduzido() });
   }, [enquadrarTick]);
 
   return <div ref={containerRef} aria-label="Mapa interativo de abrigos emergenciais" className="z-0 h-full w-full" />;

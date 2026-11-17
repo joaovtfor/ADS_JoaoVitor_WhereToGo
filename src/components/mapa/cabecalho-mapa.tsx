@@ -8,6 +8,7 @@ import { juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
 import { Logo } from "@/components/ui/logo";
 import { CLASSES_ITEM_MENU, ItemMenu, Menu } from "@/components/ui/menu";
+import { SeletorTema } from "@/components/ui/seletor-tema";
 
 interface PropriedadesCabecalhoMapa {
   totalAbrigos: number;
@@ -75,6 +76,7 @@ export function CabecalhoMapa({
             <Icone de={LogIn} />
             Acesso da equipe
           </Link>
+          <SeletorTema />
         </Menu>
       </div>
     </header>

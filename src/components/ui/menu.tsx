@@ -15,12 +15,14 @@ export const CLASSES_ITEM_MENU = juntarClasses(
 interface PropriedadesItemMenu {
   icone: LucideIcon;
   onClick: () => void;
+  /** Só para layout (ex.: `border-t border-borda` para separar um grupo). */
+  className?: string;
   children: ReactNode;
 }
 
-export function ItemMenu({ icone, onClick, children }: PropriedadesItemMenu) {
+export function ItemMenu({ icone, onClick, className, children }: PropriedadesItemMenu) {
   return (
-    <button type="button" role="menuitem" onClick={onClick} className={CLASSES_ITEM_MENU}>
+    <button type="button" role="menuitem" onClick={onClick} className={juntarClasses(CLASSES_ITEM_MENU, className)}>
       <Icone de={icone} />
       {children}
     </button>

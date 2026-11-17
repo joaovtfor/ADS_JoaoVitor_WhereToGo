@@ -20,6 +20,7 @@ import { Icone } from "@/components/ui/icone";
 import { Logo } from "@/components/ui/logo";
 import { CLASSES_ITEM_MENU, ItemMenu, Menu } from "@/components/ui/menu";
 import { Modal } from "@/components/ui/modal";
+import { SeletorTema } from "@/components/ui/seletor-tema";
 import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ROTULO_PAPEL, ROTULO_STATUS_INFRA } from "./rotulos";
@@ -367,7 +368,8 @@ export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesA
               <Icone de={Map} />
               Ver mapa público
             </Link>
-            <ItemMenu icone={LogOut} onClick={() => void sair()}>
+            <SeletorTema />
+            <ItemMenu icone={LogOut} onClick={() => void sair()} className="border-t border-borda">
               Sair
             </ItemMenu>
           </Menu>

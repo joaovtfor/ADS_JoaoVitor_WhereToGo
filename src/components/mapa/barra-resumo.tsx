@@ -39,7 +39,7 @@ export function BarraResumo({ totalVagasLivres, totalAbrigos, carregando, filtra
             </li>
             <li className="flex items-center gap-2 text-meta text-texto-2">
               <span aria-hidden className="size-2 shrink-0 rounded-full bg-texto" />
-              Ponto branco no pino: alerta de acesso ou infraestrutura
+              Ponto no canto do pino: alerta de acesso ou infraestrutura
             </li>
             {mostrarAlertas && (
               <li className="flex items-center gap-2 text-meta text-texto-2">

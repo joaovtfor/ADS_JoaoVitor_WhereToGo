@@ -5,36 +5,96 @@
  * Os valores vivem aqui; os componentes usam só as classes geradas no @theme
  * (bg-superficie, text-texto-2, border-borda, bg-primaria, text-critico...).
  * Regra: azul = ação e seleção; verde/âmbar/vermelho = estado; o resto é neutro.
+ *
+ * Tema (DESIGN.md §8): cada token traz os dois valores em `light-dark(claro, escuro)`.
+ * Quem escolhe é o `color-scheme` do <html>, que segue o atributo `data-tema`
+ * (posto pelo script do <head> em src/app/layout.tsx):
+ *   sem atributo ou "escuro" -> escuro | "claro" -> claro | "sistema" -> o do aparelho.
+ * Os componentes não mudam: continuam usando bg-superficie, text-texto-2...
  */
-:root,
-html {
+:root {
   color-scheme: dark;
 
-  /* Superfícies: do preto puro (OLED) para cima */
-  --wtg-fundo: #000000;
-  --wtg-superficie: #0b0d12;
-  --wtg-superficie-2: #14171d;
-  --wtg-superficie-3: #1e222a;
-  --wtg-borda: #1f242d;
-  --wtg-borda-forte: #333a46;
+  /* Superfícies: no escuro, do preto puro (OLED) para cima */
+  --wtg-fundo: light-dark(#f4f6f8, #000000);
+  --wtg-superficie: light-dark(#ffffff, #0b0d12);
+  --wtg-superficie-2: light-dark(#eef1f5, #14171d);
+  --wtg-superficie-3: light-dark(#e3e7ed, #1e222a);
+  --wtg-borda: light-dark(#e1e5eb, #1f242d);
+  --wtg-borda-forte: light-dark(#c5ccd6, #333a46);
 
-  /* Texto: três níveis, todos com contraste >= 4.5:1 sobre as superfícies */
-  --wtg-texto: #f4f6f8;
-  --wtg-texto-2: #a9b1bd;
-  --wtg-texto-3: #7c8696;
+  /* Texto: três níveis, todos com contraste >= 4.5:1 sobre as superfícies, nos dois temas */
+  --wtg-texto: light-dark(#0b0d12, #f4f6f8);
+  --wtg-texto-2: light-dark(#475162, #a9b1bd);
+  --wtg-texto-3: light-dark(#5f6979, #7c8696);
 
   /* Azul: a única cor de marca, ação primária, seleção e foco */
   --wtg-primaria: #2563eb;
   --wtg-primaria-forte: #1d4ed8;
-  --wtg-primaria-clara: #60a5fa;
+  /* Azul como texto/ícone: no claro, mais escuro para manter o contraste sobre branco */
+  --wtg-primaria-clara: light-dark(#1d4ed8, #60a5fa);
 
-  /* Semáforo: usado somente para comunicar estado */
+  /* Semáforo: usado somente para comunicar estado. Os sólidos (pinos) são iguais
+     nos dois temas; os "-claro" são a variante para texto e escurecem no tema claro. */
   --wtg-ok: #22c55e;
-  --wtg-ok-claro: #4ade80;
+  --wtg-ok-claro: light-dark(#15703a, #4ade80);
   --wtg-atencao: #f59e0b;
-  --wtg-atencao-claro: #fbbf24;
+  --wtg-atencao-claro: light-dark(#a34a07, #fbbf24);
   --wtg-critico: #ef4444;
-  --wtg-critico-claro: #f87171;
+  --wtg-critico-claro: light-dark(#b91c1c, #f87171);
+}
+
+:root[data-tema="claro"] {
+  color-scheme: light;
+}
+
+:root[data-tema="sistema"] {
+  color-scheme: light dark;
+}
+
+/*
+ * Navegadores antigos: o Tailwind (Lightning CSS) já converte cada `light-dark()`
+ * em um par de variáveis (`--lightningcss-light` / `--lightningcss-dark`) que
+ * as regras de `color-scheme` acima ligam e desligam. Funciona sem suporte nativo
+ * a light-dark(), por isso não há fallback separado.
+ */
+
+/*
+ * Variante `claro:` para o que não é cor e não acompanha os tokens (imagens,
+ * filtros): vale com o tema claro escolhido ou com "sistema" em aparelho claro.
+ * Ex.: `claro:hidden`.
+ */
+@custom-variant claro {
+  &:where([data-tema="claro"], [data-tema="claro"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: light) {
+    &:where([data-tema="sistema"], [data-tema="sistema"] *) {
+      @slot;
+    }
+  }
+}
+
+/*
+ * Duas versões da mesma imagem, uma por tema (ex.: as logos em `logo.tsx`):
+ * `wtg-so-escuro` só aparece no tema escuro e `wtg-so-claro` só no claro. As
+ * regras apenas escondem (daí o `!important`); quando a versão aparece, vale o
+ * display das classes do próprio componente (ex.: `hidden md:block`).
+ */
+.wtg-so-escuro {
+  @variant claro {
+    display: none !important;
+  }
+}
+
+:root:not([data-tema="claro"], [data-tema="sistema"]) .wtg-so-claro {
+  display: none !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-tema="sistema"] .wtg-so-claro {
+    display: none !important;
+  }
 }
 
 @theme inline {
@@ -153,12 +213,17 @@ body {
 }
 
 /*
- * Mapa base neutro: os mesmos tiles de antes, em cinza e invertidos, para que
- * a única cor sobre o mapa seja a dos pinos. O filtro fica no painel de tiles
- * (uma camada só), não em cada imagem.
+ * Mapa base neutro: os mesmos tiles de antes, em cinza (e invertidos no tema
+ * escuro), para que a única cor sobre o mapa seja a dos pinos. O filtro fica no
+ * painel de tiles (uma camada só), não em cada imagem. Mesmos tiles nos dois
+ * temas: o cache offline vale para ambos.
  */
 .leaflet-tile-pane {
   filter: grayscale(1) invert(1) brightness(0.95) contrast(1.05);
+
+  @variant claro {
+    filter: grayscale(1) brightness(1.04) contrast(0.92);
+  }
 }
 
 .leaflet-container .leaflet-bar {
@@ -188,7 +253,7 @@ body {
 }
 
 .leaflet-container .leaflet-control-attribution {
-  background: rgb(0 0 0 / 0.65);
+  background: color-mix(in srgb, var(--wtg-superficie) 75%, transparent);
   color: var(--wtg-texto-3);
   font-size: 11px;
 }
@@ -363,7 +428,7 @@ body {
   border: 2px solid var(--wtg-fundo);
   border-radius: 9999px;
   background: var(--wtg-primaria-clara);
-  box-shadow: 0 0 0 7px rgb(96 165 250 / 0.22);
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--wtg-primaria-clara) 22%, transparent);
 }
 
 /* Barra horizontal de filtros rápidos com scroll suave em touch e desktop */

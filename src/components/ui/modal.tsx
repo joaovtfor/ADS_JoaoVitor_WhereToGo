@@ -24,7 +24,8 @@ export function Modal({ titulo, onFechar, children }: PropriedadesModal) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4"
+      // Véu mais leve no tema claro: 70% de preto sobre fundo branco escurece demais.
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 claro:bg-black/45 sm:items-center sm:p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onFechar();
       }}
