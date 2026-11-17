@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { LocateFixed, SlidersHorizontal } from "lucide-react";
+import { LocateFixed, LocateOff, SlidersHorizontal } from "lucide-react";
 import { Botao } from "@/components/ui/botao";
 import { Chip } from "@/components/ui/chip";
 import { Folha } from "@/components/ui/folha";
@@ -62,7 +62,14 @@ interface PropriedadesPainelFiltros {
   ocultarNaoDestaque: boolean;
   onAlternarOcultar: () => void;
   alertas: { total: number; camadaVisivel: boolean; onAlternarCamada: () => void; onVerPainel: () => void };
-  gps: { ativo: boolean; buscando: boolean; raioKm: number | null; onRaio: (raio: number | null) => void; onAtivar: () => void };
+  gps: {
+    ativo: boolean;
+    buscando: boolean;
+    raioKm: number | null;
+    onRaio: (raio: number | null) => void;
+    onAtivar: () => void;
+    onParar: () => void;
+  };
   totalResultados: number;
   temFiltroAtivo: boolean;
   onLimparTudo: () => void;
@@ -140,11 +147,16 @@ export function PainelFiltros(props: PropriedadesPainelFiltros) {
 
       <Secao titulo="Distância">
         {gps.ativo ? (
-          ([null, 5, 10, 25] as const).map((raio) => (
-            <Chip key={raio ?? "todas"} ativo={gps.raioKm === raio} onClick={() => gps.onRaio(raio)}>
-              {raio ? `Até ${raio} km` : "Qualquer distância"}
-            </Chip>
-          ))
+          <>
+            {([null, 5, 10, 25] as const).map((raio) => (
+              <Chip key={raio ?? "todas"} ativo={gps.raioKm === raio} onClick={() => gps.onRaio(raio)}>
+                {raio ? `Até ${raio} km` : "Qualquer distância"}
+              </Chip>
+            ))}
+            <Botao tamanho="sm" variante="fantasma" icone={LocateOff} onClick={gps.onParar}>
+              Parar de usar minha localização
+            </Botao>
+          </>
         ) : (
           <>
             <p className="w-full text-meta text-texto-2">Ative sua localização para filtrar por distância.</p>

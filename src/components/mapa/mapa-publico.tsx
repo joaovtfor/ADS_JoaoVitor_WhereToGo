@@ -2,18 +2,17 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { X } from "lucide-react";
 import { BarraFiltros, PainelFiltros } from "@/components/mapa/barra-filtros";
 import { BarraResumo } from "@/components/mapa/barra-resumo";
 import { CabecalhoMapa } from "@/components/mapa/cabecalho-mapa";
 import { FichaAbrigo } from "@/components/mapa/ficha-abrigo";
-import { filtrarAbrigos } from "@/components/mapa/filtrar-abrigos";
+import { abrigoMaisProximo, filtrarAbrigos } from "@/components/mapa/filtrar-abrigos";
 import { ListaAbrigos, PainelAlertas, PainelBuscaFamiliar } from "@/components/mapa/paineis-laterais";
 import { ATALHOS_FILTRO, type AlertaMapa, type FiltroRapido } from "@/components/mapa/tipos";
 import { useDadosMapa, type DadosIniciaisMapa } from "@/components/mapa/use-dados-mapa";
 import { useServiceWorker } from "@/components/mapa/use-service-worker";
-import { BotaoIcone } from "@/components/ui/botao";
 import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
+import { ProvedorToast, RegiaoToasts, useToast } from "@/components/ui/toast";
 
 const MapaPublicoLeaflet = dynamic(() => import("@/components/mapa-publico-leaflet"), {
   ssr: false,
@@ -29,6 +28,23 @@ type Posicao = { lat: number; lng: number };
 type Painel = "alertas" | "lista" | "familiares" | "filtros";
 /** O que pediu para selecionar automaticamente o abrigo mais adequado. */
 type MotivoAutoSelecao = "gps" | "filtro";
+
+/** Id dos toasts de seleção automática: um novo substitui o anterior em vez de empilhar. */
+const TOAST_SELECAO = "selecao";
+
+/** Pede a localização ao navegador: tenta o GPS preciso e, se falhar ou demorar, aceita a aproximada. */
+function pedirLocalizacao(): Promise<Posicao> {
+  return new Promise((resolver, rejeitar) => {
+    if (!("geolocation" in navigator)) return rejeitar(new Error("sem-geolocalizacao"));
+    const aoObter = (pos: GeolocationPosition) => resolver({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    navigator.geolocation.getCurrentPosition(
+      aoObter,
+      () =>
+        navigator.geolocation.getCurrentPosition(aoObter, rejeitar, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300_000 }),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
+    );
+  });
+}
 
 function lerAbrigoDaUrl(): number | null {
   const id = Number(new URLSearchParams(window.location.search).get("abrigo"));
@@ -51,27 +67,19 @@ function formatarMomento(iso: string): string {
     : `${data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hora}`;
 }
 
-/** Aviso flutuante sobre o mapa: uma linha, com a cor só na bolinha de estado. */
-function Aviso({
-  nivel,
-  urgente = false,
-  onFechar,
-  children,
-}: {
-  nivel: NivelStatus;
-  urgente?: boolean;
-  onFechar?: () => void;
-  children: ReactNode;
-}) {
+/**
+ * Aviso persistente sobre o mapa (sem conexão, falha ao carregar): fica enquanto
+ * o estado durar. Retornos de ação usam toast (`useToast`).
+ */
+function Aviso({ nivel, urgente = false, children }: { nivel: NivelStatus; urgente?: boolean; children: ReactNode }) {
   return (
     <div
       role={urgente ? "alert" : "status"}
-      className="pointer-events-auto flex w-fit max-w-full items-center gap-1 rounded-controle border border-borda bg-superficie py-1 pr-1 pl-3"
+      className="pointer-events-auto flex w-fit max-w-full items-center rounded-controle border border-borda bg-superficie px-3 py-1"
     >
       <SeloStatus nivel={nivel} className="py-1.5">
         <span>{children}</span>
       </SeloStatus>
-      {onFechar ? <BotaoIcone icone={X} rotulo="Fechar aviso" tamanho="sm" onClick={onFechar} /> : <span className="w-2" />}
     </div>
   );
 }
@@ -84,8 +92,17 @@ interface PropriedadesMapaPublico {
 }
 
 /** A tela do mapa público. Recebe os primeiros dados prontos e segue atualizando sozinha. */
-export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
+export function MapaPublico(propriedades: PropriedadesMapaPublico) {
+  return (
+    <ProvedorToast>
+      <TelaMapaPublico {...propriedades} />
+    </ProvedorToast>
+  );
+}
+
+function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   useServiceWorker();
+  const { mostrar: mostrarToast, fechar: fecharToast } = useToast();
 
   // Filtros (RF08)
   const [termoBusca, setTermoBusca] = useState("");
@@ -103,7 +120,6 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
   // Localização do doador/cidadão (distância e raio calculados no servidor)
   const [posicaoUsuario, setPosicaoUsuario] = useState<Posicao | null>(null);
   const [buscandoGps, setBuscandoGps] = useState(false);
-  const [mensagem, setMensagem] = useState<string | null>(null);
 
   // Abrigo selecionado (ficha - RF07), com link compartilhável ?abrigo=ID
   const [idSelecionado, setIdSelecionado] = useState<number | null>(abrigoInicial);
@@ -176,63 +192,104 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
           return;
         }
         setAutoSelecao(null);
-        if (autoSelecao === "gps") setMensagem("Localização obtida, mas nenhum abrigo ativo foi encontrado nesta distância.");
+        if (autoSelecao === "gps") {
+          mostrarToast("Localização obtida, mas nenhum abrigo ativo foi encontrado nesta distância.", { tipo: "aviso", id: TOAST_SELECAO });
+        }
         return;
       }
 
-      const comFiltroDoacao = Boolean(categoriaSlug || itemFiltroId);
-      const alvo = (comFiltroDoacao && abrigosFiltrados.find((a) => a.destaque)) || abrigosFiltrados[0];
+      // "Perto de mim" vai ao mais próximo de fato, só pela distância. Os filtros
+      // de doação vão ao mais próximo que precisa do item (a ordem da lista).
+      const comFiltroDoacao = autoSelecao === "filtro" && Boolean(categoriaSlug || itemFiltroId);
+      const alvo =
+        (autoSelecao === "gps" && posicaoUsuario && abrigoMaisProximo(abrigosFiltrados, posicaoUsuario)) ||
+        (comFiltroDoacao && abrigosFiltrados.find((a) => a.destaque)) ||
+        abrigosFiltrados[0];
       setAutoSelecao(null);
       selecionarAbrigo(alvo.id);
       const distancia = alvo.distanciaKm !== null ? ` (${alvo.distanciaKm.toFixed(1)} km)` : "";
-      setMensagem(
+      mostrarToast(
         comFiltroDoacao && alvo.destaque
           ? `Mais próximo que precisa da sua doação: ${alvo.nome}${distancia}`
           : `Abrigo mais próximo: ${alvo.nome}${distancia}`,
+        { tipo: "info", id: TOAST_SELECAO },
       );
     });
-  }, [autoSelecao, posicaoUsuario, posicaoDosDados, abrigos.length, abrigosFiltrados, categoriaSlug, itemFiltroId, selecionarAbrigo]);
+  }, [
+    autoSelecao,
+    posicaoUsuario,
+    posicaoDosDados,
+    abrigos.length,
+    abrigosFiltrados,
+    categoriaSlug,
+    itemFiltroId,
+    selecionarAbrigo,
+    mostrarToast,
+  ]);
 
-  function ativarGeolocalizacao() {
-    if (!("geolocation" in navigator)) {
-      setMensagem("Seu navegador não permite usar a localização.");
-      return;
-    }
-    setBuscandoGps(true);
-    setMensagem(null);
-
-    const aoObter = (pos: GeolocationPosition) => {
-      setPosicaoUsuario({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      setAutoSelecao("gps");
-      setBuscandoGps(false);
-    };
-    // Tenta o GPS preciso; se falhar ou demorar, aceita a localização aproximada.
-    navigator.geolocation.getCurrentPosition(
-      aoObter,
-      () =>
-        navigator.geolocation.getCurrentPosition(
-          aoObter,
-          () => {
-            setBuscandoGps(false);
-            setMensagem("Não foi possível obter sua localização (permissão negada ou indisponível).");
-          },
-          { enableHighAccuracy: false, timeout: 8000, maximumAge: 300_000 },
-        ),
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60_000 },
+  function avisarFalhaLocalizacao(erro: unknown) {
+    mostrarToast(
+      erro instanceof Error && erro.message === "sem-geolocalizacao"
+        ? "Seu navegador não permite usar a localização."
+        : "Não foi possível obter sua localização (permissão negada ou indisponível).",
+      { tipo: "aviso", id: TOAST_SELECAO },
     );
   }
 
+  /**
+   * "Abrigos perto de mim": sempre lê a localização de novo (a pessoa pode ter
+   * andado) e vai ao abrigo mais próximo, mesmo que outro esteja aberto.
+   */
+  async function irAoMaisProximo(motivo: MotivoAutoSelecao = "gps") {
+    if (buscandoGps) return;
+    setBuscandoGps(true);
+    fecharToast(TOAST_SELECAO);
+    try {
+      const posicao = await pedirLocalizacao();
+      setPosicaoUsuario(posicao);
+      setAutoSelecao(motivo);
+    } catch (erro) {
+      // Sem localização, o filtro de doação ainda escolhe o primeiro da lista.
+      setAutoSelecao(motivo === "filtro" ? "filtro" : null);
+      avisarFalhaLocalizacao(erro);
+    } finally {
+      setBuscandoGps(false);
+    }
+  }
+
+  /** Para de usar a localização: some o ponto azul, a distância e o filtro de raio. */
+  function pararDeUsarLocalizacao() {
+    setPosicaoUsuario(null);
+    setRaioKm(null);
+    fecharToast(TOAST_SELECAO);
+  }
+
+  /**
+   * Origem da rota: a localização já obtida ou, se ainda não houver, uma leitura
+   * nova (sem trocar o abrigo aberto). `null` se a pessoa negar ou não houver GPS.
+   */
+  const obterOrigemRota = useCallback(async (): Promise<Posicao | null> => {
+    if (posicaoUsuario) return posicaoUsuario;
+    try {
+      const posicao = await pedirLocalizacao();
+      setPosicaoUsuario(posicao);
+      return posicao;
+    } catch {
+      return null;
+    }
+  }, [posicaoUsuario]);
+
   /** Filtros que buscam "o mais próximo": pedem a localização se ainda não houver. */
   function pedirAutoSelecao() {
-    setAutoSelecao("filtro");
-    if (!posicaoUsuario && !buscandoGps) ativarGeolocalizacao();
+    if (!posicaoUsuario && !buscandoGps) void irAoMaisProximo("filtro");
+    else setAutoSelecao("filtro");
   }
 
   function limparFiltroCategoria() {
     setCategoriaSlug(null);
     setItemFiltroId(null);
     setOcultarNaoDestaque(false);
-    setMensagem(null);
+    fecharToast(TOAST_SELECAO);
   }
 
   function limparTodosFiltros() {
@@ -310,9 +367,9 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
           aoSelecionarAbrigo={selecionarAbrigo}
         />
 
-        {/* Avisos: ao lado dos botões de zoom no desktop, sem invadir a ficha aberta */}
+        {/* Avisos e toasts: ao lado dos botões de zoom no desktop, sem invadir a ficha aberta */}
         <div
-          className={`pointer-events-none absolute top-3 left-3 z-[400] flex flex-col gap-2 sm:left-14 ${
+          className={`pointer-events-none absolute top-3 left-3 z-[400] flex flex-col items-start gap-2 sm:left-14 ${
             abrigoSelecionado ? "right-3 sm:right-[424px]" : "right-3"
           }`}
         >
@@ -323,16 +380,12 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
                 : `Sem conexão. Dados de ${formatarMomento(dadosSalvosDe)}: vagas e alertas podem ter mudado.`}
             </Aviso>
           )}
-          {mensagem && (
-            <Aviso nivel="neutro" onFechar={() => setMensagem(null)}>
-              {mensagem}
-            </Aviso>
-          )}
           {erro && (
             <Aviso nivel="critico" urgente>
               {erro}
             </Aviso>
           )}
+          <RegiaoToasts origem="topo" className="max-w-full items-start sm:max-w-md" />
         </div>
 
         <BarraResumo
@@ -341,16 +394,7 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
           carregando={carregando}
           filtrado={temFiltroAtivo}
           mostrarAlertas={camadaAlertasVisivel}
-          gps={{
-            ativo: gpsAtivo,
-            buscando: buscandoGps,
-            onAtivar: ativarGeolocalizacao,
-            onLimpar: () => {
-              setPosicaoUsuario(null);
-              setRaioKm(null);
-              setMensagem(null);
-            },
-          }}
+          gps={{ ativo: gpsAtivo, buscando: buscandoGps, onIrAoMaisProximo: () => void irAoMaisProximo() }}
           onEnquadrar={() => setEnquadrarTick((t) => t + 1)}
         />
 
@@ -388,7 +432,8 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
                 setRaioKm(raio);
                 setAutoSelecao("filtro");
               },
-              onAtivar: ativarGeolocalizacao,
+              onAtivar: () => void irAoMaisProximo(),
+              onParar: pararDeUsarLocalizacao,
             }}
             totalResultados={abrigosFiltrados.length}
             temFiltroAtivo={temFiltroAtivo}
@@ -439,6 +484,8 @@ export function MapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico)
             categoriaSlug={categoriaSlug}
             itemFiltroId={itemFiltroId}
             posicaoNaLista={{ indice: Math.max(0, indiceSelecionado), total: abrigosFiltrados.length }}
+            posicaoUsuario={posicaoUsuario}
+            obterOrigemRota={obterOrigemRota}
             onNavegar={navegarAbrigoVizinho}
             onFechar={fecharFicha}
           />

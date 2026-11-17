@@ -50,7 +50,7 @@ Regras de uso:
 - **Texto colorido** usa sempre a variante clara (`text-ok-claro`, `text-primaria-clara`), que tem contraste de pelo menos 4,5:1 sobre as superfícies.
 - **Estado nunca depende só da cor.** Todo selo de status tem rótulo em texto; todo pino tem número.
 - **Um estado, um sinal.** Nada de emoji + bolinha + cor + texto para a mesma informação: bolinha colorida e texto bastam.
-- **Tema:** somente escuro (`color-scheme: dark`). Os tokens estão em `:root`, então um tema claro pode ser acrescentado depois redefinindo só os `--wtg-*`.
+- **Tema:** somente escuro (`color-scheme: dark`). Os tokens estão em `:root`, então um tema claro pode ser acrescentado depois redefinindo só os `--wtg-*`. O plano do tema claro está na seção 8.
 
 ### 2.2. Tipografia
 
@@ -114,7 +114,8 @@ Toda tela é montada com estes componentes. Se um padrão novo aparecer em duas 
 
 | `Menu` / `ItemMenu` | `menu.tsx` | Menu suspenso para ações de uso ocasional. Fecha ao escolher, ao clicar fora e com Esc. |
 | `Modal` | `modal.tsx` | Janela para uma tarefa curta (trocar senha, confirmar). |
-| `ToastFlutuante` | `toast.tsx` | Retorno de ação no canto da tela (seção 5.5). |
+| `ProvedorToast` / `useToast` / `RegiaoToasts` | `toast.tsx` | Retorno de ação (seção 5.5). `useToast().mostrar("Salvo")` em qualquer componente dentro do provedor; `RegiaoToasts` decide onde a pilha aparece. |
+| `ToastFlutuante` | `toast.tsx` | O mesmo toast, controlado por `erro` / `aviso`, no canto inferior das telas do painel. |
 
 | `Abas` | `abas.tsx` | Abas dentro de uma tela: texto simples, a atual sublinhada em azul. |
 | `CabecalhoPagina`, `Secao`, `EstadoVazio`, `Faixa` | `pagina.tsx` | Esqueleto de uma tela do painel: título com ações, blocos sem caixa, texto de lista vazia e faixa de aviso. |
@@ -130,7 +131,7 @@ Toda tela é montada com estes componentes. Se um padrão novo aparecer em duas 
 
 O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço que ocupa.
 
-- **Cabeçalho (uma linha):** marca, busca e duas ações: `Filtros` e `Lista`. Acesso da equipe, busca de familiar e atualização manual ficam no menu "Mais".
+- **Cabeçalho (uma linha):** marca, busca e duas ações: `Filtros` e `Lista`. Acesso da equipe, busca de familiar e atualização manual ficam no menu (ícone de hambúrguer, à direita). Os "três pontos" ficam só para o menu de ações de uma linha de lista no painel.
 - **Filtros:** no máximo três atalhos visíveis (`Com vagas`, `Aceita pets`, `Precisa de doações`) e um botão `Filtros` que abre uma folha com todos os demais (categorias de doação, acessibilidade, distância, alertas). O botão mostra quantos filtros estão ativos. "Limpar" é um botão fantasma, não um alerta.
 - **Pinos:** um retângulo arredondado com o **número de vagas**, preenchido com a cor do estado (ok, atenção, crítico). Lotado mostra `0`. No máximo um indicador extra: um ponto de aviso quando há problema de infraestrutura. Selecionado ganha anel azul. Nome do abrigo só aparece no pino selecionado.
 - **Você está aqui:** ponto azul (`primaria-clara`) com halo.
@@ -139,9 +140,11 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 - **Ficha do abrigo:** folha inferior no celular, painel lateral no desktop. Ordem fixa:
   1. Nome, distância e `SeloStatus`.
   2. O número de vagas em `text-numero` e, ao lado, vagas para pets.
-  3. Uma ação primária (`Traçar rota`) e ações secundárias em ícone (`Ligar`, `Compartilhar`).
+  3. Uma ação primária (`Traçar rota`) e ações secundárias em ícone (`Ligar`, `Compartilhar`). A rota sai sempre da localização atual (`origin` no link do Google Maps); sem localização ainda, o botão a pede nesta aba e só então abre o trajeto.
   4. Linhas simples separadas por divisória: energia, água, acessibilidade, itens urgentes para doação.
+- **Abrigos perto de mim** (botão de localização na barra de resumo): sempre lê a localização de novo e abre o abrigo mais próximo **pela distância**, mesmo com outro abrigo aberto. Desligar a localização fica no painel `Filtros`, seção "Distância".
 - **Legenda:** recolhida por padrão, atrás de um botão de ajuda.
+- **Tooltips do mapa** (áreas de risco, vias): `width: max-content` com limite de 260 px, para o texto quebrar em linhas largas e não em uma coluna estreita.
 
 ### 5.2. Painel operacional (`/admin/**`)
 
@@ -167,7 +170,12 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 
 ### 5.5. Feedback e erros
 
-- **Toast** flutuante (`fixed`, canto inferior) com fechamento automático em 3,5 s para confirmar ações. Nunca insere conteúdo no fluxo da página.
+- **Toast** (`src/components/ui/toast.tsx`) para o retorno de uma ação. Nunca insere conteúdo no fluxo da página.
+  - **Ciclo:** entra com fade e um deslize de 8 px vindo da borda onde a pilha está (220 ms), fica em tela e sai com fade (180 ms). Só `opacity` e `transform`; com movimento reduzido, só o fade.
+  - **Tempo em tela por tipo:** `sucesso` 3,5 s, `info` 4,5 s, `aviso` 6 s, `erro` até ser fechado. O tempo para enquanto o ponteiro ou o foco está no toast.
+  - **Cor:** só a bolinha. Verde, âmbar e vermelho seguem o estado; `info` é azul, porque confirma uma seleção.
+  - **Onde:** no mapa, no alto da área do mapa (embaixo ficam a barra de resumo e a ficha); no painel, no canto inferior. No máximo três em tela; um toast com o mesmo `id` substitui o anterior (ex.: "Abrigo mais próximo: ...").
+  - **Acessibilidade:** a pilha é uma região `aria-live="polite"` que existe mesmo vazia; o toast de erro leva `role="alert"`.
 - **Avisos persistentes** (sem conexão, dados desatualizados, abrigo inativo) usam uma faixa com `SeloStatus` preenchido e texto curto.
 - **Ações destrutivas** (`Dar saída`, `Desativar`, `Revogar`) usam a variante `perigo` e sempre pedem confirmação. Nunca ficam coladas a um botão de uso frequente.
 
@@ -198,3 +206,78 @@ A migração visual foi feita por fase e está completa: nenhuma tela usa mais a
 | 4 | Carregamento (seção 6, itens 1, 2 e 4) e infraestrutura de deploy | Concluída |
 
 **Trava de lint:** `eslint.config.mjs` proíbe paleta crua do Tailwind e hex fixo em classes em todo o `src/**`. O lint falha se alguém voltar a usar `bg-slate-900` ou `text-amber-300`.
+
+---
+
+## 8. Tema claro (planejado, ainda não implementado)
+
+**Por quê:** o tema escuro economiza bateria em telas OLED, mas sob sol forte (doação na rua, abrigo ao ar livre) um tema claro é mais legível. Por isso a proposta é oferecer os dois, com o sistema operacional decidindo por padrão.
+
+### 8.1. Onde a pessoa troca o tema
+
+Trocar o tema é uma ação ocasional (princípio 6): fica em um menu, nunca solta na tela.
+
+| Tela | Local | Por quê |
+| :--- | :--- | :--- |
+| Mapa público (`/`) | Menu de hambúrguer do cabeçalho, último bloco, abaixo de "Acesso da equipe": linha **Aparência** com três botões de ícone, `Sistema` (monitor), `Claro` (sol) e `Escuro` (lua). | É onde já ficam as ações ocasionais do mapa; não ocupa espaço sobre o mapa. |
+| Painel (`/admin/**`) | Menu da conta (com "Alterar senha", "Ver mapa público" e "Sair"), com o mesmo controle. | Preferência pessoal fica junto da conta. |
+| Login (`/login`) | Sem controle. Segue a escolha salva neste aparelho ou o sistema. | Uma tela, uma ação (seção 5.3). |
+
+O controle é um grupo de três opções (`role="radiogroup"`, cada botão com `aria-checked`), com a opção atual azul, como um `Chip` ligado. A escolha vale para o aparelho inteiro, em todas as telas.
+
+### 8.2. Como funciona
+
+1. **Uma definição por token.** Cada `--wtg-*` em `:root` passa a ter os dois valores com `light-dark()`: `--wtg-fundo: light-dark(#f4f6f8, #000000)`. Quem escolhe o valor é o `color-scheme` do `<html>`:
+   - `data-tema="sistema"` → `color-scheme: light dark` (segue o sistema operacional);
+   - `data-tema="claro"` → `color-scheme: light`;
+   - `data-tema="escuro"` ou atributo ausente → `color-scheme: dark` (o padrão de hoje, também sem JavaScript).
+   Os componentes não mudam: continuam usando `bg-superficie`, `text-texto-2`... e campos, barras de rolagem e o `<select>` nativo acompanham o `color-scheme`.
+2. **Sem piscar na primeira pintura.** A escolha fica no `localStorage` (`wtg:tema`). Um script curto embutido no `<head>` do `src/app/layout.tsx` aplica o `data-tema` antes de a página aparecer (`<html suppressHydrationWarning>`). Cookie não serve aqui: ler `cookies()` no layout raiz tornaria todas as rotas dinâmicas e quebraria a pré-renderização parcial do mapa (`cacheComponents`). A CSP já aceita script embutido (limitação documentada em `next.config.ts`), então nada muda nela.
+3. **Hook `useTema()`** em `src/components/ui/tema.tsx`: lê e grava a escolha, atualiza o `data-tema` e a `<meta name="theme-color">` (barra do navegador e do app instalado), e ouve `prefers-color-scheme` quando a escolha é "Sistema".
+4. **Variante do Tailwind para o que não é cor** (imagens, filtros): `@custom-variant claro` em `globals.css`, que vale com `data-tema="claro"` ou com `data-tema="sistema"` dentro de `@media (prefers-color-scheme: light)`. Uso: `claro:hidden`.
+
+### 8.3. Paleta clara (proposta, contraste conferido)
+
+| Token | Escuro (hoje) | Claro | Contraste no claro |
+| :--- | :--- | :--- | :--- |
+| `fundo` | `#000000` | `#F4F6F8` | — |
+| `superficie` | `#0B0D12` | `#FFFFFF` | — |
+| `superficie-2` | `#14171D` | `#EEF1F5` | — |
+| `superficie-3` | `#1E222A` | `#E3E7ED` | — |
+| `borda` / `borda-forte` | `#1F242D` / `#333A46` | `#E1E5EB` / `#C5CCD6` | — |
+| `texto` | `#F4F6F8` | `#0B0D12` | 19,4:1 na superfície |
+| `texto-2` | `#A9B1BD` | `#475162` | 8,0:1 |
+| `texto-3` | `#7C8696` | `#5F6979` | 5,5:1 (4,9:1 em `superficie-2`) |
+| `primaria` / `primaria-forte` | `#2563EB` / `#1D4ED8` | iguais | branco por cima: 5,2:1 |
+| `primaria-clara` (azul como texto) | `#60A5FA` | `#1D4ED8` | 6,7:1 |
+| `ok-claro` / `atencao-claro` / `critico-claro` (texto) | `#4ADE80` / `#FBBF24` / `#F87171` | `#15703A` / `#A34A07` / `#B91C1C` | 5,0 / 5,0 / 6,5:1 (≥ 5,2:1 sobre o fundo tingido a 12%) |
+| `ok` / `atencao` / `critico` (sólidos) | `#22C55E` / `#F59E0B` / `#EF4444` | iguais | pinos idênticos nos dois temas |
+
+Os tokens "`-claro`" querem dizer "variante para texto colorido": no tema claro ficam **mais escuros**, para manter 4,5:1 sobre fundo branco.
+
+### 8.4. O que precisa de ajuste além dos tokens
+
+Levantado com uma busca por cores fixas em `src/` e `globals.css`:
+
+| Local | Hoje | No tema claro |
+| :--- | :--- | :--- |
+| `globals.css` `.leaflet-tile-pane` | `grayscale(1) invert(1)` (mapa escuro) | só `grayscale(1)`, sem inverter, para continuar neutro e os pinos serem a única cor. |
+| `globals.css` créditos do mapa | `rgb(0 0 0 / 0.65)` | token de superfície com transparência. |
+| `globals.css` `.wtg-voce` | halo `rgb(96 165 250 / 0.22)` | `color-mix()` com `--wtg-primaria-clara`. |
+| `src/components/ui/logo.tsx` | só as versões claras da marca | trocar pelas versões `*-escura.webp` (já existem em `public/logos`) com a variante `claro:`. |
+| `src/app/layout.tsx` (`viewport`) | `themeColor: "#0b0d12"`, `colorScheme: "dark"` | `themeColor` com as duas cores por `media` e `colorScheme: "light dark"`; o `useTema()` acerta a meta quando a escolha é manual. |
+| `src/app/manifest.ts` | cores do app instalado fixas no escuro | manter: o manifesto não varia por tema; só a abertura do app usa essa cor. |
+| `src/components/ui/modal.tsx` | véu `bg-black/70` | funciona nos dois; no claro, `bg-black/50`. |
+| `src/components/mapa/cartao-pix.tsx` | QR Code em `bg-white` | manter: QR precisa de fundo branco para ser lido. |
+| `src/app/login/page.tsx` | cores oficiais do Google | manter (exceção já prevista na seção 5.3). |
+
+### 8.5. Ordem de execução
+
+| Fase | Escopo | Pronto quando |
+| :--- | :--- | :--- |
+| A | Tokens com `light-dark()`, `data-tema` + script no `<head>`, `useTema()`, `@custom-variant claro`, `theme-color`. | Trocar o `data-tema` pelo console muda o app inteiro, sem piscar ao recarregar. |
+| B | Mapa público: filtro dos tiles, créditos, "você está aqui", logos e o seletor no menu de hambúrguer. | Mapa legível nos dois temas, pinos iguais. |
+| C | Login e painel: seletor no menu da conta e revisão tela a tela (estoque, visão geral, acolhidos, infraestrutura, gestão). | Nenhuma tela com texto ou borda sumindo. |
+| D | Qualidade: contraste automático (axe/Lighthouse) nos dois temas, captura das telas principais, movimento reduzido, app instalado (barra de status), modo offline. | Sem violação de contraste; esta seção vira "Concluída" e a regra de tema da seção 2.1 é atualizada. |
+
+**Riscos a conferir na fase A:** `light-dark()` exige navegadores de 2024 em diante (Chrome 123, Safari 17.5, Firefox 120). Como os tokens são variáveis CSS, um navegador antigo não "volta" para uma declaração anterior: a cor ficaria vazia. Por isso entra um bloco `@supports not (color: light-dark(#000, #fff))` que redefine os `--wtg-*` com os valores escuros de hoje. As cores com opacidade do Tailwind (`bg-primaria/15`) viram `color-mix()` sobre o token; conferir no navegador que continuam corretas com `light-dark()`.

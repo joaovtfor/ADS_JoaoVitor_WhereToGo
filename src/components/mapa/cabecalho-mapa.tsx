@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Ellipsis, List, LogIn, RefreshCw, Search, TriangleExclamationPoint, UserSearch } from "lucide-react";
+import { List, LogIn, Menu as IconeMenu, RefreshCw, Search, TriangleExclamationPoint, UserSearch } from "lucide-react";
 import { Botao } from "@/components/ui/botao";
 import { CLASSES_CAMPO } from "@/components/ui/campo";
 import { juntarClasses } from "@/components/ui/classes";
@@ -61,7 +61,7 @@ export function CabecalhoMapa({
           <span className="hidden md:inline">Lista</span>
           <span className="tabular-nums">{totalAbrigos}</span>
         </Botao>
-        <Menu rotulo="Mais opções" icone={Ellipsis}>
+        <Menu rotulo="Menu" icone={IconeMenu}>
           <ItemMenu icone={UserSearch} onClick={onBuscarFamiliar}>
             Encontrar familiar
           </ItemMenu>

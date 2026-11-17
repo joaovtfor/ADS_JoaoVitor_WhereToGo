@@ -125,18 +125,26 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
 
       const agora = new Date().toISOString();
       ultimaAtualizacaoRef.current = agora;
-      setPosicaoDosDados(posicao);
-      setErro(null);
-      setDadosSalvosDe(null);
 
       // 304: o servidor confirmou que nada mudou. Nada a redesenhar nem a gravar.
-      if (resposta.status === 304) return false;
+      if (resposta.status === 304) {
+        setPosicaoDosDados(posicao);
+        setErro(null);
+        setDadosSalvosDe(null);
+        return false;
+      }
 
       const { dados } = (await resposta.json()) as { dados: { abrigos: AbrigoMapa[]; alertas: AlertaMapa[] } };
       const etag = resposta.headers.get("ETag");
       versaoRef.current = etag ? { url, etag } : null;
+      // Lista e localização mudam juntas, no mesmo render. Se `posicaoDosDados`
+      // mudasse antes do `await` acima, a tela veria "lista pronta para o GPS"
+      // ainda sem as distâncias, e o "mais próximo" sairia em ordem alfabética.
       setAbrigos(dados.abrigos);
       setAlertas(dados.alertas);
+      setPosicaoDosDados(posicao);
+      setErro(null);
+      setDadosSalvosDe(null);
       salvarEstado({ abrigos: dados.abrigos, alertas: dados.alertas, categorias: listaCategorias, salvoEm: agora });
       return true;
     } catch {

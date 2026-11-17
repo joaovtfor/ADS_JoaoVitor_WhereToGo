@@ -11,7 +11,8 @@ interface PropriedadesBarraResumo {
   carregando: boolean;
   filtrado: boolean;
   mostrarAlertas: boolean;
-  gps: { ativo: boolean; buscando: boolean; onAtivar: () => void; onLimpar: () => void };
+  /** "Abrigos perto de mim": sempre vai ao mais próximo (desligar a localização fica no painel de filtros). */
+  gps: { ativo: boolean; buscando: boolean; onIrAoMaisProximo: () => void };
   onEnquadrar: () => void;
 }
 
@@ -80,10 +81,10 @@ export function BarraResumo({ totalVagasLivres, totalAbrigos, carregando, filtra
           <BotaoIcone icone={Scan} rotulo="Enquadrar todos os abrigos" onClick={onEnquadrar} />
           <BotaoIcone
             icone={LocateFixed}
-            rotulo={gps.buscando ? "Localizando..." : gps.ativo ? "Parar de usar minha localização" : "Abrigos perto de mim"}
+            rotulo={gps.buscando ? "Localizando..." : "Abrigos perto de mim"}
             ligado={gps.ativo}
             disabled={gps.buscando}
-            onClick={gps.ativo ? gps.onLimpar : gps.onAtivar}
+            onClick={gps.onIrAoMaisProximo}
             className={gps.buscando ? "animate-pulse" : undefined}
           />
         </div>

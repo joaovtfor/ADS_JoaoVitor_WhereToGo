@@ -7,6 +7,7 @@ import { juntarClasses } from "@/components/ui/classes";
 import { Folha } from "@/components/ui/folha";
 import { Icone } from "@/components/ui/icone";
 import { SeloStatus } from "@/components/ui/selo-status";
+import { useToast } from "@/components/ui/toast";
 import { CartaoPix } from "./cartao-pix";
 import { LinhaFicha } from "./linha-ficha";
 import {
@@ -24,8 +25,26 @@ interface PropriedadesFichaAbrigo {
   categoriaSlug: string | null;
   itemFiltroId: number | null;
   posicaoNaLista: { indice: number; total: number };
+  /** Localização já obtida (GPS), usada como ponto de partida da rota. */
+  posicaoUsuario: Posicao | null;
+  /** Lê a localização na hora, quando ainda não há uma. `null` se não for possível. */
+  obterOrigemRota: () => Promise<Posicao | null>;
   onNavegar: (direcao: -1 | 1) => void;
   onFechar: () => void;
+}
+
+type Posicao = { lat: number; lng: number };
+
+/**
+ * Rota no Google Maps da localização atual até o abrigo. Sem `origin`, o Maps
+ * no navegador abre só o destino (ou parte de um ponto aproximado) e o trajeto
+ * fica incompleto.
+ */
+function urlRotaGoogle(base: string, origem: Posicao | null): string {
+  if (!origem) return base;
+  const url = new URL(base);
+  url.searchParams.set("origin", `${origem.lat},${origem.lng}`);
+  return url.toString();
 }
 
 /** Detalhes do card (rotas, PIX, ocorrências): carregados ao abrir, com cancelamento ao trocar de abrigo. */
@@ -82,9 +101,20 @@ function avisosDeDeslocamento(abrigo: AbrigoMapa): string[] {
  * Ficha do abrigo selecionado: folha inferior no celular, painel lateral no desktop.
  * Ordem fixa (DESIGN.md §5.1): estado, número de vagas, ação de rota e, depois, os detalhes.
  */
-export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaLista, onNavegar, onFechar }: PropriedadesFichaAbrigo) {
+export function FichaAbrigo({
+  abrigo,
+  categoriaSlug,
+  itemFiltroId,
+  posicaoNaLista,
+  posicaoUsuario,
+  obterOrigemRota,
+  onNavegar,
+  onFechar,
+}: PropriedadesFichaAbrigo) {
   const { detalhe, carregando } = useDetalheAbrigo(abrigo.id);
+  const { mostrar: mostrarToast } = useToast();
   const [resumoCopiado, setResumoCopiado] = useState(false);
+  const [obtendoOrigem, setObtendoOrigem] = useState(false);
 
   const { ocupacao } = abrigo;
   const vagas = Math.max(0, ocupacao.vagasDisponiveis);
@@ -106,6 +136,34 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
     const temporizador = window.setTimeout(() => setResumoCopiado(false), 3000);
     return () => window.clearTimeout(temporizador);
   }, [resumoCopiado]);
+
+  /**
+   * Sem localização ainda: pede a posição nesta aba (onde o aviso de permissão
+   * aparece) e só então abre a rota completa. Com localização, o link já sai
+   * pronto e abre direto.
+   */
+  async function tracarRotaComLocalizacao() {
+    if (obtendoOrigem) return;
+    setObtendoOrigem(true);
+    const origem = await obterOrigemRota();
+    setObtendoOrigem(false);
+
+    const janela = window.open(urlRotaGoogle(rotas.googleMaps, origem), "_blank");
+    if (janela) janela.opener = null;
+
+    if (!origem) {
+      mostrarToast("Não foi possível usar sua localização. Informe o ponto de partida no Google Maps.", { tipo: "aviso" });
+    } else if (!janela) {
+      // O navegador bloqueou a nova aba (a permissão demorou): agora o link já tem a origem.
+      mostrarToast("Localização obtida. Toque em Traçar rota de novo para abrir o trajeto.", { tipo: "info" });
+    }
+  }
+
+  async function compartilharAbrigo() {
+    const copiado = await compartilhar(abrigo);
+    setResumoCopiado(copiado);
+    if (copiado) mostrarToast("Resumo do abrigo copiado. É só colar na conversa.");
+  }
 
   return (
     <Folha
@@ -152,9 +210,20 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
       </p>
 
       <div className="flex gap-2 pb-4">
-        <a href={rotas.googleMaps} target="_blank" rel="noopener noreferrer" className={classesBotao("primaria", "md", "min-w-0 flex-1")}>
+        <a
+          href={urlRotaGoogle(rotas.googleMaps, posicaoUsuario)}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-busy={obtendoOrigem || undefined}
+          onClick={(e) => {
+            if (posicaoUsuario) return;
+            e.preventDefault();
+            void tracarRotaComLocalizacao();
+          }}
+          className={classesBotao("primaria", "md", juntarClasses("min-w-0 flex-1", obtendoOrigem && "animate-pulse"))}
+        >
           <Icone de={Route} />
-          Traçar rota
+          {obtendoOrigem ? "Localizando..." : "Traçar rota"}
         </a>
         <a href={rotas.waze} target="_blank" rel="noopener noreferrer" className={classesBotao("secundaria")}>
           Waze
@@ -173,12 +242,9 @@ export function FichaAbrigo({ abrigo, categoriaSlug, itemFiltroId, posicaoNaList
           icone={resumoCopiado ? Check : Share2}
           rotulo={resumoCopiado ? "Resumo copiado" : "Compartilhar este abrigo"}
           variante="secundaria"
-          onClick={() => void compartilhar(abrigo).then(setResumoCopiado)}
+          onClick={() => void compartilharAbrigo()}
         />
       </div>
-      <p role="status" className="sr-only">
-        {resumoCopiado ? "Resumo do abrigo copiado." : ""}
-      </p>
 
       {avisos.length > 0 && (
         <div

@@ -46,6 +46,33 @@ function atendeFiltroRapido(abrigo: AbrigoMapa, filtro: FiltroRapido): boolean {
   }
 }
 
+/** Distância em linha reta (haversine), em km. Mesma medida que o servidor usa no PostGIS. */
+function distanciaEmLinhaReta(origem: { lat: number; lng: number }, abrigo: AbrigoMapa): number {
+  const rad = (graus: number) => (graus * Math.PI) / 180;
+  const dLat = rad(abrigo.latitude - origem.lat);
+  const dLng = rad(abrigo.longitude - origem.lng);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(origem.lat)) * Math.cos(rad(abrigo.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * O abrigo mais próximo de fato, só pela distância (sem a prioridade de doação
+ * da ordenação da lista). Usa a distância do servidor e, se ela ainda não veio
+ * (sem rede, por exemplo), calcula aqui.
+ */
+export function abrigoMaisProximo(abrigos: AbrigoMapa[], origem: { lat: number; lng: number }): AbrigoMapa | null {
+  let maisProximo: AbrigoMapa | null = null;
+  let menorDistancia = Number.POSITIVE_INFINITY;
+  for (const abrigo of abrigos) {
+    const distancia = abrigo.distanciaKm ?? distanciaEmLinhaReta(origem, abrigo);
+    if (distancia < menorDistancia) {
+      menorDistancia = distancia;
+      maisProximo = abrigo;
+    }
+  }
+  return maisProximo;
+}
+
 /** Filtros locais do mapa + ordenação (prioritários, depois os mais próximos). */
 export function filtrarAbrigos(abrigos: AbrigoMapa[], criterios: CriteriosMapa): AbrigoMapa[] {
   const busca = criterios.termoBusca.trim().toLowerCase();

@@ -106,6 +106,45 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Toast (src/components/ui/toast.tsx, DESIGN.md §5.5): entra com fade e um
+ * leve deslize vindo da borda onde a pilha está, sai com fade. Só opacity e
+ * transform. O componente remove o toast ao fim de `wtg-toast-saida`.
+ */
+@keyframes wtg-toast-entrada {
+  from {
+    opacity: 0;
+    transform: translateY(var(--wtg-toast-deslize));
+  }
+}
+
+@keyframes wtg-toast-saida {
+  to {
+    opacity: 0;
+    transform: translateY(var(--wtg-toast-deslize));
+  }
+}
+
+.wtg-toast {
+  --wtg-toast-deslize: 8px;
+  animation: wtg-toast-entrada 220ms ease-out both;
+}
+
+.wtg-toasts--topo .wtg-toast {
+  --wtg-toast-deslize: -8px;
+}
+
+.wtg-toast[data-saindo] {
+  animation: wtg-toast-saida 180ms ease-in both;
+}
+
+/* Movimento reduzido: só o fade, sem deslize. */
+@media (prefers-reduced-motion: reduce) {
+  .wtg-toast.wtg-toast {
+    --wtg-toast-deslize: 0px;
+  }
+}
+
 /* ---------- Mapa (Leaflet), DESIGN.md §5.1 ---------- */
 /* Seletor repetido: precisa vencer o leaflet.css, que é carregado depois deste arquivo. */
 .leaflet-container.leaflet-container {
@@ -158,8 +197,14 @@ body {
   color: var(--wtg-texto-2);
 }
 
+/*
+ * O tooltip é absoluto dentro de um painel de largura zero: sem `width`, ele
+ * encolhe até a palavra mais longa e vira uma coluna estreita. `max-content`
+ * usa a largura do texto, e o `max-width` quebra a linha a partir de 260 px.
+ */
 .leaflet-container .leaflet-tooltip {
-  max-width: 260px;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 32px));
   padding: 8px 10px;
   border: 1px solid var(--wtg-borda-forte);
   border-radius: 8px;
