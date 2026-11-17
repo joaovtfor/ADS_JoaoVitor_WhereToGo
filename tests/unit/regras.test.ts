@@ -6,7 +6,7 @@ import { motivoBloqueio } from "@/lib/auth/acesso";
 import { revogarToken, tokenRevogado } from "@/lib/auth/revogacao";
 import { COOKIE_SESSAO } from "@/lib/auth/sessao";
 import { cpfValido, normalizarCpf } from "@/lib/cpf";
-import { ErroApi, lerCorpo, obterIp, traduzirErroBanco, validar } from "@/lib/http";
+import { ErroApi, lerCorpo, limitarPorIp, obterIp, traduzirErroBanco, validar } from "@/lib/http";
 import { z } from "@/lib/validacao";
 import { LimitadorTentativas } from "@/lib/limitador";
 import { montarAtualizacao } from "@/lib/sql";
@@ -222,6 +222,29 @@ describe("Utilitários", () => {
     limitador.registrarFalha("k", 20);
     expect(limitador.segundosBloqueado("k", 30)).toBe(1);
     expect(limitador.segundosBloqueado("k", 2000)).toBe(0);
+  });
+
+  it("limita a quantidade de usos por janela de tempo", () => {
+    const limitador = new LimitadorTentativas(2, 60_000);
+    expect(limitador.consumir("ip", 0)).toBe(0);
+    expect(limitador.consumir("ip", 10)).toBe(0);
+    // O terceiro uso na mesma janela é recusado e não estende o bloqueio.
+    expect(limitador.consumir("ip", 20)).toBe(60);
+    expect(limitador.consumir("ip", 30_000)).toBe(30);
+    expect(limitador.consumir("outro-ip", 30_000)).toBe(0);
+    // Janela encerrada: a chave volta a ser aceita.
+    expect(limitador.consumir("ip", 60_000)).toBe(0);
+  });
+
+  it("aplica o limite por IP nas rotas públicas e ignora requisições sem IP", () => {
+    const limitador = new LimitadorTentativas(1, 60_000);
+    const comIp = new Request("http://teste.local/", { headers: { "x-forwarded-for": "203.0.113.7" } });
+    const semIp = new Request("http://teste.local/");
+
+    expect(() => limitarPorIp(comIp, limitador, "Muitas consultas.")).not.toThrow();
+    expect(() => limitarPorIp(comIp, limitador, "Muitas consultas.")).toThrowError(expect.objectContaining({ status: 429, codigo: "MUITAS_TENTATIVAS" }));
+    expect(() => limitarPorIp(semIp, limitador, "Muitas consultas.")).not.toThrow();
+    expect(() => limitarPorIp(semIp, limitador, "Muitas consultas.")).not.toThrow();
   });
 
   it("traduz erros do PostgreSQL em erros de negócio", () => {

@@ -6,6 +6,7 @@ import { Botao } from "@/components/ui/botao";
 import { CLASSES_CAMPO } from "@/components/ui/campo";
 import { juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
+import { Logo } from "@/components/ui/logo";
 import { CLASSES_ITEM_MENU, ItemMenu, Menu } from "@/components/ui/menu";
 
 interface PropriedadesCabecalhoMapa {
@@ -36,8 +37,8 @@ export function CabecalhoMapa({
 }: PropriedadesCabecalhoMapa) {
   return (
     <header className="relative z-[700] flex shrink-0 items-center gap-2 bg-superficie px-3 pt-2 sm:px-4">
-      <img src="/logos/pin-claro.webp" alt="" width={29} height={36} className="h-9 w-auto shrink-0 object-contain" />
-      <img src="/logos/logotipo-claro.webp" alt="" width={142} height={18} className="hidden h-4.5 w-auto shrink-0 object-contain md:mr-3 md:block" />
+      <Logo marca="pino" className="h-9" />
+      <Logo marca="logotipo" className="hidden h-4.5 md:mr-3 md:block" />
       <h1 className="sr-only">WhereToGo</h1>
 
       <div className="relative min-w-0 flex-1 md:max-w-md">

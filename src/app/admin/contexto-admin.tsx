@@ -17,6 +17,7 @@ import { Botao } from "@/components/ui/botao";
 import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
+import { Logo } from "@/components/ui/logo";
 import { CLASSES_ITEM_MENU, ItemMenu, Menu } from "@/components/ui/menu";
 import { Modal } from "@/components/ui/modal";
 import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
@@ -307,7 +308,7 @@ export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesA
             aria-label="WhereToGo: início do painel"
             className={juntarClasses("flex size-9 shrink-0 items-center justify-center rounded-controle", FOCO)}
           >
-            <img src="/logos/pin-claro.webp" alt="" width={29} height={36} className="h-9 w-auto shrink-0 object-contain" />
+            <Logo marca="pino" className="h-9" />
           </Link>
 
           <div className="flex min-w-0 flex-1 items-center gap-3">

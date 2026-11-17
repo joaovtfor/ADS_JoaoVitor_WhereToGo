@@ -11,7 +11,7 @@ Plataforma integrada de gestão humanitária para desastres naturais (UPF — An
 - **Banco de Dados & Geoprocessamento:** PostgreSQL 16 + PostGIS 3.4 (`GEOGRAPHY`, índices GiST, `ST_Distance`, `ST_DWithin`, `ST_Covers`, `ST_Intersects`, `ST_PointOnSurface`, triggers ACID)
 - **Segurança & Validação:** JWT HS256 (`jose`) + Cookie `httpOnly` · `bcryptjs` (custo 12) · Google One Tap OAuth · RBAC em duas camadas (Edge Proxy + Services) · Zod 4
 - **Mapas & Pagamentos:** Leaflet.js + OpenStreetMap HOT · Gerador nativo de payload PIX BR Code (EMVCo BACEN CRC16-CCITT) + QR Code
-- **Qualidade & Infraestrutura:** Vitest 5 (Unitários, Integração PostGIS real e E2E) · Docker Multi-Stage · GitHub Actions CI/CD · Render Blueprint (`render.yaml`) · Vercel Edge (`vercel.json`)
+- **Qualidade & Infraestrutura:** Vitest 5 (Unitários, Integração PostGIS real e E2E) · Docker Multi-Stage · GitHub Actions CI/CD · Render Blueprint (`render.yaml`)
 
 ---
 
@@ -59,27 +59,18 @@ Senha padrão para todos os perfis: `WhereToGo@2026` (ou o valor de `SEED_SENHA_
 ## ☁️ Implantação em Produção (Semana 8 — Cloud & CDN)
 
 ### Opção 1: Render (Docker + PostgreSQL/PostGIS) — ambiente de produção atual
-É o alvo oficial de deploy: as outras opções abaixo são alternativas documentadas, não usadas em produção.
-O repositório inclui o Blueprint oficial [`render.yaml`](render.yaml):
+É o alvo oficial de deploy. O repositório inclui o Blueprint [`render.yaml`](render.yaml):
 1. No painel do **Render**, selecione **New > Blueprint** e conecte este repositório.
 2. O Render criará automaticamente o banco `wheretogo-db` (PostgreSQL 16 com extensão PostGIS habilitada na migration `0001`) e o serviço web `wheretogo-app`.
 3. A cada partida do serviço, `scripts/start-prod.mjs` aplica as migrations pendentes (transacionais, com `pg_advisory_lock`) antes de o servidor aceitar conexões; o Render valida a saúde pelo endpoint `GET /api/health`.
 4. A imagem final usa o build `standalone` do Next.js, sem o `node_modules` completo: só o servidor, os arquivos estáticos, as migrations e os scripts de partida.
+5. O deploy só começa depois que o CI do commit passa (`autoDeployTrigger: checksPass`). Em um serviço criado fora do Blueprint, a mesma opção fica em **Settings > Build & Deploy > Auto-Deploy > After CI Checks Pass**.
 
-### Opção 2: Deploy na Vercel (Edge Network `gru1`) + Banco PostGIS Gerenciado
-O arquivo [`vercel.json`](vercel.json) já está configurado para a região **São Paulo (`gru1`)**:
-1. Provisione um banco PostgreSQL 16 com suporte a PostGIS (Render, Neon, Supabase ou AWS RDS).
-2. Configure no painel da Vercel as variáveis de ambiente:
-   - `DATABASE_URL`: string de conexão do banco PostGIS
-   - `DATABASE_SSL`: `true`
-   - `JWT_SECRET`: chave aleatória com 32+ caracteres
-> **Atenção:** o cache do mapa público, o limitador de requisições e a lista de tokens revogados ficam na memória do processo. Em ambiente serverless (várias instâncias de vida curta) cada instância tem a sua cópia, então esses três recursos perdem eficácia. O projeto é pensado para um processo Node de longa duração, como no Render.
-
-3. As rotas públicas (`/api/public/*`) emitem cabeçalhos `CDN-Cache-Control` e `Vercel-CDN-Cache-Control` com `s-maxage=10, stale-while-revalidate=60, stale-if-error=300`, garantindo carregamento instantâneo na borda e resiliência contra picos de acesso.
-
-### Opção 3: VPS Linux + Docker Compose + Apache/Cloudflare CDN
+### Opção 2: VPS Linux + Docker Compose
 1. Execute `docker compose up -d --build` no servidor.
-2. Utilize o arquivo [`.htaccess`](.htaccess) no proxy reverso Apache (ou aponte o Cloudflare Tunnel/Nginx para `127.0.0.1:3000`).
+2. Aponte um proxy reverso com HTTPS (Nginx, Caddy ou Cloudflare Tunnel) para `127.0.0.1:3000` e ajuste `PROXIES_CONFIAVEIS` para o número de proxies na frente da aplicação.
+
+> **Atenção:** o cache do mapa público, o limitador de requisições e a lista de tokens revogados ficam na memória do processo. Por isso o projeto roda em **um processo Node de longa duração**, e não em plataformas serverless (várias instâncias de vida curta, cada uma com a sua cópia): nelas esses três recursos perdem eficácia.
 
 ---
 

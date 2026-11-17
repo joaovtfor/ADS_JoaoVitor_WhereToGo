@@ -8,6 +8,7 @@ import { Botao, BotaoIcone, classesBotao } from "@/components/ui/botao";
 import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
+import { Logo } from "@/components/ui/logo";
 import { api, mensagemErro } from "@/lib/cliente-api";
 
 interface RespostaLogin {
@@ -375,7 +376,7 @@ export default function PaginaLogin() {
 
       <header className="mx-auto flex w-full max-w-sm items-center justify-between">
         <Link href="/" prefetch={false} className={juntarClasses("flex items-center rounded-controle", FOCO)}>
-          <img src="/logos/logo-completa-clara.webp" alt="WhereToGo" width={130} height={44} className="h-11 w-auto object-contain" />
+          <Logo marca="completa" alt="WhereToGo" className="h-11" />
         </Link>
         <Link href="/" prefetch={false} className={classesBotao("fantasma", "sm")}>
           <Icone de={ArrowLeft} tamanho={16} />

@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "-p", "3100"],
       "port": 3100
+    },
+    {
+      "name": "wheretogo-prod-3100",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "process.env.PORT='3100';import('./scripts/start-prod.mjs')"],
+      "port": 3100
     }
   ]
 }

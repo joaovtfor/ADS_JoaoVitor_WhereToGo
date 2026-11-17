@@ -1,6 +1,7 @@
 import { revalidateTag } from "next/cache";
 import { connection, type NextRequest } from "next/server";
 import { TAG_DADOS_PUBLICOS } from "./cache";
+import type { LimitadorTentativas } from "./limitador";
 import { z } from "./validacao";
 
 /** Erro de negócio/HTTP com código estável para o frontend. */
@@ -276,9 +277,10 @@ export async function lerParametros<S extends z.ZodType>(
 // -----------------------------------------------------------------------------
 
 /**
- * Quantos proxies confiáveis ficam na frente da aplicação (padrão: 1, o Apache
- * do .htaccess). Cada proxy ACRESCENTA o IP de quem o chamou ao fim do
- * X-Forwarded-For; o início da lista é escrito pelo próprio cliente.
+ * Quantos proxies confiáveis ficam na frente da aplicação (padrão: 1, um proxy
+ * reverso; no Render o valor vem do render.yaml). Cada proxy ACRESCENTA o IP de
+ * quem o chamou ao fim do X-Forwarded-For; o início da lista é escrito pelo
+ * próprio cliente.
  */
 function proxiesConfiaveis(): number {
   const valor = Number(process.env.PROXIES_CONFIAVEIS ?? 1);
@@ -299,4 +301,19 @@ export function obterIp(req: Request): string | null {
   const encaminhado = saltos > 0 && cadeia.length > 0 ? cadeia[Math.max(0, cadeia.length - saltos)] : undefined;
   const ip = encaminhado || req.headers.get("x-real-ip")?.trim();
   return ip ? ip.slice(0, 45) : null;
+}
+
+/**
+ * Limite de requisições por IP para rotas públicas (sem login). Passou do
+ * limite: 429 com `aviso` e o tempo de espera. Sem IP identificável (acesso direto, sem
+ * proxy, como no desenvolvimento local) não há chave para contar e a requisição
+ * segue, como já acontece no limitador de login.
+ */
+export function limitarPorIp(req: Request, limitador: LimitadorTentativas, aviso: string): void {
+  const ip = obterIp(req);
+  if (!ip) return;
+  const espera = limitador.consumir(ip);
+  if (espera > 0) {
+    throw erros.muitasTentativas(`${aviso} Tente novamente em ${Math.ceil(espera / 60)} minuto(s).`);
+  }
 }

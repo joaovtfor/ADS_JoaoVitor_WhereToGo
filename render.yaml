@@ -10,6 +10,10 @@ services:
     dockerContext: .
     plan: free
     region: oregon
+    # Publica só depois que o CI do commit (GitHub Actions) passa. O padrão do
+    # Render, `commit`, publicava em paralelo com o CI, inclusive commits que
+    # quebram os testes.
+    autoDeployTrigger: checksPass
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV

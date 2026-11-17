@@ -1,7 +1,7 @@
 /**
- * Limitador de tentativas em memória (janela fixa) para mitigar força bruta no
- * login. Suficiente para uma instância única (Docker/MVP); com várias réplicas,
- * o estado deveria ir para um armazenamento compartilhado (ex.: Redis).
+ * Limitador em memória (janela fixa): mitiga força bruta no login e abuso das
+ * rotas públicas. Suficiente para uma instância única (Docker/MVP); com várias
+ * réplicas, o estado deveria ir para um armazenamento compartilhado (ex.: Redis).
  */
 export class LimitadorTentativas {
   private readonly registros = new Map<string, { falhas: number; expiraEm: number }>();
@@ -30,6 +30,16 @@ export class LimitadorTentativas {
       return;
     }
     registro.falhas += 1;
+  }
+
+  /**
+   * Conta um uso da chave (limite de requisições, e não só de falhas). Devolve
+   * os segundos de espera se o limite já foi atingido, ou 0 se o uso foi aceito.
+   */
+  consumir(chave: string, agora = Date.now()): number {
+    const espera = this.segundosBloqueado(chave, agora);
+    if (espera === 0) this.registrarFalha(chave, agora);
+    return espera;
   }
 
   limpar(chave: string): void {
@@ -61,3 +71,16 @@ export const limitadorIpLogin = new LimitadorTentativas(50, 15 * 60 * 1000);
  */
 export const limitadorGoogle = new LimitadorTentativas(30, 15 * 60 * 1000);
 
+/**
+ * Reporte cidadão (rota pública de escrita): no máximo 10 envios por IP a cada
+ * 15 minutos. Sem isso, um script enche a fila de moderação da coordenação.
+ * A folga cobre várias pessoas atrás do mesmo IP (Wi-Fi de um abrigo).
+ */
+export const limitadorReportePublico = new LimitadorTentativas(10, 15 * 60 * 1000);
+
+/**
+ * Busca pública de acolhidos: no máximo 30 consultas por IP a cada 5 minutos.
+ * Quem procura um familiar tenta algumas grafias; varrer o cadastro inteiro
+ * com combinações de 3 letras exige milhares de consultas.
+ */
+export const limitadorBuscaAcolhidos = new LimitadorTentativas(30, 5 * 60 * 1000);
