@@ -10,6 +10,7 @@ import { ItemMenu, Menu } from "@/components/ui/menu";
 import { CabecalhoPagina, EstadoVazio, Secao } from "@/components/ui/pagina";
 import { SeloStatus } from "@/components/ui/selo-status";
 import { api, mensagemErro } from "@/lib/cliente-api";
+import { pode } from "@/lib/auth/permissoes";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
 import { ModalEdicao, ModalHistorico, ModalSaida, ModalTransferenciaAcolhido } from "./modais";
 import { formatarCpf, formatarMomento, formatarNascimento, type Abrigado, type FiltroAcolhimento, type PaginaAbrigados } from "./tipos";
@@ -95,7 +96,12 @@ function FormCheckin({ somenteLeitura, enviando, aguardandoCadastro, onRegistrar
 
 export default function PaginaAbrigados() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, abrigos, recarregarAbrigos } = useAdmin();
-  const podeGerenciar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
+  // Check-in é da equipe do abrigo; a Defesa Civil consulta e transfere entre abrigos.
+  const podeRegistrar = pode(usuario, "abrigado:registrar");
+  const podeEditar = pode(usuario, "abrigado:editar");
+  const podeTransferir = pode(usuario, "abrigado:transferir");
+  const podeDesligar = pode(usuario, "abrigado:desligar");
+  const temAcoes = podeEditar || podeTransferir || podeDesligar;
   const somenteLeitura = abrigoAtivo ? !abrigoAtivo.ativo : false;
 
   const [dados, setDados] = useState<PaginaAbrigados | null>(null);
@@ -163,26 +169,28 @@ export default function PaginaAbrigados() {
       <CabecalhoPagina titulo="Acolhidos" descricao="Entrada na portaria, com ou sem documento, saídas e transferências entre abrigos." />
 
       <div className="grid grid-cols-1 gap-x-10 gap-y-8 lg:grid-cols-12">
-        <Secao
-          titulo="Check-in"
-          className="lg:col-span-4"
-          acoes={<SeloStatus nivel={vagasLivres > 0 ? "ok" : "critico"}>{vagasLivres === 1 ? "1 vaga livre" : `${vagasLivres} vagas livres`}</SeloStatus>}
-        >
-          <FormCheckin
-            somenteLeitura={somenteLeitura}
-            enviando={enviando}
-            aguardandoCadastro={abrigoAtivo?.acolhidosNaoTriados ?? 0}
-            onRegistrar={(corpo) =>
-              executar(
-                () => api<{ abrigado: Abrigado; reentrada: boolean }>(`/api/abrigos/${idAbrigoAtivo}/abrigados`, { method: "POST", body: JSON.stringify(corpo) }),
-                (resposta) =>
-                  resposta.reentrada ? `Reentrada de ${resposta.abrigado.nomeCompleto} registrada.` : `Check-in de ${resposta.abrigado.nomeCompleto} feito.`,
-              )
-            }
-          />
-        </Secao>
+        {podeRegistrar && (
+          <Secao
+            titulo="Check-in"
+            className="lg:col-span-4"
+            acoes={<SeloStatus nivel={vagasLivres > 0 ? "ok" : "critico"}>{vagasLivres === 1 ? "1 vaga livre" : `${vagasLivres} vagas livres`}</SeloStatus>}
+          >
+            <FormCheckin
+              somenteLeitura={somenteLeitura}
+              enviando={enviando}
+              aguardandoCadastro={abrigoAtivo?.acolhidosNaoTriados ?? 0}
+              onRegistrar={(corpo) =>
+                executar(
+                  () => api<{ abrigado: Abrigado; reentrada: boolean }>(`/api/abrigos/${idAbrigoAtivo}/abrigados`, { method: "POST", body: JSON.stringify(corpo) }),
+                  (resposta) =>
+                    resposta.reentrada ? `Reentrada de ${resposta.abrigado.nomeCompleto} registrada.` : `Check-in de ${resposta.abrigado.nomeCompleto} feito.`,
+                )
+              }
+            />
+          </Secao>
+        )}
 
-        <section className="space-y-3 lg:col-span-8">
+        <section className={podeRegistrar ? "space-y-3 lg:col-span-8" : "space-y-3 lg:col-span-12"}>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-48 flex-1">
               <Icone de={Search} tamanho={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-texto-3" />
@@ -222,22 +230,22 @@ export default function PaginaAbrigados() {
                       </p>
                     </div>
 
-                    {podeGerenciar ? (
+                    {temAcoes ? (
                       <Menu rotulo={`Ações para ${abrigado.nomeCompleto}`} icone={Ellipsis}>
                         <ItemMenu icone={History} onClick={() => setModal({ tipo: "historico", abrigado })}>
                           Histórico de transferências
                         </ItemMenu>
-                        {!somenteLeitura && (
+                        {!somenteLeitura && podeEditar && (
                           <ItemMenu icone={Pencil} onClick={() => setModal({ tipo: "edicao", abrigado })}>
                             Editar cadastro
                           </ItemMenu>
                         )}
-                        {!somenteLeitura && presente && (
+                        {!somenteLeitura && presente && podeTransferir && (
                           <ItemMenu icone={ArrowLeftRight} onClick={() => setModal({ tipo: "transferencia", abrigado })}>
                             Transferir de abrigo
                           </ItemMenu>
                         )}
-                        {!somenteLeitura && presente && (
+                        {!somenteLeitura && presente && podeDesligar && (
                           <button
                             type="button"
                             role="menuitem"

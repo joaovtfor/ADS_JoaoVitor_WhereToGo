@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { verificarToken } from "./lib/auth/jwt";
-import { ROTA_INICIAL_POR_PAPEL } from "./lib/auth/rbac";
+import { ROTA_INICIAL_POR_PAPEL } from "./lib/auth/permissoes";
 import { COOKIE_SESSAO } from "./lib/auth/sessao";
 
 function redirecionarSemCache(destino: string, req: NextRequest) {

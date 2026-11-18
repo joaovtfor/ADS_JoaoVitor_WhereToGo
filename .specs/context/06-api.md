@@ -32,24 +32,28 @@ Listagens paginadas (`?pagina=1&tamanho=50`, máx. 200):
 
 ## 2. Matriz RBAC (RNF05)
 
-"Próprio" = somente dados do abrigo ao qual o usuário está vinculado. ADMIN tem visão global.
+"Próprio" = somente dados do abrigo ao qual o usuário está vinculado. ADMIN e DEFESA_CIVIL têm visão global (sem vínculo com abrigo). A matriz fica em `src/lib/auth/permissoes.ts`.
 
-| Ação | ADMIN | COORDENADOR | VOLUNTARIO |
-|---|:---:|:---:|:---:|
-| Ver abrigo / estoque / ocorrências / abrigados | todos | próprio | próprio |
-| Cadastrar abrigo; editar nome, endereço, localização, **PIX**, ativo | ✅ | ❌ | ❌ |
-| Editar telefone, capacidade e acolhidos não triados do abrigo | ✅ | próprio | ❌ |
-| Dashboard de triagem (RF04) | ✅ | próprio | ❌ |
-| Movimentar estoque +/- (RF02) | ✅ | próprio | próprio |
-| Ajuste de inventário (AJUSTE) e transferência de itens | ✅ | próprio | ❌ |
-| Status URGENTE/NORMAL/BLOQUEADO e estoque mínimo (RF03) | ✅ | próprio | ❌ |
-| Histórico de movimentações | ✅ | próprio | ❌ |
-| Registrar/resolver ocorrência de infraestrutura (RF05) | ✅ | próprio | ❌ |
-| Registrar entrada de abrigado (check-in) | ✅ | próprio | próprio |
-| Editar, desligar e transferir abrigado | ✅ | próprio | ❌ |
-| Gerenciar catálogo (categorias/itens) | ✅ | ❌ | ❌ |
-| Gerenciar usuários | todos | voluntários do próprio abrigo | ❌ |
-| Consultar auditoria (RF13) | todos | próprio | ❌ |
+| Ação | ADMIN | DEFESA_CIVIL | COORDENADOR | VOLUNTARIO |
+|---|:---:|:---:|:---:|:---:|
+| Ver abrigo / estoque / ocorrências / abrigados | todos | todos | próprio | próprio |
+| Cadastrar abrigo; editar nome, endereço, localização, **PIX**, ativo | ✅ | ❌ | ❌ | ❌ |
+| Editar telefone, capacidade e acolhidos não triados do abrigo | ✅ | ❌ | próprio | ❌ |
+| Dashboard de triagem (RF04) | ✅ | todos | próprio | ❌ |
+| Movimentar estoque +/- (RF02) | ✅ | ❌ | próprio | próprio |
+| Ajuste de inventário (AJUSTE) | ✅ | ❌ | próprio | ❌ |
+| Transferência de itens entre abrigos | ✅ | todos | próprio | ❌ |
+| Status URGENTE/NORMAL/BLOQUEADO e estoque mínimo (RF03) | ✅ | ❌ | próprio | ❌ |
+| Histórico de movimentações | ✅ | todos | próprio | ❌ |
+| Registrar/resolver/moderar ocorrência de infraestrutura (RF05) | ✅ | todos | próprio | ❌ |
+| Ocorrência regional (sem abrigo): registrar e encerrar | ✅ | ✅ | ❌ (consulta) | ❌ (consulta) |
+| Registrar entrada de abrigado (check-in) | ✅ | ❌ | próprio | próprio |
+| Editar e desligar abrigado | ✅ | ❌ | próprio | ❌ |
+| Transferir abrigado | ✅ | todos | próprio | ❌ |
+| Gerenciar catálogo (categorias/itens) | ✅ | ❌ | ❌ | ❌ |
+| Gerenciar usuários | todos | ❌ | voluntários do próprio abrigo | ❌ |
+| Consultar auditoria (RF13) | todos | todos | próprio | ❌ |
+| Forçar consulta aos avisos do INMET | ✅ | ✅ | ❌ | ❌ |
 
 ## 3. Endpoints
 
@@ -62,6 +66,10 @@ Listagens paginadas (`?pagina=1&tamanho=50`, máx. 200):
 | GET | `/api/public/abrigos/{id}` | RF07 - card: ocupação, contato, `pix`, `rotas` (Google Maps/Waze), necessidades, ocorrências ativas |
 | GET | `/api/public/categorias` | RF08 - categorias e itens ativos para o menu de filtros |
 | GET | `/api/public/alertas` | RF09 - ocorrências ativas com coordenadas (`formato=json\|geojson`) |
+| GET | `/api/public/mapa` | Abrigos, alertas e `avisos` (INMET) numa resposta só, com ETag (304 sem corpo quando nada mudou). Query: `lat`, `lng`, `raioKm` |
+| GET | `/api/public/avisos` | Avisos meteorológicos oficiais do INMET vigentes ou previstos para o município: `evento`, `severidade` (`MODERADA\|SEVERA\|EXTREMA`), `rotuloSeveridade`, `inicio`, `fim`, `riscos`, `instrucoes`, `link` |
+
+As leituras de `/api/public/mapa`, `/api/public/avisos` e `/api/integracoes/avisos` também disparam, depois da resposta, a consulta ao INMET quando a última tem mais de `INTERVALO_AVISOS_MIN` (ver `.specs/plano-integracao-defesa-civil.md` §3).
 
 Regras do filtro (RF08): `destaque: true` quando o abrigo tem item **URGENTE** na categoria/item escolhido; itens **BLOQUEADOS** nunca geram destaque. Ordenação: destacados primeiro, depois menor distância (PostGIS). Dados pessoais e quantidades de estoque **não** são expostos.
 
@@ -122,6 +130,9 @@ Resposta `201`: `{ idAbrigo, idItem, item, unidadeMedida, quantidadeAtual, movim
 | GET | `/api/abrigos/{id}/ocorrencias` | Query `ativas=true\|false` |
 | POST | `/api/abrigos/{id}/ocorrencias` | `{ tipo, gravidade?, descricao?, latitude?, longitude? }` → ocorrência + novo `statusInfraestrutura` |
 | POST | `/api/abrigos/{id}/ocorrencias/{ocorrenciaId}/resolucao` | `{ observacao? }` → resolve e recalcula o status |
+| GET | `/api/ocorrencias` | Ocorrências regionais (do município, sem abrigo). Query `ativas=true\|false`. Qualquer usuário logado |
+| POST | `/api/ocorrencias` | ADMIN e DEFESA_CIVIL: `{ tipo, gravidade?, descricao?, latitude, longitude }` ou `{ tipo, poligono }`. Tipos: `VIA_BLOQUEADA`, `AREA_RISCO`, `ALAGAMENTO`, `DESLIZAMENTO`, `OUTRO`. Entra aprovada; área de risco marca os abrigos cobertos (`emAreaDeRisco`) sem mudar o status deles |
+| POST | `/api/ocorrencias/{ocorrenciaId}/resolucao` | ADMIN e DEFESA_CIVIL: encerra a ocorrência regional |
 
 Tipos: `SEM_ENERGIA`, `SEM_AGUA`, `SEM_COMUNICACAO`, `VIA_BLOQUEADA`, `ALAGAMENTO`, `DESLIZAMENTO`, `RISCO_ESTRUTURAL`, `OUTRO` (exige descrição). Gravidade padrão: CRITICO para via/alagamento/deslizamento/risco estrutural; ALERTA para os demais.
 
@@ -146,6 +157,12 @@ Tipos: `SEM_ENERGIA`, `SEM_AGUA`, `SEM_COMUNICACAO`, `VIA_BLOQUEADA`, `ALAGAMENT
 | GET / POST | `/api/usuarios` | Lista (`papel`, `idAbrigo`, `ativo`, `busca`) / cria `{ nome, email, senha, papel, idAbrigo? }` |
 | GET / PATCH | `/api/usuarios/{id}` | Detalhe / atualiza `{ nome?, email?, senha?, papel?, idAbrigo?, ativo? }` |
 | GET | `/api/auditoria` | Logs imutáveis. Query: `idUsuario`, `idAbrigo`, `acao`, `de`, `ate`, paginação |
+
+### 3.8. Avisos oficiais do INMET
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/api/integracoes/avisos` | Qualquer usuário logado (`aviso:ver`): `{ avisos, estado }`, com última consulta, falhas seguidas, pausa do breaker e último erro |
+| POST | `/api/integracoes/avisos/sincronizacao` | Só ADMIN (`aviso:sincronizar`): consulta o INMET na hora, ignorando o intervalo e a pausa. Audita `AVISOS_CONSULTADOS` |
 
 ## 4. Exemplo de uso (curl)
 ```bash

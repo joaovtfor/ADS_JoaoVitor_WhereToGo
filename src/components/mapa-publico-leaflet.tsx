@@ -88,7 +88,8 @@ function criarIconeAlerta(alerta: AlertaMapa): L.DivIcon {
 
 function textoDoAlerta(alerta: AlertaMapa): string {
   const descricao = alerta.descricao ? `${escaparHtml(alerta.descricao)}<br>` : "";
-  return `<strong>${escaparHtml(alerta.descricaoTipo)}</strong>${descricao}Perto de ${escaparHtml(alerta.abrigo.nome)}`;
+  const onde = alerta.abrigo ? `Perto de ${escaparHtml(alerta.abrigo.nome)}` : "Alerta regional (Defesa Civil)";
+  return `<strong>${escaparHtml(alerta.descricaoTipo)}</strong>${descricao}${onde}`;
 }
 
 export default function MapaPublicoLeaflet({
@@ -234,7 +235,11 @@ export default function MapaPublicoLeaflet({
 
     for (const alerta of alertas) {
       const texto = textoDoAlerta(alerta);
-      const verAbrigo = () => aoSelecionarRef.current(alerta.abrigo.id);
+      // Alerta regional (sem abrigo): o toque só mostra o texto, não abre ficha.
+      const idAbrigo = alerta.abrigo?.id;
+      const verAbrigo = () => {
+        if (idAbrigo !== undefined) aoSelecionarRef.current(idAbrigo);
+      };
 
       // Área de risco: só o contorno; o nome aparece ao tocar ou passar o mouse.
       if (Array.isArray(alerta.poligono) && alerta.poligono.length >= 3) {

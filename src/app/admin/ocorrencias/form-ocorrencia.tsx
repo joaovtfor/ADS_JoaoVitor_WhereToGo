@@ -8,7 +8,7 @@ import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { Chip } from "@/components/ui/chip";
 import type { AbrigoAdmin } from "../contexto-admin";
 import { rotuloOcorrencia } from "../rotulos";
-import { bordasSeCruzam, TIPOS_OCORRENCIA, type Gravidade } from "./tipos";
+import { bordasSeCruzam, TIPOS_OCORRENCIA, TIPOS_REGIONAIS, type Gravidade } from "./tipos";
 
 const SeletorPontoMapa = dynamic(() => import("@/components/seletor-ponto-mapa"), {
   ssr: false,
@@ -17,6 +17,8 @@ const SeletorPontoMapa = dynamic(() => import("@/components/seletor-ponto-mapa")
 
 interface PropriedadesFormOcorrencia {
   abrigo: AbrigoAdmin | null;
+  /** Ocorrência do município, sem abrigo: só tipos do território e local obrigatório. */
+  regional?: boolean;
   somenteLeitura: boolean;
   enviando: boolean;
   onErro: (mensagem: string) => void;
@@ -28,7 +30,8 @@ interface PropriedadesFormOcorrencia {
  * Registro de um alerta: tipo, gravidade, descrição e, se fizer sentido, o
  * local (um ponto) ou o contorno (área de risco) marcado no mapa.
  */
-export function FormOcorrencia({ abrigo, somenteLeitura, enviando, onErro, onRegistrar }: PropriedadesFormOcorrencia) {
+export function FormOcorrencia({ abrigo, regional = false, somenteLeitura, enviando, onErro, onRegistrar }: PropriedadesFormOcorrencia) {
+  const tipos = regional ? TIPOS_OCORRENCIA.filter((opcao) => TIPOS_REGIONAIS.has(opcao.tipo)) : TIPOS_OCORRENCIA;
   const [tipo, setTipo] = useState("VIA_BLOQUEADA");
   const [gravidade, setGravidade] = useState<Gravidade>("CRITICO");
   const [descricao, setDescricao] = useState("");
@@ -80,6 +83,10 @@ export function FormOcorrencia({ abrigo, somenteLeitura, enviando, onErro, onReg
     e.preventDefault();
     if (somenteLeitura) return;
     if (ehAreaDeRisco && poligono.length < 3) return onErro("Marque ao menos 3 pontos no mapa para delimitar a área de risco.");
+    // Sem abrigo não há "local do abrigo" para o alerta usar: o ponto ou a área é obrigatório.
+    if (regional && poligono.length < 3 && (latitude.trim() === "" || longitude.trim() === "")) {
+      return onErro("Marque no mapa o ponto ou a área afetada.");
+    }
 
     const corpo: Record<string, unknown> = { tipo, gravidade, descricao: descricao.trim() || null };
     if (poligono.length >= 3) {
@@ -101,7 +108,7 @@ export function FormOcorrencia({ abrigo, somenteLeitura, enviando, onErro, onReg
     <form onSubmit={enviar} className="space-y-4">
       <Campo rotulo="Tipo">
         <select disabled={somenteLeitura} value={tipo} onChange={(e) => selecionarTipo(e.target.value)} className={CLASSES_CAMPO}>
-          {TIPOS_OCORRENCIA.map((opcao) => (
+          {tipos.map((opcao) => (
             <option key={opcao.tipo} value={opcao.tipo}>
               {rotuloOcorrencia(opcao.tipo)}
             </option>
@@ -135,9 +142,13 @@ export function FormOcorrencia({ abrigo, somenteLeitura, enviando, onErro, onReg
 
       <div className="space-y-3 border-t border-borda pt-4">
         <div>
-          <p className="text-meta font-medium text-texto-2">{modoContorno ? "Contorno da área de risco" : "Local (opcional)"}</p>
+          <p className="text-meta font-medium text-texto-2">{modoContorno ? "Contorno da área de risco" : regional ? "Local" : "Local (opcional)"}</p>
           <p className="text-meta text-texto-3">
-            {modoContorno ? "Toque em 3 ou mais pontos do mapa para cercar a área." : "Sem local, o alerta aparece como aviso no pino do abrigo."}
+            {modoContorno
+              ? "Toque em 3 ou mais pontos do mapa para cercar a área."
+              : regional
+                ? "Toque no mapa no ponto afetado (ou mude o tipo para área de risco e cerque a área)."
+                : "Sem local, o alerta aparece como aviso no pino do abrigo."}
           </p>
         </div>
 
@@ -163,9 +174,11 @@ export function FormOcorrencia({ abrigo, somenteLeitura, enviando, onErro, onReg
             </>
           ) : (
             <>
-              <Botao tamanho="sm" disabled={somenteLeitura} onClick={usarLocalDoAbrigo}>
-                Local do abrigo
-              </Botao>
+              {abrigo && (
+                <Botao tamanho="sm" disabled={somenteLeitura} onClick={usarLocalDoAbrigo}>
+                  Local do abrigo
+                </Botao>
+              )}
               <Botao tamanho="sm" disabled={somenteLeitura} onClick={usarMinhaLocalizacao}>
                 Minha localização
               </Botao>

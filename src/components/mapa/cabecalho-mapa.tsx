@@ -67,7 +67,7 @@ export function CabecalhoMapa({
             Encontrar familiar
           </ItemMenu>
           <ItemMenu icone={TriangleExclamationPoint} onClick={onVerAlertas}>
-            Vias e áreas de risco ({totalAlertas})
+            Alertas e avisos ({totalAlertas})
           </ItemMenu>
           <ItemMenu icone={RefreshCw} onClick={onAtualizar}>
             Atualizar dados

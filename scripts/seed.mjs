@@ -67,6 +67,7 @@ const ABRIGOS = [
 
 const USUARIOS = [
   { email: 'admin@wheretogo.local', nome: 'Administração Geral', papel: 'ADMIN', abrigo: null },
+  { email: 'defesacivil@wheretogo.local', nome: 'Defesa Civil Municipal', papel: 'DEFESA_CIVIL', abrigo: null },
   { email: 'coordenador@wheretogo.local', nome: 'Coordenação - Abrigo Central UPF', papel: 'COORDENADOR', abrigo: 'central' },
   { email: 'voluntario@wheretogo.local', nome: 'Voluntário - Abrigo Central UPF', papel: 'VOLUNTARIO', abrigo: 'central' },
   { email: 'coordenador.centro@wheretogo.local', nome: 'Coordenação - Ginásio do Centro', papel: 'COORDENADOR', abrigo: 'centro' },
@@ -156,6 +157,19 @@ const OCORRENCIAS = {
     ],
   ],
 };
+
+/**
+ * Ocorrências regionais (sem abrigo), registradas pela Defesa Civil:
+ * [tipo, gravidade, descrição, [lat, lng]].
+ */
+const OCORRENCIAS_REGIONAIS = [
+  [
+    'VIA_BLOQUEADA',
+    'CRITICO',
+    'Ponte sobre o Rio Passo Fundo interditada para vistoria da Defesa Civil. Use o desvio sinalizado.',
+    [-28.2481, -52.3711],
+  ],
+];
 
 /** Completa uma base de 9 dígitos com os dígitos verificadores do CPF. */
 function gerarCpf(base) {
@@ -308,6 +322,19 @@ export async function executarSeed({ connectionString, senha, log = console.log 
         );
       }
     }
+    const idDefesaCivil = idsUsuario['defesacivil@wheretogo.local'];
+    for (const [tipo, gravidade, descricao, [latitude, longitude]] of OCORRENCIAS_REGIONAIS) {
+      const { rows } = await client.query(
+        'SELECT count(*)::int AS total FROM ocorrencia_infraestrutura WHERE id_abrigo IS NULL AND tipo = $1 AND descricao = $2',
+        [tipo, descricao],
+      );
+      if (rows[0].total > 0) continue;
+      await client.query(
+        `INSERT INTO ocorrencia_infraestrutura (id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude)
+         VALUES (NULL, $1, $2, $3, $4, $5, $6)`,
+        [idDefesaCivil, tipo, gravidade, descricao, latitude, longitude],
+      );
+    }
     log('[seed] ocorrências prontas.');
 
     // --- Uma transferência de exemplo (histórico) ----------------------------
@@ -330,6 +357,43 @@ export async function executarSeed({ connectionString, senha, log = console.log 
   } catch (erro) {
     await client.query('ROLLBACK');
     throw erro;
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Cria as contas de demonstração que ainda não existem, sem tocar nas que já
+ * existem (senha, papel e status ficam como estão). O start de produção chama
+ * quando o banco já tem dados: assim um perfil novo (ex.: DEFESA_CIVIL) aparece
+ * no ambiente publicado sem rodar o seed inteiro. Contas ligadas a um abrigo
+ * que não existe mais são ignoradas.
+ */
+export async function garantirContasDeDemonstracao({ connectionString, senha, log = console.log }) {
+  const ssl = obterConfigSslScript(connectionString);
+  const client = new pg.Client({ connectionString, application_name: 'wheretogo-seed-contas', ...(ssl ? { ssl } : {}) });
+  await client.connect();
+  try {
+    const { rows: existentes } = await client.query('SELECT email FROM usuario WHERE email = ANY($1::text[])', [USUARIOS.map((u) => u.email)]);
+    const faltantes = USUARIOS.filter((u) => !existentes.some((e) => e.email === u.email));
+    if (faltantes.length === 0) return 0;
+
+    const senhaHash = await bcrypt.hash(senha, 12);
+    let criadas = 0;
+    for (const u of faltantes) {
+      const nomeAbrigo = u.abrigo ? ABRIGOS.find((a) => a.chave === u.abrigo)?.nome : null;
+      const abrigo = nomeAbrigo ? (await client.query('SELECT id FROM abrigo WHERE nome = $1 AND ativo', [nomeAbrigo])).rows[0] : null;
+      if (u.abrigo && !abrigo) continue;
+      const { rowCount } = await client.query(
+        `INSERT INTO usuario (id_papel, id_abrigo, nome, email, senha_hash)
+         VALUES ((SELECT id FROM papel_usuario WHERE nome = $1), $2, $3, $4, $5)
+         ON CONFLICT (email) DO NOTHING`,
+        [u.papel, abrigo?.id ?? null, u.nome, u.email, senhaHash],
+      );
+      criadas += rowCount ?? 0;
+    }
+    if (criadas > 0) log(`[seed] ${criadas} conta(s) de demonstração criada(s).`);
+    return criadas;
   } finally {
     await client.end();
   }

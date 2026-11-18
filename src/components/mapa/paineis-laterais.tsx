@@ -8,7 +8,8 @@ import { FOCO, juntarClasses } from "@/components/ui/classes";
 import { Folha } from "@/components/ui/folha";
 import { Icone } from "@/components/ui/icone";
 import { SeloStatus } from "@/components/ui/selo-status";
-import { obterSeloAtualizacao, obterStatusGravidade, obterStatusOcupacao, type AbrigoMapa, type AlertaMapa } from "./tipos";
+import { ListaAvisosOficiais } from "./avisos-oficiais";
+import { obterSeloAtualizacao, obterStatusGravidade, obterStatusOcupacao, type AbrigoMapa, type AlertaMapa, type AvisoOficialMapa } from "./tipos";
 
 /** Painel à esquerda do mapa (folha inferior no celular), com título e resumo no cabeçalho. */
 function Gaveta({ titulo, subtitulo, onFechar, children }: { titulo: string; subtitulo: string; onFechar: () => void; children: ReactNode }) {
@@ -45,6 +46,8 @@ function Retorno({ nivel, children }: { nivel: "ok" | "critico"; children: React
 
 interface PropriedadesPainelAlertas {
   alertas: AlertaMapa[];
+  /** Avisos oficiais do INMET ainda não vencidos. */
+  avisos?: AvisoOficialMapa[];
   abrigos?: AbrigoMapa[];
   posicaoUsuario?: { lat: number; lng: number } | null;
   onVerNoMapa: (alerta: AlertaMapa) => void;
@@ -60,9 +63,19 @@ const TIPOS_REPORTE_CIDADAO = [
   { tipo: "OUTRO", rotulo: "Outro incidente" },
 ] as const;
 
-/** Vias bloqueadas e áreas de risco ativas, com o formulário de reporte do cidadão (moderado pela coordenação). */
+function resumirAlertasEAvisos(totalAlertas: number, totalAvisos: number): string {
+  const alertas = totalAlertas === 1 ? "1 alerta ativo" : `${totalAlertas} alertas ativos`;
+  if (totalAvisos === 0) return alertas;
+  return `${totalAvisos === 1 ? "1 aviso do INMET" : `${totalAvisos} avisos do INMET`} · ${alertas}`;
+}
+
+/**
+ * Avisos oficiais do INMET, vias bloqueadas e áreas de risco ativas, com o
+ * formulário de reporte do cidadão (moderado pela coordenação).
+ */
 export function PainelAlertas({
   alertas,
+  avisos = [],
   abrigos = [],
   posicaoUsuario = null,
   onVerNoMapa,
@@ -124,12 +137,10 @@ export function PainelAlertas({
   }
 
   return (
-    <Gaveta
-      titulo="Vias e áreas de risco"
-      subtitulo={alertas.length === 1 ? "1 alerta ativo" : `${alertas.length} alertas ativos`}
-      onFechar={onFechar}
-    >
-      <div className="space-y-3 py-4">
+    <Gaveta titulo="Alertas e avisos" subtitulo={resumirAlertasEAvisos(alertas.length, avisos.length)} onFechar={onFechar}>
+      <ListaAvisosOficiais avisos={avisos} />
+
+      <div className={juntarClasses("space-y-3 py-4", avisos.length > 0 && "border-t border-borda")}>
         <div className="flex items-center justify-between gap-3">
           <p className="text-corpo text-texto-2">Viu uma via interditada ou um alagamento?</p>
           <Botao
@@ -214,16 +225,18 @@ export function PainelAlertas({
             </div>
             {alerta.descricao && <p className="mt-1 text-corpo text-texto-2">{alerta.descricao}</p>}
             <p className="mt-1 text-meta text-texto-3">
-              {obterSeloAtualizacao(alerta.dataRegistro).rotulo} · Perto de {alerta.abrigo.nome}
+              {obterSeloAtualizacao(alerta.dataRegistro).rotulo} · {alerta.abrigo ? `Perto de ${alerta.abrigo.nome}` : "Alerta regional (Defesa Civil)"}
               {!alerta.localizacaoPropria && " · local exato não informado"}
             </p>
             <div className="mt-3 flex gap-2">
               <Botao tamanho="sm" icone={MapPin} onClick={() => onVerNoMapa(alerta)}>
                 Ver no mapa
               </Botao>
-              <Botao tamanho="sm" variante="fantasma" onClick={() => onVerAbrigo(alerta.abrigo.id)}>
-                Ver abrigo
-              </Botao>
+              {alerta.abrigo && (
+                <Botao tamanho="sm" variante="fantasma" onClick={() => onVerAbrigo(alerta.abrigo!.id)}>
+                  Ver abrigo
+                </Botao>
+              )}
             </div>
           </article>
         );

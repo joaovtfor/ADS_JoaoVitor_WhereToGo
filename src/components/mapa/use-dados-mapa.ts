@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AbrigoMapa, AlertaMapa, CategoriaPublica } from "./tipos";
+import type { AbrigoMapa, AlertaMapa, AvisoOficialMapa, CategoriaPublica } from "./tipos";
 
 type Posicao = { lat: number; lng: number };
 
@@ -16,6 +16,8 @@ const URL_MAPA = "/api/public/mapa";
 export interface DadosIniciaisMapa {
   abrigos: AbrigoMapa[];
   alertas: AlertaMapa[];
+  /** Avisos oficiais do INMET (opcional: respostas de versões anteriores não têm). */
+  avisos?: AvisoOficialMapa[];
   categorias: CategoriaPublica[];
   /** Versão dos abrigos e alertas, para a primeira atualização já poder vir vazia (304). */
   etag: string;
@@ -25,6 +27,8 @@ export interface DadosIniciaisMapa {
 interface EstadoSalvo {
   abrigos: AbrigoMapa[];
   alertas: AlertaMapa[];
+  /** Ausente em estados salvos antes dos avisos do INMET. */
+  avisos?: AvisoOficialMapa[];
   categorias: CategoriaPublica[];
   salvoEm: string;
 }
@@ -53,7 +57,7 @@ async function buscarDados<T>(url: string, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * Dados do mapa público: abrigos, alertas e categorias.
+ * Dados do mapa público: abrigos, alertas, avisos oficiais (INMET) e categorias.
  *
  * - A primeira leitura vem do servidor, no HTML da página (`inicial`): o mapa
  *   tem dados antes de qualquer requisição do navegador.
@@ -69,6 +73,7 @@ async function buscarDados<T>(url: string, signal: AbortSignal): Promise<T> {
 export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, inicial: DadosIniciaisMapa | null = null) {
   const [abrigos, setAbrigos] = useState<AbrigoMapa[]>(inicial?.abrigos ?? []);
   const [alertas, setAlertas] = useState<AlertaMapa[]>(inicial?.alertas ?? []);
+  const [avisos, setAvisos] = useState<AvisoOficialMapa[]>(inicial?.avisos ?? []);
   const [categorias, setCategorias] = useState<CategoriaPublica[]>(inicial?.categorias ?? []);
   const [carregando, setCarregando] = useState(inicial === null);
   const [erro, setErro] = useState<string | null>(null);
@@ -88,6 +93,7 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
   const aplicarEstadoSalvo = useCallback((salvo: EstadoSalvo) => {
     setAbrigos(salvo.abrigos);
     setAlertas(salvo.alertas);
+    setAvisos(salvo.avisos ?? []);
     if (categoriasRef.current.length === 0) {
       categoriasRef.current = salvo.categorias;
       setCategorias(salvo.categorias);
@@ -134,7 +140,10 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
         return false;
       }
 
-      const { dados } = (await resposta.json()) as { dados: { abrigos: AbrigoMapa[]; alertas: AlertaMapa[] } };
+      const { dados } = (await resposta.json()) as {
+        dados: { abrigos: AbrigoMapa[]; alertas: AlertaMapa[]; avisos?: AvisoOficialMapa[] };
+      };
+      const novosAvisos = dados.avisos ?? [];
       const etag = resposta.headers.get("ETag");
       versaoRef.current = etag ? { url, etag } : null;
       // Lista e localização mudam juntas, no mesmo render. Se `posicaoDosDados`
@@ -142,10 +151,11 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
       // ainda sem as distâncias, e o "mais próximo" sairia em ordem alfabética.
       setAbrigos(dados.abrigos);
       setAlertas(dados.alertas);
+      setAvisos(novosAvisos);
       setPosicaoDosDados(posicao);
       setErro(null);
       setDadosSalvosDe(null);
-      salvarEstado({ abrigos: dados.abrigos, alertas: dados.alertas, categorias: listaCategorias, salvoEm: agora });
+      salvarEstado({ abrigos: dados.abrigos, alertas: dados.alertas, avisos: novosAvisos, categorias: listaCategorias, salvoEm: agora });
       return true;
     } catch {
       if (controlador.signal.aborted) return false;
@@ -181,7 +191,13 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
       // Os dados enviados pelo servidor com a página também valem para o modo offline.
       if (inicial && !inicialSalvoRef.current) {
         inicialSalvoRef.current = true;
-        salvarEstado({ abrigos: inicial.abrigos, alertas: inicial.alertas, categorias: inicial.categorias, salvoEm: inicial.geradoEm });
+        salvarEstado({
+          abrigos: inicial.abrigos,
+          alertas: inicial.alertas,
+          avisos: inicial.avisos ?? [],
+          categorias: inicial.categorias,
+          salvoEm: inicial.geradoEm,
+        });
       }
 
       // O que está na tela é o mapa sem localização e tem menos de um intervalo de
@@ -224,5 +240,5 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
     void carregar();
   }, [carregar]);
 
-  return { abrigos, alertas, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, recarregar };
+  return { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, recarregar };
 }

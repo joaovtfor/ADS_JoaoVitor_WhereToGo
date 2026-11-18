@@ -8,6 +8,7 @@ import {
   GRAVIDADE_PADRAO,
   GRAVIDADES,
   TIPOS_OCORRENCIA,
+  TIPOS_OCORRENCIA_REGIONAL,
   type Gravidade,
   type StatusInfraestrutura,
   type TipoOcorrencia,
@@ -46,6 +47,20 @@ export const esquemaRegistrarOcorrencia = z
     path: ["poligono"],
   });
 
+/**
+ * Ocorrência regional (sem abrigo): só tipos do território e sempre com local
+ * no mapa, ponto ou área (sem abrigo não há "local do abrigo" para usar).
+ */
+export const esquemaRegistrarOcorrenciaRegional = esquemaRegistrarOcorrencia
+  .refine((d) => (TIPOS_OCORRENCIA_REGIONAL as readonly string[]).includes(d.tipo), {
+    message: "Ocorrência regional só pode ser via bloqueada, área de risco, alagamento, deslizamento ou outra.",
+    path: ["tipo"],
+  })
+  .refine((d) => (d.poligono?.length ?? 0) >= 3 || d.latitude != null, {
+    message: "Ocorrência regional precisa de um local no mapa (ponto ou área).",
+    path: ["latitude"],
+  });
+
 export const esquemaResolverOcorrencia = z.object({ observacao: textoOpcional(500) });
 
 export const esquemaModerarOcorrencia = z.object({
@@ -75,7 +90,8 @@ const FROM_OCORRENCIA = `
 
 interface Ocorrencia {
   id: number;
-  idAbrigo: number;
+  /** Nulo em ocorrência regional (do território, sem abrigo). */
+  idAbrigo: number | null;
   tipo: TipoOcorrencia;
   gravidade: Gravidade;
   descricao: string | null;
@@ -165,18 +181,22 @@ export async function registrarOcorrencia(
   return { ocorrencia: apresentar(ocorrencia!), statusInfraestrutura: await statusAtual(idAbrigo) };
 }
 
-export async function resolverOcorrencia(
+/**
+ * Encerra uma ocorrência do abrigo (`idAbrigo`) ou regional (`idAbrigo` nulo).
+ * O filtro pelo abrigo impede encerrar, pela rota de um abrigo, a ocorrência de
+ * outro (ou uma regional).
+ */
+async function encerrarOcorrencia(
   ctx: Contexto,
-  idAbrigo: number,
+  idAbrigo: number | null,
   idOcorrencia: number,
   dados: z.infer<typeof esquemaResolverOcorrencia>,
 ) {
-  exigirPermissao(ctx.usuario, "ocorrencia:gerenciar", idAbrigo);
-
   const ocorrencia = await comTransacao(async (client) => {
     const atual = await consultarUm<{ id: number; tipo: TipoOcorrencia; resolvida: boolean }>(
       `SELECT id, tipo, data_resolucao IS NOT NULL AS resolvida
-         FROM ocorrencia_infraestrutura WHERE id = $1 AND id_abrigo = $2 FOR UPDATE`,
+         FROM ocorrencia_infraestrutura
+        WHERE id = $1 AND id_abrigo IS NOT DISTINCT FROM $2 FOR UPDATE`,
       [idOcorrencia, idAbrigo],
       client,
     );
@@ -192,12 +212,88 @@ export async function resolverOcorrencia(
 
   auditar(ctx, {
     acao: "OCORRENCIA_RESOLVIDA",
-    descricao: `Ocorrência resolvida: ${DESCRICAO_TIPO_OCORRENCIA[ocorrencia!.tipo]}`,
+    descricao: `Ocorrência ${idAbrigo === null ? "regional " : ""}resolvida: ${DESCRICAO_TIPO_OCORRENCIA[ocorrencia!.tipo]}`,
     idAbrigo,
-    detalhes: { idOcorrencia, observacao: dados.observacao ?? null },
+    detalhes: { idOcorrencia, regional: idAbrigo === null, observacao: dados.observacao ?? null },
+  });
+  return apresentar(ocorrencia!);
+}
+
+export async function resolverOcorrencia(
+  ctx: Contexto,
+  idAbrigo: number,
+  idOcorrencia: number,
+  dados: z.infer<typeof esquemaResolverOcorrencia>,
+) {
+  exigirPermissao(ctx.usuario, "ocorrencia:gerenciar", idAbrigo);
+  const ocorrencia = await encerrarOcorrencia(ctx, idAbrigo, idOcorrencia, dados);
+  return { ocorrencia, statusInfraestrutura: await statusAtual(idAbrigo) };
+}
+
+// -----------------------------------------------------------------------------
+// Ocorrências regionais (sem abrigo) - Etapa 2 do plano de integração
+// -----------------------------------------------------------------------------
+
+/**
+ * Ocorrências do território (via interditada, área de risco...), registradas
+ * pela Defesa Civil ou pelo ADMIN. Qualquer pessoa da equipe pode consultar:
+ * afetam o acesso a todos os abrigos.
+ */
+export async function listarOcorrenciasRegionais(ctx: Contexto, filtros: z.infer<typeof esquemaFiltroOcorrencias>) {
+  exigirPermissao(ctx.usuario, "ocorrencia:ver");
+  const linhas = await consultar<Ocorrencia>(
+    `SELECT ${COLUNAS_OCORRENCIA} ${FROM_OCORRENCIA}
+      WHERE o.id_abrigo IS NULL AND ($1::boolean IS NULL OR (o.data_resolucao IS NULL) = $1)
+      ORDER BY (o.data_resolucao IS NULL) DESC, o.data_registro DESC`,
+    [filtros.ativas ?? null],
+  );
+  return linhas.map(apresentar);
+}
+
+/**
+ * Registra uma ocorrência regional. Já entra aprovada e vai para o mapa
+ * público. Uma área de risco regional marca os abrigos que ficam dentro dela
+ * (`emAreaDeRisco`), sem mudar o status de infraestrutura deles: o status fala
+ * da edificação de cada abrigo.
+ */
+export async function registrarOcorrenciaRegional(ctx: Contexto, dados: z.infer<typeof esquemaRegistrarOcorrenciaRegional>) {
+  exigirPermissao(ctx.usuario, "ocorrencia:regional");
+
+  const gravidade = dados.gravidade ?? GRAVIDADE_PADRAO[dados.tipo];
+  const poligonoValido = dados.poligono && dados.poligono.length >= 3 ? dados.poligono : null;
+
+  const registrada = await consultarUm<{ id: number }>(
+    `INSERT INTO ocorrencia_infraestrutura (
+       id_abrigo, id_usuario_registro, tipo, gravidade, descricao, latitude, longitude, area_risco
+     )
+     VALUES (NULL, $1, $2, $3, $4, $5, $6, fn_area_risco_de_vertices($7::jsonb)) RETURNING id`,
+    [
+      ctx.usuario.id,
+      dados.tipo,
+      gravidade,
+      dados.descricao ?? null,
+      poligonoValido ? null : (dados.latitude ?? null),
+      poligonoValido ? null : (dados.longitude ?? null),
+      poligonoValido ? JSON.stringify(poligonoValido) : null,
+    ],
+  );
+  const ocorrencia = await consultarUm<Ocorrencia>(`SELECT ${COLUNAS_OCORRENCIA} ${FROM_OCORRENCIA} WHERE o.id = $1`, [
+    registrada!.id,
+  ]);
+
+  auditar(ctx, {
+    acao: "OCORRENCIA_REGISTRADA",
+    descricao: `${DESCRICAO_TIPO_OCORRENCIA[dados.tipo]} (${gravidade}), ocorrência regional`,
+    idAbrigo: null,
+    detalhes: { idOcorrencia: registrada!.id, regional: true, ...dados, gravidade },
   });
 
-  return { ocorrencia: apresentar(ocorrencia!), statusInfraestrutura: await statusAtual(idAbrigo) };
+  return { ocorrencia: apresentar(ocorrencia!) };
+}
+
+export async function resolverOcorrenciaRegional(ctx: Contexto, idOcorrencia: number, dados: z.infer<typeof esquemaResolverOcorrencia>) {
+  exigirPermissao(ctx.usuario, "ocorrencia:regional");
+  return { ocorrencia: await encerrarOcorrencia(ctx, null, idOcorrencia, dados) };
 }
 
 /**

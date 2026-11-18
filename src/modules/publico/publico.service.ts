@@ -6,12 +6,14 @@ import { booleanoQuery, esquemaId, textoObrigatorio, textoOpcional, z } from "@/
 import { linksNavegacao, resumirOcupacao } from "../abrigos/ocupacao";
 import {
   DESCRICAO_TIPO_OCORRENCIA,
+  DESCRICAO_TIPO_OCORRENCIA_REGIONAL,
   GRAVIDADE_PADRAO,
   GRAVIDADES,
 
   type Gravidade,
   type StatusInfraestrutura,
   type TipoOcorrencia,
+  type TipoOcorrenciaRegional,
 } from "../dominio";
 import type { PontoPoligono } from "../ocorrencias/ocorrencias.service";
 
@@ -298,7 +300,11 @@ export function listarCategoriasPublicas() {
   );
 }
 
-/** RF09 - alertas de risco ativos aprovados (local próprio da ocorrência, polígono de área de risco ou o do abrigo). */
+/**
+ * RF09 - alertas de risco ativos aprovados (local próprio da ocorrência, polígono
+ * de área de risco ou o do abrigo). Ocorrências regionais (sem abrigo, da Defesa
+ * Civil) vêm com `abrigo: null` e sempre têm local próprio.
+ */
 export async function listarAlertasPublicos() {
   const alertas = await consultar<{
     id: number;
@@ -310,8 +316,8 @@ export async function listarAlertasPublicos() {
     poligono: PontoPoligono[] | null;
     localizacaoPropria: boolean;
     dataRegistro: Date;
-    idAbrigo: number;
-    abrigo: string;
+    idAbrigo: number | null;
+    abrigo: string | null;
   }>(
     `SELECT o.id, o.tipo, o.gravidade, o.descricao,
             COALESCE(o.latitude, a.latitude) AS latitude, COALESCE(o.longitude, a.longitude) AS longitude,
@@ -320,14 +326,18 @@ export async function listarAlertasPublicos() {
             o.data_registro AS "dataRegistro",
             a.id AS "idAbrigo", a.nome AS abrigo
        FROM ocorrencia_infraestrutura o
-       JOIN abrigo a ON a.id = o.id_abrigo AND a.ativo
+       LEFT JOIN abrigo a ON a.id = o.id_abrigo
       WHERE o.data_resolucao IS NULL AND o.status_validacao = 'APROVADA'
+        AND (o.id_abrigo IS NULL OR a.ativo)
       ORDER BY o.gravidade DESC, o.data_registro DESC`,
   );
   return alertas.map(({ idAbrigo, abrigo, ...alerta }) => ({
     ...alerta,
-    descricaoTipo: DESCRICAO_TIPO_OCORRENCIA[alerta.tipo],
-    abrigo: { id: idAbrigo, nome: abrigo },
+    descricaoTipo:
+      idAbrigo === null
+        ? (DESCRICAO_TIPO_OCORRENCIA_REGIONAL[alerta.tipo as TipoOcorrenciaRegional] ?? DESCRICAO_TIPO_OCORRENCIA[alerta.tipo])
+        : DESCRICAO_TIPO_OCORRENCIA[alerta.tipo],
+    abrigo: idAbrigo !== null && abrigo !== null ? { id: idAbrigo, nome: abrigo } : null,
   }));
 }
 

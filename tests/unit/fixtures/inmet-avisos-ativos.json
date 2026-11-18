@@ -1,0 +1,162 @@
+{
+  "hoje": [
+    {
+      "id": 56434,
+      "id_aviso": 28720,
+      "id_sequencia": 1,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.28720.1",
+      "referencia": null,
+      "inicio": "2026-11-17 09:00",
+      "fim": "2026-11-17 23:59",
+      "descricao": "Tempestade",
+      "aviso_cor": "#FFFE00",
+      "id_severidade": 6,
+      "severidade": "Perigo Potencial",
+      "riscos": [
+        "Chuva entre 20 e 30 mm/h ou até 50 mm/dia, ventos intensos (40-60 km/h), e queda de granizo. Baixo risco de corte de energia elétrica, estragos em plantações, queda de galhos de árvores e de alagamentos."
+      ],
+      "instrucoes": [
+        "Em caso de rajadas de vento: (não se abrigue debaixo de árvores, pois há leve risco de queda e descargas elétricas e não estacione veículos próximos a torres de transmissão e placas de propaganda). ",
+        "Evite usar aparelhos eletrônicos ligados à tomada. ",
+        "Obtenha mais informações junto à Defesa Civil (telefone 199) e ao Corpo de Bombeiros (telefone 193)."
+      ],
+      "alterado": false,
+      "encerrado": false,
+      "geocodes": "4300034,4314100,4322400",
+      "estados": "Rio Grande do Sul,Santa Catarina",
+      "poligono": "{\"type\":\"Polygon\",\"coordinates\":[[[-53.5,-33.7],[-52.2,-32.5],[-51.8,-28.0],[-53.5,-33.7]]]}"
+    },
+    {
+      "id": 56430,
+      "id_aviso": 28716,
+      "id_sequencia": 1,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.28716.1",
+      "referencia": null,
+      "inicio": "2026-11-17 00:00",
+      "fim": "2026-11-17 23:59",
+      "descricao": "Tempestade",
+      "aviso_cor": "#F96602",
+      "id_severidade": 7,
+      "severidade": "Perigo",
+      "riscos": [
+        "Chuva entre 30 e 60 mm/h ou 50 e 100 mm/dia, ventos intensos (60-100 km/h), e queda de granizo. Risco de corte de energia elétrica, estragos em plantações,  queda de árvores e de alagamentos."
+      ],
+      "instrucoes": [
+        "Em caso de rajadas de vento: (não se abrigue debaixo de árvores, pois há risco de queda e descargas elétricas e não estacione veículos próximos a torres de transmissão e placas de propaganda). ",
+        "Se possível, desligue aparelhos elétricos e quadro geral de energia. ",
+        "Obtenha mais informações junto à Defesa Civil (telefone 199) e ao Corpo de Bombeiros (telefone 193)."
+      ],
+      "alterado": false,
+      "encerrado": false,
+      "geocodes": "5200050,3100104",
+      "estados": "Goiás,Minas Gerais",
+      "poligono": "{\"type\":\"Polygon\",\"coordinates\":[[[-53.5,-33.7],[-52.2,-32.5],[-51.8,-28.0],[-53.5,-33.7]]]}"
+    }
+  ],
+  "futuro": [
+    {
+      "id": 56432,
+      "id_aviso": 28718,
+      "id_sequencia": 1,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.28718.1",
+      "referencia": null,
+      "inicio": "2026-11-18 00:00",
+      "fim": "2026-11-18 23:59",
+      "descricao": "Tempestade",
+      "aviso_cor": "#F96602",
+      "id_severidade": 7,
+      "severidade": "Perigo",
+      "riscos": [
+        "Chuva entre 30 e 60 mm/h ou 50 e 100 mm/dia, ventos intensos (60-100 km/h), e queda de granizo. Risco de corte de energia elétrica, estragos em plantações,  queda de árvores e de alagamentos."
+      ],
+      "instrucoes": [
+        "Em caso de rajadas de vento: (não se abrigue debaixo de árvores, pois há risco de queda e descargas elétricas e não estacione veículos próximos a torres de transmissão e placas de propaganda). ",
+        "Se possível, desligue aparelhos elétricos e quadro geral de energia. ",
+        "Obtenha mais informações junto à Defesa Civil (telefone 199) e ao Corpo de Bombeiros (telefone 193)."
+      ],
+      "alterado": false,
+      "encerrado": false,
+      "geocodes": "5200050,3100104",
+      "estados": "Goiás,Minas Gerais",
+      "poligono": "{\"type\":\"Polygon\",\"coordinates\":[[[-53.5,-33.7],[-52.2,-32.5],[-51.8,-28.0],[-53.5,-33.7]]]}"
+    },
+    {
+      "id": 56433,
+      "id_aviso": 28719,
+      "id_sequencia": 1,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.28719.1",
+      "referencia": null,
+      "inicio": "2026-11-18 00:00",
+      "fim": "2026-11-18 23:59",
+      "descricao": "Tempestade",
+      "aviso_cor": "#F96602",
+      "id_severidade": 7,
+      "severidade": "Perigo",
+      "riscos": [
+        "Chuva entre 30 e 60 mm/h ou 50 e 100 mm/dia, ventos intensos (60-100 km/h), e queda de granizo. Risco de corte de energia elétrica, estragos em plantações,  queda de árvores e de alagamentos."
+      ],
+      "instrucoes": [
+        "Em caso de rajadas de vento: (não se abrigue debaixo de árvores, pois há risco de queda e descargas elétricas e não estacione veículos próximos a torres de transmissão e placas de propaganda). ",
+        "Se possível, desligue aparelhos elétricos e quadro geral de energia. ",
+        "Obtenha mais informações junto à Defesa Civil (telefone 199) e ao Corpo de Bombeiros (telefone 193)."
+      ],
+      "alterado": false,
+      "encerrado": false,
+      "geocodes": "4300034,4314100,4322400",
+      "estados": "Rio Grande do Sul,Santa Catarina",
+      "poligono": "{\"type\":\"Polygon\",\"coordinates\":[[[-53.5,-33.7],[-52.2,-32.5],[-51.8,-28.0],[-53.5,-33.7]]]}"
+    },
+    {
+      "id": 56438,
+      "id_aviso": 28721,
+      "id_sequencia": 1,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.28721.1",
+      "referencia": null,
+      "inicio": "2026-11-18 00:00",
+      "fim": "2026-11-18 23:59",
+      "descricao": "Tempestade",
+      "aviso_cor": "#FFFE00",
+      "id_severidade": 6,
+      "severidade": "Perigo Potencial",
+      "riscos": [
+        "Chuva entre 20 e 30 mm/h ou até 50 mm/dia, ventos intensos (40-60 km/h), e queda de granizo. Baixo risco de corte de energia elétrica, estragos em plantações, queda de galhos de árvores e de alagamentos."
+      ],
+      "instrucoes": [
+        "Em caso de rajadas de vento: (não se abrigue debaixo de árvores, pois há leve risco de queda e descargas elétricas e não estacione veículos próximos a torres de transmissão e placas de propaganda). ",
+        "Evite usar aparelhos eletrônicos ligados à tomada. ",
+        "Obtenha mais informações junto à Defesa Civil (telefone 199) e ao Corpo de Bombeiros (telefone 193)."
+      ],
+      "alterado": false,
+      "encerrado": false,
+      "geocodes": "4300034,4314100,4322400",
+      "estados": "Rio Grande do Sul,Santa Catarina",
+      "poligono": "{\"type\":\"Polygon\",\"coordinates\":[[[-53.5,-33.7],[-52.2,-32.5],[-51.8,-28.0],[-53.5,-33.7]]]}"
+    },
+    {
+      "id": 56440,
+      "id_aviso": 28722,
+      "id_sequencia": 1,
+      "codigo": "urn:oid:2.49.0.0.76.0.2026.28722.1",
+      "referencia": null,
+      "inicio": "2026-11-19 00:00",
+      "fim": "2026-11-19 23:59",
+      "descricao": "Tempestade",
+      "aviso_cor": "#FFFE00",
+      "id_severidade": 6,
+      "severidade": "Perigo Potencial",
+      "riscos": [
+        "Chuva entre 20 e 30 mm/h ou até 50 mm/dia, ventos intensos (40-60 km/h), e queda de granizo. Baixo risco de corte de energia elétrica, estragos em plantações, queda de galhos de árvores e de alagamentos."
+      ],
+      "instrucoes": [
+        "Em caso de rajadas de vento: (não se abrigue debaixo de árvores, pois há leve risco de queda e descargas elétricas e não estacione veículos próximos a torres de transmissão e placas de propaganda). ",
+        "Evite usar aparelhos eletrônicos ligados à tomada. ",
+        "Obtenha mais informações junto à Defesa Civil (telefone 199) e ao Corpo de Bombeiros (telefone 193)."
+      ],
+      "alterado": false,
+      "encerrado": false,
+      "geocodes": "4300034,4314100,4322400",
+      "estados": "Rio Grande do Sul,Santa Catarina",
+      "poligono": "{\"type\":\"Polygon\",\"coordinates\":[[[-53.5,-33.7],[-52.2,-32.5],[-51.8,-28.0],[-53.5,-33.7]]]}"
+    }
+  ]
+}

@@ -46,7 +46,8 @@ interface PropriedadesSecaoOcupacao {
   ocupacao: Ocupacao;
   acolhidos: FluxoAcolhidos;
   bloqueado: boolean;
-  onAjustarFila: (delta: number) => void;
+  /** Ausente para quem não opera o abrigo (Defesa Civil): os botões de fila somem. */
+  onAjustarFila?: (delta: number) => void;
 }
 
 /** Lotação do abrigo e a fila de quem chegou e ainda não foi cadastrado. */
@@ -66,26 +67,28 @@ export function SecaoOcupacao({ ocupacao, acolhidos, bloqueado, onAjustarFila }:
         <Indicador rotulo="Aguardando cadastro" valor={acolhidos.naoTriados} />
       </dl>
 
-      <div className="space-y-2 pt-2">
-        <p className="text-meta text-texto-2">
-          Chegou um grupo? Reserve as vagas agora; o mapa público atualiza na hora e o cadastro de cada pessoa fica para depois.
-        </p>
-        <div className="flex flex-wrap items-center gap-2 tabular-nums">
-          {[-5, -1, 1, 5, 10].map((delta) => (
-            <Botao
-              key={delta}
-              disabled={bloqueado || (delta < 0 && acolhidos.naoTriados === 0) || (delta > 0 && ocupacao.vagasDisponiveis < delta)}
-              onClick={() => onAjustarFila(delta)}
-              className="flex-1"
-            >
-              {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
-            </Botao>
-          ))}
-          <Link href="/admin/abrigados" className={classesBotao("fantasma")}>
-            Fazer check-in
-          </Link>
+      {onAjustarFila && (
+        <div className="space-y-2 pt-2">
+          <p className="text-meta text-texto-2">
+            Chegou um grupo? Reserve as vagas agora; o mapa público atualiza na hora e o cadastro de cada pessoa fica para depois.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 tabular-nums">
+            {[-5, -1, 1, 5, 10].map((delta) => (
+              <Botao
+                key={delta}
+                disabled={bloqueado || (delta < 0 && acolhidos.naoTriados === 0) || (delta > 0 && ocupacao.vagasDisponiveis < delta)}
+                onClick={() => onAjustarFila(delta)}
+                className="flex-1"
+              >
+                {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
+              </Botao>
+            ))}
+            <Link href="/admin/abrigados" className={classesBotao("fantasma")}>
+              Fazer check-in
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
 
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-meta text-texto-3 tabular-nums">
         <span>Últimas 24 h:</span>
@@ -218,7 +221,8 @@ interface PropriedadesSecaoEstoque {
   totalUrgentes: number;
   totalBloqueados: number;
   bloqueado: boolean;
-  onAlterarStatus: (idItem: number, status: StatusNecessidade) => void;
+  /** Ausente para quem não classifica itens (Defesa Civil): fica só o estado. */
+  onAlterarStatus?: (idItem: number, status: StatusNecessidade) => void;
 }
 
 /** Itens urgentes ou abaixo do mínimo, com o pedido de doação que aparece no mapa. */
@@ -251,19 +255,21 @@ export function SecaoEstoqueEmAlerta({ itens, totalUrgentes, totalBloqueados, bl
                     </span>
                   </p>
                 </div>
-                <select
-                  aria-label={`Pedido de doação de ${item.nome}`}
-                  value={item.statusNecessidade}
-                  disabled={bloqueado}
-                  onChange={(e) => onAlterarStatus(item.idItem, e.target.value as StatusNecessidade)}
-                  className={`${CLASSES_CAMPO} sm:w-36`}
-                >
-                  {(["URGENTE", "NORMAL", "BLOQUEADO"] as const).map((necessidade) => (
-                    <option key={necessidade} value={necessidade}>
-                      {ROTULO_NECESSIDADE[necessidade]}
-                    </option>
-                  ))}
-                </select>
+                {onAlterarStatus && (
+                  <select
+                    aria-label={`Pedido de doação de ${item.nome}`}
+                    value={item.statusNecessidade}
+                    disabled={bloqueado}
+                    onChange={(e) => onAlterarStatus(item.idItem, e.target.value as StatusNecessidade)}
+                    className={`${CLASSES_CAMPO} sm:w-36`}
+                  >
+                    {(["URGENTE", "NORMAL", "BLOQUEADO"] as const).map((necessidade) => (
+                      <option key={necessidade} value={necessidade}>
+                        {ROTULO_NECESSIDADE[necessidade]}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </li>
             );
           })}

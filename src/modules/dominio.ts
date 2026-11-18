@@ -44,6 +44,23 @@ export const TIPOS_OCORRENCIA = [
 ] as const;
 export type TipoOcorrencia = (typeof TIPOS_OCORRENCIA)[number];
 
+/**
+ * Tipos que podem ser registrados como ocorrência regional (sem abrigo): dizem
+ * respeito ao território. Falta de energia/água/comunicação e risco estrutural
+ * são da edificação e exigem um abrigo. Espelha `ocorrencia_infraestrutura_regional_ck`.
+ */
+export const TIPOS_OCORRENCIA_REGIONAL = ["VIA_BLOQUEADA", "AREA_RISCO", "ALAGAMENTO", "DESLIZAMENTO", "OUTRO"] as const satisfies readonly TipoOcorrencia[];
+export type TipoOcorrenciaRegional = (typeof TIPOS_OCORRENCIA_REGIONAL)[number];
+
+/** Rótulo de uma ocorrência regional: sem "no abrigo", que não se aplica ao território. */
+export const DESCRICAO_TIPO_OCORRENCIA_REGIONAL: Record<TipoOcorrenciaRegional, string> = {
+  VIA_BLOQUEADA: "Via interditada",
+  AREA_RISCO: "Área de risco",
+  ALAGAMENTO: "Alagamento",
+  DESLIZAMENTO: "Deslizamento de terra",
+  OUTRO: "Ocorrência no município",
+};
+
 export const GRAVIDADES = ["ALERTA", "CRITICO"] as const;
 export type Gravidade = (typeof GRAVIDADES)[number];
 

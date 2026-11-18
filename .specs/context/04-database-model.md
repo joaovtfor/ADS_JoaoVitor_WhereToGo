@@ -225,9 +225,9 @@ erDiagram
 ### 3.2. `papel_usuario` / `usuario`
 | Coluna | Tipo | Regras |
 |---|---|---|
-| papel_usuario.nome | VARCHAR(30) | UNIQUE, `^[A-Z_]+$` (ADMIN, COORDENADOR, VOLUNTARIO) |
+| papel_usuario.nome | VARCHAR(30) | UNIQUE, `^[A-Z_]+$` (ADMIN, DEFESA_CIVIL, COORDENADOR, VOLUNTARIO) |
 | usuario.id_papel | INTEGER | FK `papel_usuario` |
-| usuario.id_abrigo | INTEGER | FK `abrigo`; nulo **se e somente se** ADMIN (trigger, erro `WTG02`) |
+| usuario.id_abrigo | INTEGER | FK `abrigo`; nulo **se e somente se** ADMIN ou DEFESA_CIVIL (trigger, erro `WTG02`; migration `0012`) |
 | usuario.email | VARCHAR(255) | UNIQUE; sempre minúsculo (`usuario_email_ck`) |
 | usuario.senha_hash | VARCHAR(255) | bcrypt (custo 12) |
 | usuario.ativo | BOOLEAN | inativo não faz login; sessões existentes são invalidadas na próxima requisição |
@@ -268,6 +268,21 @@ erDiagram
 | latitude / longitude | DOUBLE PRECISION | opcionais (ambas ou nenhuma); nulas = local do abrigo |
 | data_resolucao / id_usuario_resolucao | TIMESTAMPTZ / INTEGER | preenchidas juntas ao resolver |
 | índice `ocorrencia_infraestrutura_ativa_uk` | UNIQUE parcial | no máximo **uma ocorrência ativa por tipo** e abrigo (exceto OUTRO) |
+| id_abrigo | INTEGER | nulo = **ocorrência regional** (migration `0012`): só VIA_BLOQUEADA, AREA_RISCO, ALAGAMENTO, DESLIZAMENTO e OUTRO, sempre com local (`ocorrencia_infraestrutura_regional_ck`). O trigger de status ignora as regionais: uma área regional marca `emAreaDeRisco` nos abrigos cobertos sem alterar o `status_infraestrutura` deles |
+
+### 3.6.1. `aviso_oficial` e `integracao_estado` (migration `0011`)
+Avisos meteorológicos do INMET que incluem o município. Ficam fora de `ocorrencia_infraestrutura` de propósito: cada aviso cobre centenas de municípios e, como área de risco, marcaria todos os abrigos e rotas da cidade (`.specs/plano-integracao-defesa-civil.md` §2.1).
+
+| Coluna | Tipo | Regras |
+|---|---|---|
+| fonte / id_externo | VARCHAR | `UNIQUE (fonte, id_externo)`; INMET: `id_aviso`, estável entre atualizações |
+| sequencia / identificador_cap | INTEGER / VARCHAR(120) | atualização só avança a sequência; identificador CAP 1.2 (`urn:oid:...`) |
+| severidade / rotulo_severidade | VARCHAR | `MODERADA`, `SEVERA`, `EXTREMA` (escala CAP) e o texto oficial ("Perigo Potencial"...) |
+| inicio / fim | TIMESTAMPTZ | `fim > inicio`; a leitura pública mostra só `fim > now()` |
+| riscos / instrucoes | TEXT[] | textos do INMET (até 10 itens de 600 caracteres) |
+| encerrado_em | TIMESTAMPTZ | preenchido quando a fonte retira o aviso antes do fim |
+
+`integracao_estado` (uma linha por fonte): `ultima_tentativa`, `ultimo_sucesso`, `falhas_consecutivas`, `pausada_ate` (circuit breaker: 3 falhas → 15 min) e `ultimo_erro`.
 
 ### 3.7. `log_auditoria` (append-only)
 | Coluna | Tipo | Regras |

@@ -12,7 +12,20 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { CircleUser, KeyRound, LayoutDashboard, LogOut, Map, Package, Settings, TriangleExclamationPoint, Users, type LucideIcon } from "lucide-react";
+import {
+  CircleUser,
+  KeyRound,
+  LayoutDashboard,
+  LogOut,
+  Map,
+  Package,
+  ScrollText,
+  Settings,
+  TriangleExclamationPoint,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
+import { ehVisaoGlobal, type Papel } from "@/lib/auth/permissoes";
 import { Botao } from "@/components/ui/botao";
 import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
@@ -28,7 +41,7 @@ import { ROTULO_PAPEL, ROTULO_STATUS_INFRA } from "./rotulos";
 // As telas do painel importam o toast daqui.
 export { ToastFlutuante } from "@/components/ui/toast";
 
-export type PapelUsuario = "ADMIN" | "COORDENADOR" | "VOLUNTARIO";
+export type PapelUsuario = Papel;
 export type NivelOcupacao = "VERDE" | "AMARELO" | "VERMELHO";
 export type StatusInfraestrutura = "NORMAL" | "ALERTA" | "CRITICO";
 
@@ -90,7 +103,7 @@ export function useAdmin(): ContextoAdminValor {
 const NIVEL_OCUPACAO: Record<NivelOcupacao, NivelStatus> = { VERDE: "ok", AMARELO: "atencao", VERMELHO: "critico" };
 const NIVEL_INFRA: Record<StatusInfraestrutura, NivelStatus> = { NORMAL: "ok", ALERTA: "atencao", CRITICO: "critico" };
 
-// Último abrigo escolhido pelo ADMIN, guardado no navegador. Lido com
+// Último abrigo escolhido por quem tem visão global (ADMIN, DEFESA_CIVIL), guardado no navegador. Lido com
 // useSyncExternalStore para o HTML do servidor e a primeira renderização no
 // navegador coincidirem (o servidor não conhece o localStorage).
 const CHAVE_ABRIGO = "wtg_abrigo_admin";
@@ -135,7 +148,10 @@ function abasDoPapel(papel: PapelUsuario): Aba[] {
     { href: "/admin/inventario", icone: Package, rotulo: "Estoque" },
     { href: "/admin/ocorrencias", icone: TriangleExclamationPoint, rotulo: "Infra" },
     { href: "/admin/abrigados", icone: Users, rotulo: "Acolhidos" },
-    { href: "/admin/geral", icone: Settings, rotulo: papel === "ADMIN" ? "Gestão" : "Equipe" },
+    // A Defesa Civil não gerencia contas nem catálogo: em "Gestão" só vê a auditoria.
+    papel === "DEFESA_CIVIL"
+      ? { href: "/admin/geral", icone: ScrollText, rotulo: "Auditoria" }
+      : { href: "/admin/geral", icone: Settings, rotulo: papel === "ADMIN" ? "Gestão" : "Equipe" },
   ];
 }
 
@@ -270,9 +286,10 @@ export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesA
     }
   }, []);
 
-  // ADMIN escolhe o abrigo (a última escolha fica salva); os demais ficam no próprio.
+  // ADMIN e Defesa Civil escolhem o abrigo (a última escolha fica salva); os demais ficam no próprio.
+  const visaoGlobal = ehVisaoGlobal(usuario);
   const idAbrigoAtivo = useMemo(() => {
-    if (usuario.papel !== "ADMIN") return usuario.idAbrigo;
+    if (!ehVisaoGlobal(usuario)) return usuario.idAbrigo;
     const existe = (id: number | null) => (id !== null && abrigos.some((a) => a.id === id) ? id : null);
     return existe(idEscolhido) ?? existe(idSalvo) ?? abrigos.find((a) => a.ativo)?.id ?? abrigos[0]?.id ?? null;
   }, [usuario, abrigos, idEscolhido, idSalvo]);
@@ -296,7 +313,7 @@ export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesA
 
   const abas = abasDoPapel(usuario.papel);
   const abaAtiva = (aba: Aba) => pathname === aba.href || pathname.startsWith(`${aba.href}/`);
-  const ehEscopoGlobal = usuario.papel === "ADMIN" && pathname.startsWith("/admin/geral");
+  const ehEscopoGlobal = visaoGlobal && pathname.startsWith("/admin/geral");
   const primeiroNome = usuario.nome.split(" ")[0];
 
   return (
@@ -317,7 +334,7 @@ export function AdminShell({ usuario, abrigosIniciais, children }: PropriedadesA
               <p className="truncate text-corpo font-medium text-texto">
                 Todos os abrigos <span className="font-normal text-texto-3 tabular-nums">({abrigos.length})</span>
               </p>
-            ) : usuario.papel === "ADMIN" ? (
+            ) : visaoGlobal ? (
               <div className="min-w-0 max-w-xs flex-1">
                 <select
                   aria-label="Abrigo ativo"

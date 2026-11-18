@@ -91,6 +91,7 @@ A interface mostra apenas o que o perfil pode usar. Nada de aba que redireciona 
 | **Cidadão / Doador** (público) | Achar abrigo com vagas ou saber onde doar. | Mapa, lista de abrigos, filtros. | Sem seletor; vê todos os abrigos ativos. | Nenhum dado pessoal de acolhidos (LGPD) nem controles internos. |
 | **Voluntário** | Atualizar estoque e fazer check-in na portaria. | `Estoque`, `Acolhidos`. | Nome e estado do seu abrigo (somente leitura). | No estoque, vê só os botões de quantidade. |
 | **Coordenador** | Gerir seu abrigo. | `Visão Geral`, `Estoque`, `Infraestrutura`, `Acolhidos`, `Equipe`. | Estado do seu abrigo, com atalho para editar capacidade e contato. | Em `Equipe`, só as sub-abas do seu escopo. |
+| **Defesa Civil** | Comando municipal (SCO): acompanhar a rede, publicar ocorrências do município, moderar e remanejar. | `Visão Geral`, `Estoque` (consulta e transferência), `Infraestrutura` (abre na aba `Município`), `Acolhidos` (consulta e transferência), `Auditoria`. | Seletor de abrigo, como o ADMIN. | Sem check-in, lançamento de estoque, pedido de doação, cadastro do abrigo (PIX), catálogo ou contas: os controles nem aparecem. |
 | **Administrador** | Governança de todos os abrigos. | As cinco abas, com `Gestão` global. | Seletor de abrigo; rótulo "Todos os abrigos" na aba global. | Abrigo inativo selecionado mostra aviso de somente leitura (estado **atenção**). |
 
 Perfis e escopos são texto neutro. Não há cor por perfil.
@@ -137,6 +138,12 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 - **Pinos:** um retângulo arredondado com o **número de vagas**, preenchido com a cor do estado (ok, atenção, crítico). Lotado mostra `0`. No máximo um indicador extra: um ponto de aviso quando há problema de infraestrutura. Selecionado ganha anel azul. Nome do abrigo só aparece no pino selecionado.
 - **Você está aqui:** ponto azul (`primaria-clara`) com halo.
 - **Alertas no mapa:** área de risco e via interditada em contorno `critico` com preenchimento a 12%. Rótulo só ao tocar.
+- **Avisos oficiais do INMET** (`avisos-oficiais.tsx`):
+  - **Nunca viram área no mapa:** cada aviso cobre centenas de municípios e pintaria a tela inteira.
+  - **No topo do mapa:** um único selo clicável, junto aos avisos de conexão, com o mais importante (em vigor e mais grave primeiro). Mostra o rótulo oficial e o período ("INMET: Tempestade · Perigo · até 23:59 · +1") e abre o painel.
+  - **No painel "Alertas e avisos":** os avisos vêm antes dos alertas locais, com risco, "O que fazer" recolhido e link para o original.
+  - **Cores:** amarelo do INMET ("Perigo Potencial") é `atencao`; laranja e vermelho são `critico`. A cor oficial do INMET não entra na paleta: o nível vem do `SeloStatus` e o rótulo oficial vai em texto.
+  - **Horários:** só renderizados no navegador, porque o servidor está em UTC.
 - **Mapa base:** escuro e neutro, para que a única cor sobre o mapa seja a dos pinos. São os tiles Humanitarian (HOT) de sempre, convertidos para cinza e invertidos por um filtro CSS no painel de tiles (`.leaflet-tile-pane` em `globals.css`). Assim não há provedor novo nem chave de API, e o cache offline de tiles continua valendo.
 - **Ficha do abrigo:** folha inferior no celular, painel lateral no desktop. Ordem fixa:
   1. Nome, distância e `SeloStatus`.
@@ -155,6 +162,9 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 - **Menu da conta:** nome e perfil, alterar senha, ver mapa público e sair. Nenhuma dessas ações fica solta no cabeçalho.
 - **Cabeçalho de página:** título e no máximo uma ação primária. Filtros em uma única linha; os menos usados vão para `Filtros`.
 - **Listas:** linhas densas com divisória, em vez de um cartão por item. Cada linha mostra no máximo uma ação; as demais ficam no menu "..." da linha.
+- **Avisos do INMET na visão geral** (`dashboard/faixa-avisos.tsx`):
+  - uma `Faixa` por aviso vigente (`atencao` ou `critico`, como no mapa), com "Ver no INMET";
+  - o ADMIN vê também uma linha discreta com a última consulta e "Consultar agora", que vira `Faixa` crítica quando a consulta está falhando.
 - **Telas grandes são divididas:** dados e ações em um hook ou na página, cada modal e cada aba em seu arquivo com estado próprio. Digitar em um campo não renderiza a lista ao lado.
 
 ### 5.3. Login (`/login`)

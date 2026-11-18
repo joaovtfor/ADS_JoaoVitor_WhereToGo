@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { exigirPermissao, PAPEIS, type Contexto, type Papel } from "@/lib/auth/rbac";
+import { exigirPermissao, PAPEIS, papelSemAbrigo, type Contexto, type Papel } from "@/lib/auth/rbac";
 import { gerarHashSenha } from "@/lib/auth/senha";
 import { auditar } from "@/lib/auditoria";
 import { comTransacao, consultar, consultarUm, type Executor } from "@/lib/db";
@@ -115,18 +115,19 @@ export async function obterUsuario(ctx: Contexto, id: number): Promise<Usuario> 
 }
 
 /**
- * ADMIN cria qualquer perfil (ADMIN sem abrigo; demais com abrigo ativo).
- * COORDENADOR cria apenas VOLUNTARIOs, sempre vinculados ao próprio abrigo.
+ * ADMIN cria qualquer perfil (ADMIN e DEFESA_CIVIL sem abrigo; demais com
+ * abrigo ativo). COORDENADOR cria apenas VOLUNTARIOs, sempre vinculados ao
+ * próprio abrigo.
  */
 export async function criarUsuario(ctx: Contexto, dados: z.infer<typeof esquemaCriarUsuario>): Promise<Usuario> {
   const idAbrigo =
-    ctx.usuario.papel === "COORDENADOR" ? (dados.idAbrigo ?? ctx.usuario.idAbrigo) : dados.papel === "ADMIN" ? null : dados.idAbrigo;
+    ctx.usuario.papel === "COORDENADOR" ? (dados.idAbrigo ?? ctx.usuario.idAbrigo) : papelSemAbrigo(dados.papel) ? null : dados.idAbrigo;
   exigirGestaoSobre(ctx, { papel: dados.papel, idAbrigo: idAbrigo ?? null });
 
-  if (dados.papel === "ADMIN" && dados.idAbrigo) {
-    throw erros.regraDeNegocio("VINCULO_INVALIDO", "Usuários ADMIN não podem ser vinculados a um abrigo.");
+  if (papelSemAbrigo(dados.papel) && dados.idAbrigo) {
+    throw erros.regraDeNegocio("VINCULO_INVALIDO", `Usuários ${dados.papel} não podem ser vinculados a um abrigo.`);
   }
-  if (dados.papel !== "ADMIN" && !idAbrigo) {
+  if (!papelSemAbrigo(dados.papel) && !idAbrigo) {
     throw erros.regraDeNegocio("VINCULO_INVALIDO", `Usuários ${dados.papel} devem ser vinculados a um abrigo (idAbrigo).`);
   }
 
@@ -169,9 +170,9 @@ export async function atualizarUsuario(ctx: Contexto, id: number, dados: z.infer
   }
 
   const papelFinal = dados.papel ?? alvo.papel;
-  // Promovido a ADMIN: o vínculo com abrigo deixa de existir.
-  const idAbrigoFinal = papelFinal === "ADMIN" ? null : dados.idAbrigo !== undefined ? dados.idAbrigo : alvo.idAbrigo;
-  if (papelFinal !== "ADMIN" && !idAbrigoFinal) {
+  // Promovido a ADMIN ou DEFESA_CIVIL: o vínculo com abrigo deixa de existir.
+  const idAbrigoFinal = papelSemAbrigo(papelFinal) ? null : dados.idAbrigo !== undefined ? dados.idAbrigo : alvo.idAbrigo;
+  if (!papelSemAbrigo(papelFinal) && !idAbrigoFinal) {
     throw erros.regraDeNegocio("VINCULO_INVALIDO", `Usuários ${papelFinal} devem ser vinculados a um abrigo (idAbrigo).`);
   }
 

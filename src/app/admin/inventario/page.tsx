@@ -7,6 +7,7 @@ import { CLASSES_CAMPO } from "@/components/ui/campo";
 import { Chip } from "@/components/ui/chip";
 import { Icone } from "@/components/ui/icone";
 import { CabecalhoPagina, EstadoVazio, Faixa } from "@/components/ui/pagina";
+import { pode } from "@/lib/auth/permissoes";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
 import { Historico } from "./historico";
 import { LinhaItem } from "./linha-item";
@@ -19,7 +20,11 @@ type ModalAberto = { tipo: "lote" | "config" | "transferencia"; idItem: number }
 
 export default function PaginaInventario() {
   const { usuario, idAbrigoAtivo, abrigoAtivo, abrigos } = useAdmin();
-  const podeGerenciar = usuario.papel === "ADMIN" || usuario.papel === "COORDENADOR";
+  // A Defesa Civil consulta o estoque de qualquer abrigo e remaneja entre eles, mas não lança nem classifica.
+  const podeMovimentar = pode(usuario, "estoque:movimentar");
+  const podeClassificar = pode(usuario, "estoque:classificar");
+  const podeTransferirEstoque = pode(usuario, "estoque:transferir");
+  const podeVerHistorico = pode(usuario, "estoque:historico");
   const somenteLeitura = abrigoAtivo ? !abrigoAtivo.ativo : false;
   const estoque = useEstoque(idAbrigoAtivo, somenteLeitura);
   const { itens, setErro, setAviso, movimentar, classificar } = estoque;
@@ -76,17 +81,26 @@ export default function PaginaInventario() {
     <div className="space-y-5">
       <ToastFlutuante erro={estoque.erro} aviso={estoque.aviso} aoFecharErro={() => setErro(null)} aoFecharAviso={() => setAviso(null)} />
 
-      <CabecalhoPagina titulo="Estoque" descricao="Toque nos botões de cada item para registrar entradas e saídas.">
-        <div role="group" aria-label="As saídas contam como" className="flex items-center gap-2">
-          <span className="text-meta text-texto-3">Saídas como</span>
-          <Chip ativo={estoque.modoSaida === "SAIDA_CONSUMO"} onClick={() => estoque.setModoSaida("SAIDA_CONSUMO")}>
-            Consumo
-          </Chip>
-          <Chip ativo={estoque.modoSaida === "PERDA"} onClick={() => estoque.setModoSaida("PERDA")}>
-            Perda
-          </Chip>
-        </div>
-        {podeGerenciar && (
+      <CabecalhoPagina
+        titulo="Estoque"
+        descricao={
+          podeMovimentar
+            ? "Toque nos botões de cada item para registrar entradas e saídas."
+            : "Consulta do estoque do abrigo escolhido no topo. Os lançamentos ficam com a equipe do abrigo."
+        }
+      >
+        {podeMovimentar && (
+          <div role="group" aria-label="As saídas contam como" className="flex items-center gap-2">
+            <span className="text-meta text-texto-3">Saídas como</span>
+            <Chip ativo={estoque.modoSaida === "SAIDA_CONSUMO"} onClick={() => estoque.setModoSaida("SAIDA_CONSUMO")}>
+              Consumo
+            </Chip>
+            <Chip ativo={estoque.modoSaida === "PERDA"} onClick={() => estoque.setModoSaida("PERDA")}>
+              Perda
+            </Chip>
+          </div>
+        )}
+        {podeVerHistorico && (
           <Botao icone={History} ligado={mostrarHistorico} onClick={() => setMostrarHistorico((v) => !v)}>
             Histórico
           </Botao>
@@ -185,10 +199,13 @@ export default function PaginaInventario() {
               feedback={estoque.feedbackPorItem[item.idItem]}
               modoSaida={estoque.modoSaida}
               somenteLeitura={somenteLeitura}
-              podeGerenciar={podeGerenciar}
+              podeMovimentar={podeMovimentar}
+              // Sem classificar (Defesa Civil), a gestão do item só serve para transferir: precisa de saldo.
+              podeGerenciar={podeClassificar || (podeTransferirEstoque && abrigosDestino.length > 0 && item.quantidade > 0)}
+              podeClassificar={podeClassificar}
               gestaoAberta={gestaoAbertaId === item.idItem}
               ocupado={estoque.ocupadoId === item.idItem}
-              podeTransferir={abrigosDestino.length > 0}
+              podeTransferir={podeTransferirEstoque && abrigosDestino.length > 0}
               onMovimentar={movimentar}
               onAlternarGestao={alternarGestao}
               onLote={abrirLote}
@@ -229,7 +246,7 @@ export default function PaginaInventario() {
         />
       )}
 
-      {mostrarHistorico && podeGerenciar && <Historico idAbrigo={idAbrigoAtivo} itens={itens} versao={estoque.versaoMovimentos} onErro={setErro} />}
+      {mostrarHistorico && podeVerHistorico && <Historico idAbrigo={idAbrigoAtivo} itens={itens} versao={estoque.versaoMovimentos} onErro={setErro} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { exigirPermissao, type Contexto } from "@/lib/auth/rbac";
+import { ehVisaoGlobal, exigirPermissao, type Contexto } from "@/lib/auth/rbac";
 import { consultar, consultarUm } from "@/lib/db";
 import { dataHoraQuery, esquemaId, montarPagina, offset, z, type Paginacao } from "@/lib/validacao";
 
@@ -16,12 +16,12 @@ export const esquemaFiltroAuditoria = z.object({
 });
 
 /**
- * RF13 / RNF03 - consulta aos logs imutáveis. ADMIN vê tudo; COORDENADOR vê
+ * RF13 / RNF03 - consulta aos logs imutáveis. ADMIN e DEFESA_CIVIL veem tudo; COORDENADOR vê
  * apenas eventos do próprio abrigo.
  */
 export async function listarLogs(ctx: Contexto, filtros: z.infer<typeof esquemaFiltroAuditoria>, paginacao: Paginacao) {
   exigirPermissao(ctx.usuario, "auditoria:ver");
-  const idAbrigo = ctx.usuario.papel === "ADMIN" ? (filtros.idAbrigo ?? null) : ctx.usuario.idAbrigo;
+  const idAbrigo = ehVisaoGlobal(ctx.usuario) ? (filtros.idAbrigo ?? null) : ctx.usuario.idAbrigo;
 
   const where = `($1::int IS NULL OR l.id_abrigo = $1)
     AND ($2::int IS NULL OR l.id_usuario = $2)

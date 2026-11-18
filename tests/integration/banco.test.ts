@@ -7,7 +7,7 @@ import { criarAbrigo, criarUsuario, idItem } from "./fixtures";
 describe("Banco de dados - regras de integridade", () => {
   it("aplica os dados de referência (papéis, status e catálogo)", async () => {
     const papeis = await consultar<{ nome: string }>("SELECT nome FROM papel_usuario ORDER BY nome");
-    expect(papeis.map((p) => p.nome)).toEqual(["ADMIN", "COORDENADOR", "VOLUNTARIO"]);
+    expect(papeis.map((p) => p.nome)).toEqual(["ADMIN", "COORDENADOR", "DEFESA_CIVIL", "VOLUNTARIO"]);
 
     const status = await consultar<{ codigo: string }>("SELECT codigo FROM status_necessidade ORDER BY nivel_prioridade");
     expect(status.map((s) => s.codigo)).toEqual(["URGENTE", "NORMAL", "BLOQUEADO"]);

@@ -57,7 +57,26 @@ export interface AlertaMapa {
   poligono?: Array<{ lat: number; lng: number }> | null;
   localizacaoPropria: boolean;
   dataRegistro: string;
-  abrigo: { id: number; nome: string };
+  /** Nulo em alerta regional (do município, registrado pela Defesa Civil), sem abrigo vinculado. */
+  abrigo: { id: number; nome: string } | null;
+}
+
+export type SeveridadeAvisoOficial = "MODERADA" | "SEVERA" | "EXTREMA";
+
+/** Aviso meteorológico oficial (INMET) que inclui o município. Não é desenhado no mapa: cobre a região inteira. */
+export interface AvisoOficialMapa {
+  id: number;
+  fonte: string;
+  evento: string;
+  severidade: SeveridadeAvisoOficial;
+  /** Texto oficial ("Perigo Potencial", "Perigo", "Grande Perigo"). */
+  rotuloSeveridade: string;
+  inicio: string;
+  fim: string;
+  riscos: string[];
+  instrucoes: string[];
+  link: string | null;
+  atualizadoEm: string;
 }
 
 export interface CategoriaPublica {
@@ -156,6 +175,37 @@ export function obterStatusInfra(status: StatusInfraPublico): StatusApresentacao
 
 export function obterStatusGravidade(gravidade: "ALERTA" | "CRITICO"): StatusApresentacao {
   return gravidade === "CRITICO" ? { nivel: "critico", rotulo: "Crítico" } : { nivel: "atencao", rotulo: "Alerta" };
+}
+
+/** Amarelo do INMET ("Perigo Potencial") é atenção; laranja e vermelho são críticos. O rótulo oficial vai junto. */
+export function obterNivelAviso(severidade: SeveridadeAvisoOficial): NivelStatus {
+  return severidade === "MODERADA" ? "atencao" : "critico";
+}
+
+/**
+ * Avisos ainda não vencidos. O servidor já filtra; aqui vale para os dados
+ * salvos do modo offline, que podem ter horas de idade.
+ */
+export function filtrarAvisosNaoVencidos(avisos: AvisoOficialMapa[], agora = Date.now()): AvisoOficialMapa[] {
+  return avisos.filter((aviso) => Date.parse(aviso.fim) > agora);
+}
+
+export function avisoEmVigor(aviso: AvisoOficialMapa, agora = Date.now()): boolean {
+  return Date.parse(aviso.inicio) <= agora;
+}
+
+/** "23:59" no mesmo dia; "18/11 23:59" em outro. */
+function formatarDiaHora(iso: string, agora: number): string {
+  const data = new Date(iso);
+  const hora = data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return data.toDateString() === new Date(agora).toDateString()
+    ? hora
+    : `${data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${hora}`;
+}
+
+/** "até 23:59" quando já vale; "a partir de 18/11 00:00" quando ainda vai começar. */
+export function descreverPeriodoAviso(aviso: AvisoOficialMapa, agora = Date.now()): string {
+  return avisoEmVigor(aviso, agora) ? `até ${formatarDiaHora(aviso.fim, agora)}` : `a partir de ${formatarDiaHora(aviso.inicio, agora)}`;
 }
 
 export function formatarHorario(iso: string): string {

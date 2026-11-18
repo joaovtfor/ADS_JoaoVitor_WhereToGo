@@ -90,6 +90,27 @@ describe.skipIf(!BASE)("API HTTP (e2e)", () => {
       expect(alertas.corpo.dados[0]).toMatchObject({ latitude: expect.any(Number), gravidade: expect.any(String) });
     });
 
+    it("mapa e lista pública trazem os avisos oficiais do INMET sem login", async () => {
+      const mapa = await api("/api/public/mapa");
+      expect(mapa.status).toBe(200);
+      expect(Array.isArray(mapa.corpo.dados.avisos)).toBe(true);
+
+      const avisos = await api("/api/public/avisos");
+      expect(avisos.status).toBe(200);
+      expect(avisos.headers.get("cache-control")).toContain("public");
+      for (const aviso of avisos.corpo.dados) {
+        expect(aviso).toMatchObject({ fonte: "INMET", severidade: expect.stringMatching(/^(MODERADA|SEVERA|EXTREMA)$/) });
+      }
+    });
+
+    it("situação da consulta ao INMET exige login; só o ADMIN força uma consulta", async () => {
+      expect((await api("/api/integracoes/avisos")).status).toBe(401);
+      const painel = await api("/api/integracoes/avisos", { token: coordenador.token });
+      expect(painel.status).toBe(200);
+      expect(painel.corpo.dados.estado).toMatchObject({ municipio: expect.stringMatching(/^\d{7}$/) });
+      expect((await api("/api/integracoes/avisos/sincronizacao", { method: "POST", token: coordenador.token })).status).toBe(403);
+    });
+
     it("valida a query e o id da rota", async () => {
       expect((await api("/api/public/abrigos?lat=-28")).status).toBe(400);
       expect((await api("/api/public/abrigos/abc")).status).toBe(400);
@@ -114,6 +135,23 @@ describe.skipIf(!BASE)("API HTTP (e2e)", () => {
 
       const viaCookie = await api("/api/auth/me", { headers: { cookie: voluntario.cookie } });
       expect(viaCookie.corpo.dados).toMatchObject({ papel: "VOLUNTARIO", redirecionarPara: "/admin/inventario" });
+    });
+
+    it("Defesa Civil registra ocorrência regional, mas não altera a chave PIX de um abrigo", async () => {
+      const defesaCivil = await entrar("defesacivil@wheretogo.local");
+      const regional = await api("/api/ocorrencias", {
+        method: "POST",
+        token: defesaCivil.token,
+        json: { tipo: "VIA_BLOQUEADA", descricao: "Teste e2e", latitude: -28.25, longitude: -52.4 },
+      });
+      expect(regional.status).toBe(201);
+      expect(regional.corpo.dados.ocorrencia.idAbrigo).toBeNull();
+      const encerrada = await api(`/api/ocorrencias/${regional.corpo.dados.ocorrencia.id}/resolucao`, { method: "POST", token: defesaCivil.token, json: {} });
+      expect(encerrada.status).toBe(200);
+
+      const pix = await api(`/api/abrigos/${coordenador.idAbrigo}`, { method: "PATCH", token: defesaCivil.token, json: { chavePix: "x@pix", titularPix: "X" } });
+      expect(pix.status).toBe(403);
+      expect((await api("/api/ocorrencias", { method: "POST", token: coordenador.token, json: { tipo: "ALAGAMENTO", latitude: -28.25, longitude: -52.4 } })).status).toBe(403);
     });
 
     it("rotas internas exigem autenticação (401) e papel adequado (403)", async () => {

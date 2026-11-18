@@ -8,7 +8,8 @@ export type Gravidade = "ALERTA" | "CRITICO";
 
 export interface Ocorrencia {
   id: number;
-  idAbrigo: number;
+  /** Nulo em ocorrência regional (do município, sem abrigo). */
+  idAbrigo: number | null;
   tipo: string;
   gravidade: Gravidade;
   statusValidacao?: "PENDENTE" | "APROVADA" | "REJEITADA";
@@ -37,6 +38,12 @@ export const TIPOS_OCORRENCIA: ReadonlyArray<{ tipo: string; gravidadePadrao: Gr
   { tipo: "SEM_COMUNICACAO", gravidadePadrao: "ALERTA" },
   { tipo: "OUTRO", gravidadePadrao: "ALERTA" },
 ];
+
+/**
+ * Tipos aceitos em ocorrência regional (sem abrigo). Falta de energia, água ou
+ * comunicação e risco estrutural são da edificação de um abrigo.
+ */
+export const TIPOS_REGIONAIS: ReadonlySet<string> = new Set(["VIA_BLOQUEADA", "AREA_RISCO", "ALAGAMENTO", "DESLIZAMENTO", "OUTRO"]);
 
 export function estaPendente(ocorrencia: Ocorrencia): boolean {
   return ocorrencia.statusValidacao === "PENDENTE" && !ocorrencia.dataResolucao;

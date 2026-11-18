@@ -29,3 +29,15 @@ O sistema deve refletir no mapa público as obstruções, enxurradas, pontos de 
 
 ## Implementação (backend)
 - `GET /api/public/alertas[?formato=geojson]` – ocorrências ativas com `latitude`/`longitude`, `localizacaoPropria`, `gravidade` e abrigo relacionado.
+
+## Evolução: avisos oficiais do INMET (pós-MVP, Etapa 1 do plano de integração)
+- Avisos meteorológicos do INMET que incluem o município aparecem no topo do mapa (selo) e no painel "Alertas e avisos", e também na visão geral do painel.
+- Ficam em `aviso_oficial` (migration `0011`), separados das ocorrências: não acionam `emAreaDeRisco`, `rotaCruzaAreaRisco` nem o status do abrigo.
+- `GET /api/public/avisos` e o campo `avisos` de `GET /api/public/mapa`. Desenho, decisões e limites: `.specs/plano-integracao-defesa-civil.md` (§4.1).
+- A RN3 (alerta da defesa civil sem abrigo) foi resolvida na Etapa 2, descrita abaixo.
+
+## Evolução: ocorrências regionais e papel DEFESA_CIVIL (Etapa 2 do plano de integração)
+- A RN3 deixa de valer: ADMIN e o novo perfil DEFESA_CIVIL registram ocorrências do município sem abrigo (`POST /api/ocorrencias`), na aba "Município" da tela de Infraestrutura.
+- Tipos do território (via interditada, área de risco, alagamento, deslizamento, outra), sempre com local. No mapa aparecem como "Alerta regional (Defesa Civil)".
+- Uma área de risco regional marca os abrigos dentro dela (`emAreaDeRisco`), sem mudar o status de infraestrutura deles.
+- Detalhes: `.specs/plano-integracao-defesa-civil.md` (§4.2) e migration `0012`.

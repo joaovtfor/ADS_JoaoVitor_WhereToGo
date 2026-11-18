@@ -14,8 +14,12 @@ interface PropriedadesLinhaItem {
   feedback: FeedbackItem | undefined;
   modoSaida: ModoSaida;
   somenteLeitura: boolean;
-  /** Coordenador e admin veem a área de gestão do item. */
+  /** Lançar entradas e saídas (a Defesa Civil só consulta o estoque). */
+  podeMovimentar: boolean;
+  /** Mostra a área de gestão do item (pedido de doação, mínimo, transferência). */
   podeGerenciar: boolean;
+  /** Pedido de doação e estoque mínimo (coordenação e admin). */
+  podeClassificar: boolean;
   gestaoAberta: boolean;
   ocupado: boolean;
   podeTransferir: boolean;
@@ -39,7 +43,9 @@ export const LinhaItem = memo(function LinhaItem({
   feedback,
   modoSaida,
   somenteLeitura,
+  podeMovimentar,
   podeGerenciar,
+  podeClassificar,
   gestaoAberta,
   ocupado,
   podeTransferir,
@@ -83,21 +89,25 @@ export const LinhaItem = memo(function LinhaItem({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="grid flex-1 grid-cols-4 gap-2 tabular-nums lg:w-64 lg:flex-none">
-            <Botao variante={varianteSaida} disabled={somenteLeitura || item.quantidade < 5} onClick={() => onMovimentar(item, -5)}>
-              −5
-            </Botao>
-            <Botao variante={varianteSaida} disabled={somenteLeitura || item.quantidade < 1} onClick={() => onMovimentar(item, -1)}>
-              −1
-            </Botao>
-            <Botao disabled={somenteLeitura || !item.itemAtivo} onClick={() => onMovimentar(item, 1)}>
-              +1
-            </Botao>
-            <Botao disabled={somenteLeitura || !item.itemAtivo} onClick={() => onMovimentar(item, 5)}>
-              +5
-            </Botao>
-          </div>
-          <BotaoIcone icone={Truck} rotulo={`Lançar lote de ${item.nome}`} disabled={somenteLeitura} onClick={() => onLote(item)} />
+          {podeMovimentar && (
+            <>
+              <div className="grid flex-1 grid-cols-4 gap-2 tabular-nums lg:w-64 lg:flex-none">
+                <Botao variante={varianteSaida} disabled={somenteLeitura || item.quantidade < 5} onClick={() => onMovimentar(item, -5)}>
+                  −5
+                </Botao>
+                <Botao variante={varianteSaida} disabled={somenteLeitura || item.quantidade < 1} onClick={() => onMovimentar(item, -1)}>
+                  −1
+                </Botao>
+                <Botao disabled={somenteLeitura || !item.itemAtivo} onClick={() => onMovimentar(item, 1)}>
+                  +1
+                </Botao>
+                <Botao disabled={somenteLeitura || !item.itemAtivo} onClick={() => onMovimentar(item, 5)}>
+                  +5
+                </Botao>
+              </div>
+              <BotaoIcone icone={Truck} rotulo={`Lançar lote de ${item.nome}`} disabled={somenteLeitura} onClick={() => onLote(item)} />
+            </>
+          )}
           {podeGerenciar && (
             <BotaoIcone
               icone={Settings}
@@ -112,25 +122,29 @@ export const LinhaItem = memo(function LinhaItem({
 
       {podeGerenciar && gestaoAberta && (
         <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-controle bg-superficie p-3">
+          {podeClassificar && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-meta text-texto-3">Pedido de doação no mapa:</span>
+              {NECESSIDADES.map((necessidade) => (
+                <Chip
+                  key={necessidade}
+                  ativo={item.statusNecessidade === necessidade}
+                  disabled={ocupado || somenteLeitura}
+                  onClick={() => {
+                    if (item.statusNecessidade !== necessidade) onClassificar(item, necessidade);
+                  }}
+                >
+                  {ROTULO_NECESSIDADE[necessidade]}
+                </Chip>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-meta text-texto-3">Pedido de doação no mapa:</span>
-            {NECESSIDADES.map((necessidade) => (
-              <Chip
-                key={necessidade}
-                ativo={item.statusNecessidade === necessidade}
-                disabled={ocupado || somenteLeitura}
-                onClick={() => {
-                  if (item.statusNecessidade !== necessidade) onClassificar(item, necessidade);
-                }}
-              >
-                {ROTULO_NECESSIDADE[necessidade]}
-              </Chip>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Botao tamanho="sm" icone={Ruler} disabled={somenteLeitura} onClick={() => onConfigurar(item)}>
-              Mínimo e contagem
-            </Botao>
+            {podeClassificar && (
+              <Botao tamanho="sm" icone={Ruler} disabled={somenteLeitura} onClick={() => onConfigurar(item)}>
+                Mínimo e contagem
+              </Botao>
+            )}
             {podeTransferir && item.quantidade > 0 && (
               <Botao tamanho="sm" icone={ArrowLeftRight} disabled={somenteLeitura} onClick={() => onTransferir(item)}>
                 Transferir

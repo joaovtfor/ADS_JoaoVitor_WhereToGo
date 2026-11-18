@@ -5,14 +5,19 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Botao, BotaoIcone, classesBotao } from "@/components/ui/botao";
 import { CabecalhoPagina, EstadoVazio, Faixa } from "@/components/ui/pagina";
+import { pode } from "@/lib/auth/permissoes";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
 import { ROTULO_NECESSIDADE, rotuloOcorrencia } from "../rotulos";
+import { FaixaAvisosOficiais } from "./faixa-avisos";
 import { ModalAbrigo, SecaoEstoqueEmAlerta, SecaoInfraestrutura, SecaoMovimentacoes, SecaoOcupacao, SecaoSugestoes } from "./secoes";
 import type { DadosDashboard, StatusNecessidade, SugestaoTransferencia } from "./tipos";
 
 export default function PaginaDashboard() {
-  const { idAbrigoAtivo, abrigoAtivo, recarregarAbrigos } = useAdmin();
+  const { usuario, idAbrigoAtivo, abrigoAtivo, recarregarAbrigos } = useAdmin();
+  // A Defesa Civil acompanha qualquer abrigo e age em alertas e trocas, mas não opera a fila nem o cadastro do abrigo.
+  const podeOperar = pode(usuario, "abrigo:editar-operacao");
+  const podeClassificar = pode(usuario, "estoque:classificar");
   const [dados, setDados] = useState<DadosDashboard | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -153,11 +158,15 @@ export default function PaginaDashboard() {
       <ToastFlutuante erro={erro} aviso={aviso} aoFecharErro={() => setErro(null)} aoFecharAviso={() => setAviso(null)} />
 
       <CabecalhoPagina titulo="Visão geral" descricao={abrigoAtivo?.endereco}>
-        <Botao disabled={somenteLeitura} onClick={() => setEditandoAbrigo(true)}>
-          Dados do abrigo
-        </Botao>
+        {podeOperar && (
+          <Botao disabled={somenteLeitura} onClick={() => setEditandoAbrigo(true)}>
+            Dados do abrigo
+          </Botao>
+        )}
         <BotaoIcone icone={RefreshCw} rotulo="Atualizar indicadores" onClick={() => void carregar()} />
       </CabecalhoPagina>
+
+      <FaixaAvisosOficiais onAviso={setAviso} onErro={setErro} />
 
       {reportesPendentes > 0 && (
         <Faixa
@@ -173,7 +182,7 @@ export default function PaginaDashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-x-10 gap-y-6 xl:grid-cols-2">
-        <SecaoOcupacao ocupacao={ocupacao} acolhidos={acolhidos} bloqueado={bloqueado} onAjustarFila={ajustarFila} />
+        <SecaoOcupacao ocupacao={ocupacao} acolhidos={acolhidos} bloqueado={bloqueado} onAjustarFila={podeOperar ? ajustarFila : undefined} />
         <SecaoInfraestrutura ocorrencias={ocorrenciasAtivas} bloqueado={bloqueado} onResolver={resolverOcorrencia} onAlternarAlerta={alternarAlerta} />
       </div>
 
@@ -186,7 +195,7 @@ export default function PaginaDashboard() {
             totalUrgentes={estoque.itensUrgentes}
             totalBloqueados={estoque.itensBloqueados}
             bloqueado={bloqueado}
-            onAlterarStatus={alterarStatusItem}
+            onAlterarStatus={podeClassificar ? alterarStatusItem : undefined}
           />
         </div>
         <SecaoMovimentacoes movimentacoes={dados.ultimasMovimentacoes} />

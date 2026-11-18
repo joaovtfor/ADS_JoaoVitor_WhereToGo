@@ -1,8 +1,9 @@
 // =============================================================================
 // Inicializador de Produção (Render Node / Render Docker / Docker Compose)
-// 1. Aplica migrations SQL pendentes (db/migrations/0001..0010) com advisory lock
+// 1. Aplica migrations SQL pendentes (db/migrations/NNNN_*.sql) com advisory lock
 // 2. Se o banco estiver vazio (0 usuários) e SEED_SE_VAZIO !== 'false',
-//    popula automaticamente os abrigos, estoques e contas de demonstração
+//    popula automaticamente os abrigos, estoques e contas de demonstração;
+//    com dados, só cria as contas de demonstração que faltarem
 // 3. Prepara os estáticos do modo standalone (quando rodado via `npm run start`
 //    no ambiente Node nativo do Render) e inicia o servidor Next.js
 // =============================================================================
@@ -10,7 +11,7 @@ import { cpSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { carregarEnvLocal, conectarComRetentativa, executarMigracoes } from './migrate.mjs';
-import { executarSeed } from './seed.mjs';
+import { executarSeed, garantirContasDeDemonstracao } from './seed.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(__dirname, '..');
@@ -92,6 +93,11 @@ async function iniciar() {
       });
     } else {
       console.log('[start-prod] Banco já possui dados cadastrados; seed inicial ignorado.');
+      // Perfis novos (ex.: DEFESA_CIVIL) ganham a conta de demonstração sem rodar o seed inteiro.
+      await garantirContasDeDemonstracao({
+        connectionString,
+        senha: process.env.SEED_SENHA_PADRAO || 'WhereToGo@2026',
+      });
     }
   }
 

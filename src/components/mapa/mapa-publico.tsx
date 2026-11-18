@@ -7,8 +7,9 @@ import { BarraResumo } from "@/components/mapa/barra-resumo";
 import { CabecalhoMapa } from "@/components/mapa/cabecalho-mapa";
 import { FichaAbrigo } from "@/components/mapa/ficha-abrigo";
 import { abrigoMaisProximo, filtrarAbrigos } from "@/components/mapa/filtrar-abrigos";
+import { SeloAvisoOficial } from "@/components/mapa/avisos-oficiais";
 import { ListaAbrigos, PainelAlertas, PainelBuscaFamiliar } from "@/components/mapa/paineis-laterais";
-import { ATALHOS_FILTRO, type AlertaMapa, type FiltroRapido } from "@/components/mapa/tipos";
+import { ATALHOS_FILTRO, filtrarAvisosNaoVencidos, type AlertaMapa, type FiltroRapido } from "@/components/mapa/tipos";
 import { useDadosMapa, type DadosIniciaisMapa } from "@/components/mapa/use-dados-mapa";
 import { useServiceWorker } from "@/components/mapa/use-service-worker";
 import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
@@ -127,11 +128,24 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   const [focoCoordenada, setFocoCoordenada] = useState<{ lat: number; lng: number; tick: number } | null>(null);
   const [autoSelecao, setAutoSelecao] = useState<MotivoAutoSelecao | null>(null);
 
-  const { abrigos, alertas, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, recarregar } = useDadosMapa(
+  const { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, recarregar } = useDadosMapa(
     posicaoUsuario,
     raioKm,
     inicial,
   );
+
+  // Relógio dos avisos oficiais: tira da tela os que venceram (dados salvos do
+  // modo offline podem ter horas). Começa nulo e só liga no navegador: o
+  // servidor (UTC) escreveria os horários em outro fuso e o texto não bateria
+  // com o da hidratação.
+  const [agora, setAgora] = useState<number | null>(null);
+  useEffect(() => {
+    const atualizar = () => setAgora(Date.now());
+    void Promise.resolve().then(atualizar);
+    const relogio = window.setInterval(atualizar, 60_000);
+    return () => window.clearInterval(relogio);
+  }, []);
+  const avisosValidos = useMemo(() => (agora === null ? [] : filtrarAvisosNaoVencidos(avisos, agora)), [avisos, agora]);
 
   // A página pode ter vindo do cache offline (gerada para outro endereço): vale o que está na URL.
   useEffect(() => {
@@ -336,7 +350,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-fundo text-texto">
       <CabecalhoMapa
         totalAbrigos={abrigosFiltrados.length}
-        totalAlertas={alertas.length}
+        totalAlertas={alertas.length + avisosValidos.length}
         termoBusca={termoBusca}
         onBuscar={setTermoBusca}
         onConfirmarBusca={() => abrigosFiltrados[0] && selecionarAbrigo(abrigosFiltrados[0].id)}
@@ -385,6 +399,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
               {erro}
             </Aviso>
           )}
+          <SeloAvisoOficial avisos={avisosValidos} onVer={() => setPainelAberto("alertas")} />
           <RegiaoToasts origem="topo" className="max-w-full items-start sm:max-w-md" />
         </div>
 
@@ -445,6 +460,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
         {painelAberto === "alertas" && (
           <PainelAlertas
             alertas={alertas}
+            avisos={avisosValidos}
             abrigos={abrigos}
             posicaoUsuario={posicaoUsuario}
             onVerNoMapa={verAlertaNoMapa}

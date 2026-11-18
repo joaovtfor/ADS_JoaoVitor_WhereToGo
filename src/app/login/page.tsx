@@ -9,6 +9,7 @@ import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
 import { Logo } from "@/components/ui/logo";
+import type { Papel } from "@/lib/auth/permissoes";
 import { api, mensagemErro } from "@/lib/cliente-api";
 
 interface RespostaLogin {
@@ -18,7 +19,7 @@ interface RespostaLogin {
     id: number;
     nome: string;
     email: string;
-    papel: "ADMIN" | "COORDENADOR" | "VOLUNTARIO";
+    papel: Papel;
     idAbrigo: number | null;
     abrigo: string | null;
   };
@@ -39,7 +40,7 @@ type RespostaGoogle =
         id: number;
         nome: string;
         email: string;
-        papel: "ADMIN" | "COORDENADOR" | "VOLUNTARIO";
+        papel: Papel;
         idAbrigo: number | null;
         abrigo: string | null;
       };
@@ -96,6 +97,12 @@ const CONTAS_DEMONSTRACAO = [
     descricao: "Operação rápida de Estoque e Check-in",
     email: "voluntario@wheretogo.local",
     nome: "Voluntariado - Abrigo Central UPF",
+  },
+  {
+    rotulo: "Defesa Civil Municipal",
+    descricao: "Todos os abrigos, alertas regionais e moderação",
+    email: "defesacivil@wheretogo.local",
+    nome: "Defesa Civil Municipal",
   },
   {
     rotulo: "Administração Geral",

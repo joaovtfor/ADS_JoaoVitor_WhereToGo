@@ -9,6 +9,7 @@ import { ItemMenu, Menu } from "@/components/ui/menu";
 import { ModalConfirmacao } from "@/components/ui/modal";
 import { Secao } from "@/components/ui/pagina";
 import { SeloStatus } from "@/components/ui/selo-status";
+import { papelSemAbrigo } from "@/lib/auth/permissoes";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { useAdmin, type PapelUsuario } from "../contexto-admin";
 import { ROTULO_PAPEL } from "../rotulos";
@@ -88,7 +89,7 @@ export function AbaUsuarios({ acao, onPendentes }: PropriedadesAbaUsuarios) {
     e.preventDefault();
     // Coordenador só cadastra voluntários do próprio abrigo.
     const papelFinal = ehAdmin ? papel : "VOLUNTARIO";
-    const abrigoFinal = papelFinal === "ADMIN" ? null : ehAdmin ? Number(idAbrigo) : usuario.idAbrigo;
+    const abrigoFinal = papelSemAbrigo(papelFinal) ? null : ehAdmin ? Number(idAbrigo) : usuario.idAbrigo;
 
     const salvo = await executar(
       async () => {
@@ -158,10 +159,11 @@ export function AbaUsuarios({ acao, onPendentes }: PropriedadesAbaUsuarios) {
                 <select value={papel} onChange={(e) => setPapel(e.target.value as PapelUsuario)} className={CLASSES_CAMPO}>
                   <option value="VOLUNTARIO">Voluntário: estoque e check-in</option>
                   <option value="COORDENADOR">Coordenador: gestão do abrigo</option>
+                  <option value="DEFESA_CIVIL">Defesa Civil: todos os abrigos e alertas regionais, sem gestão de contas</option>
                   <option value="ADMIN">Administração geral: todos os abrigos</option>
                 </select>
               </Campo>
-              {papel !== "ADMIN" && (
+              {!papelSemAbrigo(papel) && (
                 <Campo rotulo="Abrigo">
                   <select required value={idAbrigo} onChange={(e) => setIdAbrigo(Number(e.target.value))} className={CLASSES_CAMPO}>
                     {abrigos

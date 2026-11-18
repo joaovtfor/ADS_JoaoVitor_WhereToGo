@@ -11,6 +11,19 @@ const esquemaEnv = z.object({
   // Em bancos PostgreSQL gerenciados na nuvem (Render, Neon, Supabase, RDS),
   // defina DATABASE_SSL=true (ou no-verify para certificados autoassinados).
   DATABASE_SSL: z.enum(["false", "true", "require", "no-verify"]).default("false"),
+
+  // Avisos meteorológicos do INMET (.specs/plano-integracao-defesa-civil.md §4.1).
+  // Ligado por padrão: o MVP atende Passo Fundo. "false" para de consultar o
+  // INMET; os avisos já salvos continuam no mapa até vencer.
+  INTEGRACAO_AVISOS_INMET: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((valor) => valor === "true" || valor === "1"),
+  /** Município dos avisos (código IBGE de 7 dígitos). 4314100 = Passo Fundo/RS. */
+  MUNICIPIO_CODIGO_IBGE: z.string().regex(/^\d{7}$/, "MUNICIPIO_CODIGO_IBGE deve ter 7 dígitos").default("4314100"),
+  /** Intervalo mínimo entre consultas ao INMET, em minutos. */
+  INTERVALO_AVISOS_MIN: z.coerce.number().int().min(5).max(180).default(10),
+  INMET_AVISOS_URL: z.url().default("https://apiprevmet3.inmet.gov.br/avisos/ativos"),
 });
 
 export type Env = z.infer<typeof esquemaEnv>;

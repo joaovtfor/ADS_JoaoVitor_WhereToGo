@@ -66,7 +66,7 @@ describe("RF06/RF07/RF08/RF09 - API pública do mapa", () => {
     expect(json).not.toContain('"quantidade"');
 
     const alertas = await listarAlertasPublicos();
-    expect(alertas.find((a) => a.abrigo.id === abrigo.id)).toMatchObject({ tipo: "ALAGAMENTO", localizacaoPropria: false });
+    expect(alertas.find((a) => a.abrigo?.id === abrigo.id)).toMatchObject({ tipo: "ALAGAMENTO", localizacaoPropria: false });
   });
 });
 

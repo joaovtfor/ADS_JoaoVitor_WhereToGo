@@ -1,5 +1,6 @@
 import { consultarUm } from "../db";
-import type { Papel, UsuarioSessao } from "./rbac";
+import { papelSemAbrigo } from "./permissoes";
+import type { UsuarioSessao } from "./rbac";
 
 /** Dados do usuário necessários para decidir se ele pode acessar o painel. */
 export interface UsuarioAcesso extends UsuarioSessao {
@@ -37,11 +38,11 @@ export type MotivoBloqueio = "USUARIO_INATIVO" | "SEM_VINCULO_ABRIGO" | "ABRIGO_
 
 /**
  * HU01 - RN3: acesso negado para usuário inativo ou desvinculado de um abrigo
- * (exceto ADMIN, que não pertence a abrigo).
+ * (exceto ADMIN e DEFESA_CIVIL, que não pertencem a um abrigo).
  */
 export function motivoBloqueio(usuario: Pick<UsuarioAcesso, "ativo" | "papel" | "idAbrigo" | "abrigoAtivo">): MotivoBloqueio | null {
   if (!usuario.ativo) return "USUARIO_INATIVO";
-  if ((usuario.papel as Papel) === "ADMIN") return null;
+  if (papelSemAbrigo(usuario.papel)) return null;
   if (usuario.idAbrigo === null) return "SEM_VINCULO_ABRIGO";
   if (!usuario.abrigoAtivo) return "ABRIGO_INATIVO";
   return null;

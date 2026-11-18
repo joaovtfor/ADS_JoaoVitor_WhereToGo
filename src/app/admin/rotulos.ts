@@ -13,6 +13,7 @@ export const ROTULO_TIPO_MOVIMENTACAO: Record<string, string> = {
 
 export const ROTULO_PAPEL: Record<string, string> = {
   ADMIN: "Administração Geral",
+  DEFESA_CIVIL: "Defesa Civil",
   COORDENADOR: "Coordenador",
   VOLUNTARIO: "Voluntário",
 };

@@ -1,7 +1,16 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { assinarToken, verificarToken } from "@/lib/auth/jwt";
-import { exigirPermissao, pode, PERMISSOES, type Papel, type UsuarioSessao } from "@/lib/auth/rbac";
+import {
+  ehVisaoGlobal,
+  exigirPermissao,
+  papelSemAbrigo,
+  pode,
+  PERMISSOES,
+  ROTA_INICIAL_POR_PAPEL,
+  type Papel,
+  type UsuarioSessao,
+} from "@/lib/auth/rbac";
 import { motivoBloqueio } from "@/lib/auth/acesso";
 import { revogarToken, tokenRevogado } from "@/lib/auth/revogacao";
 import { COOKIE_SESSAO } from "@/lib/auth/sessao";
@@ -20,7 +29,7 @@ const usuario = (papel: Papel, idAbrigo: number | null = 1): UsuarioSessao => ({
   nome: "Teste",
   email: "t@t.local",
   papel,
-  idAbrigo: papel === "ADMIN" ? null : idAbrigo,
+  idAbrigo: papel === "ADMIN" || papel === "DEFESA_CIVIL" ? null : idAbrigo,
 });
 
 describe("Ocupação (RF04 / RF06)", () => {
@@ -70,6 +79,47 @@ describe("RBAC (RNF05)", () => {
     expect(() => exigirPermissao(usuario("ADMIN"), "estoque:classificar", 2)).not.toThrow();
   });
 
+  it("DEFESA_CIVIL coordena a rede (alertas regionais, moderação, remanejamento) sem administrar a plataforma", () => {
+    const defesaCivil = usuario("DEFESA_CIVIL");
+    for (const permissao of [
+      "abrigo:dashboard",
+      "ocorrencia:gerenciar",
+      "ocorrencia:regional",
+      "estoque:transferir",
+      "estoque:historico",
+      "abrigado:transferir",
+      "auditoria:ver",
+      "aviso:sincronizar",
+    ] as const) {
+      expect(pode(defesaCivil, permissao), permissao).toBe(true);
+    }
+    for (const permissao of [
+      "abrigo:criar",
+      "abrigo:editar-cadastro",
+      "abrigo:editar-operacao",
+      "estoque:movimentar",
+      "estoque:classificar",
+      "abrigado:registrar",
+      "abrigado:editar",
+      "catalogo:gerenciar",
+      "usuario:ver",
+      "usuario:gerenciar",
+    ] as const) {
+      expect(pode(defesaCivil, permissao), permissao).toBe(false);
+    }
+  });
+
+  it("DEFESA_CIVIL tem visão global; ocorrência regional é só de ADMIN e DEFESA_CIVIL", () => {
+    expect(() => exigirPermissao(usuario("DEFESA_CIVIL"), "abrigo:dashboard", 2)).not.toThrow();
+    expect(ehVisaoGlobal(usuario("DEFESA_CIVIL"))).toBe(true);
+    expect(ehVisaoGlobal(usuario("COORDENADOR"))).toBe(false);
+    expect(pode(usuario("ADMIN"), "ocorrencia:regional")).toBe(true);
+    expect(pode(usuario("COORDENADOR"), "ocorrencia:regional")).toBe(false);
+    expect(papelSemAbrigo("DEFESA_CIVIL")).toBe(true);
+    expect(papelSemAbrigo("VOLUNTARIO")).toBe(false);
+    expect(ROTA_INICIAL_POR_PAPEL.DEFESA_CIVIL).toBe("/admin/ocorrencias");
+  });
+
   it("toda permissão lista ao menos um papel válido", () => {
     for (const papeis of Object.values(PERMISSOES)) expect(papeis.length).toBeGreaterThan(0);
   });
@@ -81,6 +131,7 @@ describe("RBAC (RNF05)", () => {
     expect(motivoBloqueio({ ...base, papel: "COORDENADOR", idAbrigo: null, abrigoAtivo: null })).toBe("SEM_VINCULO_ABRIGO");
     expect(motivoBloqueio({ ...base, papel: "COORDENADOR", abrigoAtivo: false })).toBe("ABRIGO_INATIVO");
     expect(motivoBloqueio({ ativo: true, papel: "ADMIN", idAbrigo: null, abrigoAtivo: null })).toBeNull();
+    expect(motivoBloqueio({ ativo: true, papel: "DEFESA_CIVIL", idAbrigo: null, abrigoAtivo: null })).toBeNull();
   });
 });
 
@@ -120,6 +171,15 @@ describe("Proxy de borda Next.js 16 (RF01 / RNF05)", () => {
       }),
     );
     expect(volNoInventario.headers.get("location")).toBeNull();
+  });
+
+  it("DEFESA_CIVIL entra pela infraestrutura e abre a visão geral de qualquer abrigo", async () => {
+    const { token } = await assinarToken(usuario("DEFESA_CIVIL"), 0);
+    const comCookie = (caminho: string) => new NextRequest(`http://localhost:3000${caminho}`, { headers: { cookie: `${COOKIE_SESSAO}=${token}` } });
+
+    expect((await proxy(comCookie("/admin"))).headers.get("location")).toBe("http://localhost:3000/admin/ocorrencias");
+    expect((await proxy(comCookie("/admin/dashboard"))).headers.get("location")).toBeNull();
+    expect((await proxy(comCookie("/admin/geral"))).headers.get("location")).toBeNull();
   });
 });
 

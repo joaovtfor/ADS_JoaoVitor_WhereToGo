@@ -1,5 +1,6 @@
 import { cacheLife, cacheTag } from "next/cache";
 import { TAG_DADOS_PUBLICOS } from "@/lib/cache";
+import { listarAvisosVigentes } from "../integracoes/avisos.service";
 import {
   buscarAbrigoPublico,
   consultarLinhasAbrigosPublicos,
@@ -42,6 +43,13 @@ async function alertasPublicosEmCache() {
   return listarAlertasPublicos();
 }
 
+async function avisosVigentesEmCache() {
+  "use cache";
+  cacheTag(TAG_DADOS_PUBLICOS);
+  cacheLife("mapaPublico");
+  return listarAvisosVigentes();
+}
+
 async function categoriasPublicasEmCache() {
   "use cache";
   cacheTag(TAG_DADOS_PUBLICOS);
@@ -67,6 +75,11 @@ export function buscarAbrigoPublicoEmCache(id: number) {
 
 export function listarAlertasPublicosEmCache() {
   return CACHE_ATIVO ? alertasPublicosEmCache() : listarAlertasPublicos();
+}
+
+/** Avisos oficiais (INMET) ainda não vencidos. */
+export function listarAvisosVigentesEmCache() {
+  return CACHE_ATIVO ? avisosVigentesEmCache() : listarAvisosVigentes();
 }
 
 export function listarCategoriasPublicasEmCache() {

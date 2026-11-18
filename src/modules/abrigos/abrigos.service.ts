@@ -1,4 +1,4 @@
-import { exigirPermissao, type Contexto } from "@/lib/auth/rbac";
+import { ehVisaoGlobal, exigirPermissao, type Contexto } from "@/lib/auth/rbac";
 import { auditar } from "@/lib/auditoria";
 import { comTransacao, consultar, consultarUm } from "@/lib/db";
 import { erros } from "@/lib/http";
@@ -148,10 +148,10 @@ async function buscarPorId(id: number): Promise<LinhaAbrigo | null> {
 // Casos de uso
 // -----------------------------------------------------------------------------
 
-/** ADMIN vê todos; COORDENADOR/VOLUNTARIO veem apenas o próprio abrigo. */
+/** ADMIN e DEFESA_CIVIL veem todos; COORDENADOR/VOLUNTARIO veem apenas o próprio abrigo. */
 export async function listarAbrigos(ctx: Contexto, filtros: z.infer<typeof esquemaFiltroAbrigos>) {
   exigirPermissao(ctx.usuario, "abrigo:ver");
-  const idRestrito = ctx.usuario.papel === "ADMIN" ? null : ctx.usuario.idAbrigo;
+  const idRestrito = ehVisaoGlobal(ctx.usuario) ? null : ctx.usuario.idAbrigo;
   const termo = filtros.busca ? escaparIlike(filtros.busca) : null;
 
   const linhas = await consultar<LinhaAbrigo>(

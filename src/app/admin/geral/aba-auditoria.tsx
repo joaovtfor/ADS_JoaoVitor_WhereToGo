@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Botao } from "@/components/ui/botao";
 import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { EstadoVazio, Secao } from "@/components/ui/pagina";
+import { ehVisaoGlobal } from "@/lib/auth/permissoes";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { useAdmin } from "../contexto-admin";
 import type { Acao } from "../use-acao";
@@ -21,7 +22,8 @@ const SEM_FILTROS: Filtros = { acao: "", idAbrigo: "", de: "", ate: "" };
 /** Registro permanente do que foi feito no sistema: as 80 ações mais recentes, com filtros. */
 export function AbaAuditoria({ acao }: { acao: Acao }) {
   const { usuario, abrigos } = useAdmin();
-  const ehAdmin = usuario.papel === "ADMIN";
+  // ADMIN e Defesa Civil veem a auditoria de toda a rede e podem filtrar por abrigo.
+  const ehAdmin = ehVisaoGlobal(usuario);
   const { setErro } = acao;
 
   const [logs, setLogs] = useState<LogAuditoria[] | null>(null);

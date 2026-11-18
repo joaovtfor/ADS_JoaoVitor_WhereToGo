@@ -31,7 +31,8 @@ export type AcaoAuditoria =
   | "ITEM_CRIADO"
   | "ITEM_ATUALIZADO"
   | "USUARIO_CRIADO"
-  | "USUARIO_ATUALIZADO";
+  | "USUARIO_ATUALIZADO"
+  | "AVISOS_CONSULTADOS";
 
 export interface EventoAuditoria {
   acao: AcaoAuditoria;
