@@ -110,6 +110,72 @@ export function ModalTransferenciaAcolhido({ abrigado, abrigosDestino, salvando,
   );
 }
 
+interface PropriedadesModalTransferenciaLote {
+  quantidade: number;
+  /** Abrigos ativos, sem contar o atual; só os com vaga para todos aparecem. */
+  abrigosDestino: AbrigoAdmin[];
+  salvando: boolean;
+  onConfirmar: (dados: { idAbrigoDestino: number; motivo: string }) => void;
+  onFechar: () => void;
+}
+
+/** Transferência de várias pessoas de uma vez (evacuação preventiva): tudo ou nada. */
+export function ModalTransferenciaLote({ quantidade, abrigosDestino, salvando, onConfirmar, onFechar }: PropriedadesModalTransferenciaLote) {
+  const comVaga = abrigosDestino.filter((abrigo) => abrigo.ocupacao.vagasDisponiveis >= quantidade);
+  const [idDestino, setIdDestino] = useState<number | "">(comVaga[0]?.id ?? "");
+  const [motivo, setMotivo] = useState("");
+  const pessoas = quantidade === 1 ? "1 pessoa" : `${quantidade} pessoas`;
+
+  function enviar(e: FormEvent) {
+    e.preventDefault();
+    if (idDestino) onConfirmar({ idAbrigoDestino: Number(idDestino), motivo });
+  }
+
+  return (
+    <Modal titulo={`Transferir ${pessoas}`} onFechar={onFechar}>
+      {comVaga.length === 0 ? (
+        <div className="space-y-4">
+          <p className="text-corpo text-texto-2">Nenhum outro abrigo ativo tem vaga para {pessoas} de uma vez. Transfira em grupos menores.</p>
+          <div className="flex justify-end">
+            <Botao onClick={onFechar}>Fechar</Botao>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={enviar} className="space-y-4">
+          <p className="text-meta text-texto-2">Todos vão juntos para o mesmo abrigo. Se alguém já tiver saído, nada é transferido e a lista é recarregada.</p>
+          <Campo rotulo="Abrigo de destino">
+            <select required value={idDestino} onChange={(e) => setIdDestino(Number(e.target.value))} className={CLASSES_CAMPO}>
+              {comVaga.map((abrigo) => (
+                <option key={abrigo.id} value={abrigo.id}>
+                  {abrigo.nome} ({abrigo.ocupacao.vagasDisponiveis} vagas livres)
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo rotulo="Motivo da transferência">
+            <input
+              type="text"
+              required
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Evacuação preventiva: risco de alagamento"
+              className={CLASSES_CAMPO}
+            />
+          </Campo>
+          <div className="flex justify-end gap-2 pt-1">
+            <Botao variante="fantasma" onClick={onFechar}>
+              Cancelar
+            </Botao>
+            <Botao type="submit" variante="primaria" disabled={salvando}>
+              {salvando ? "Transferindo..." : `Transferir ${pessoas}`}
+            </Botao>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
 interface PropriedadesModalEdicao extends PropriedadesBase {
   onSalvar: (dados: { nomeCompleto: string; cpf: string | null; dataNascimento: string | null }) => void;
 }

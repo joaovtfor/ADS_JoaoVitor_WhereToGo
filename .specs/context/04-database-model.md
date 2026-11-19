@@ -284,6 +284,16 @@ Avisos meteorológicos do INMET que incluem o município. Ficam fora de `ocorren
 
 `integracao_estado` (uma linha por fonte): `ultima_tentativa`, `ultimo_sucesso`, `falhas_consecutivas`, `pausada_ate` (circuit breaker: 3 falhas → 15 min) e `ultimo_erro`.
 
+### 3.6.2. `cobrade` e `evento_desastre` (migration `0013`)
+O COBRADE classifica o **desastre** (um por decreto ou operação), não cada ocorrência. `cobrade` traz só os códigos conferidos na tabela oficial (10, de deslizamentos a colapso de edificações); um código novo entra com INSERT depois de conferido.
+
+| Coluna | Tipo | Regras |
+|---|---|---|
+| evento_desastre.cobrade | VARCHAR(9) | FK `cobrade` |
+| inicio / fim | DATE | `fim >= inicio`, no máximo 366 dias; `fim` nulo = evento em curso (relatórios vão até hoje) |
+| decreto | VARCHAR(120) | nº do decreto de SE/ECP, opcional |
+| id_usuario_registro | INTEGER | FK `usuario` (ADMIN ou DEFESA_CIVIL) |
+
 ### 3.7. `log_auditoria` (append-only)
 | Coluna | Tipo | Regras |
 |---|---|---|

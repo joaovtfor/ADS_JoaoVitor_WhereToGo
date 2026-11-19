@@ -46,6 +46,19 @@ export const esquemaTransferenciaAbrigado = z.object({
   motivo: textoObrigatorio(500),
 });
 
+/** Limite de uma transferência em lote (um ônibus, uma ala inteira). */
+export const LIMITE_TRANSFERENCIA_LOTE = 200;
+
+export const esquemaTransferenciaLote = z.object({
+  idsAbrigados: z
+    .array(esquemaId)
+    .min(1, "Selecione ao menos uma pessoa.")
+    .max(LIMITE_TRANSFERENCIA_LOTE, `Transfira no máximo ${LIMITE_TRANSFERENCIA_LOTE} pessoas por vez.`)
+    .refine((ids) => new Set(ids).size === ids.length, "A lista tem pessoas repetidas."),
+  idAbrigoDestino: esquemaId,
+  motivo: textoObrigatorio(500),
+});
+
 export const esquemaFiltroAbrigados = z.object({
   status: z.enum(["PRESENTE", "DESLIGADO", "TODOS"]).default("PRESENTE"),
   busca: z.string().trim().max(150).optional(),
@@ -321,6 +334,86 @@ export async function transferirAbrigado(ctx: Contexto, id: number, dados: z.inf
       idAbrigado: id,
       idTransferencia: resultado.transferencia.id,
       idAbrigoDestino: resultado.transferencia.destino.id,
+      motivo: dados.motivo,
+    },
+  });
+  return resultado;
+}
+
+/**
+ * Transfere várias pessoas de um abrigo para outro numa única transação
+ * (evacuação preventiva, remanejamento de uma ala). Tudo ou nada: se faltar
+ * vaga no destino, ou se alguém já saiu ou foi movido, nada é transferido.
+ * Trava na mesma ordem de `transferirAbrigado`: primeiro as pessoas (por id),
+ * depois os dois abrigos (menor id primeiro), para as duas operações nunca se
+ * travarem mutuamente.
+ */
+export async function transferirAbrigadosEmLote(ctx: Contexto, idAbrigoOrigem: number, dados: z.infer<typeof esquemaTransferenciaLote>) {
+  exigirPermissao(ctx.usuario, "abrigado:transferir", idAbrigoOrigem);
+  if (dados.idAbrigoDestino === idAbrigoOrigem) {
+    throw erros.requisicaoInvalida("Escolha um abrigo de destino diferente do atual.");
+  }
+
+  const resultado = await comTransacao(async (client) => {
+    const pessoas = await consultar<{ id: number }>(
+      `SELECT id FROM abrigado
+        WHERE id = ANY($1::int[]) AND id_abrigo_atual = $2 AND status_acolhimento = 'PRESENTE'
+        ORDER BY id FOR UPDATE`,
+      [dados.idsAbrigados, idAbrigoOrigem],
+      client,
+    );
+    if (pessoas.length !== dados.idsAbrigados.length) {
+      const encontrados = new Set(pessoas.map((p) => p.id));
+      throw erros.conflito(
+        "ABRIGADOS_INDISPONIVEIS",
+        "Parte das pessoas selecionadas já saiu ou não está mais neste abrigo. Recarregue a lista e tente de novo.",
+        { indisponiveis: dados.idsAbrigados.filter((id) => !encontrados.has(id)) },
+      );
+    }
+
+    const abrigos = await consultar<{ id: number; nome: string }>(
+      "SELECT id, nome FROM abrigo WHERE id = ANY($1::int[]) ORDER BY id FOR UPDATE",
+      [[idAbrigoOrigem, dados.idAbrigoDestino]],
+      client,
+    );
+    const origem = abrigos.find((a) => a.id === idAbrigoOrigem);
+    if (!origem) throw erros.naoEncontrado("Abrigo de origem");
+
+    // Destino ativo e com vaga para todos de uma vez.
+    const destino = await exigirVaga(dados.idAbrigoDestino, client);
+    const vagas = destino.capacidadeMaxima - destino.lotacaoAtual;
+    if (vagas < dados.idsAbrigados.length) {
+      throw erros.conflito(
+        "VAGAS_INSUFICIENTES",
+        `"${destino.nome}" tem ${vagas} ${vagas === 1 ? "vaga" : "vagas"}, menos que as ${dados.idsAbrigados.length} pessoas selecionadas.`,
+        { vagasDisponiveis: vagas, selecionados: dados.idsAbrigados.length },
+      );
+    }
+
+    const { rows } = await client.query<{ id: number }>(
+      `INSERT INTO transferencia_abrigado (id_abrigado, id_abrigo_origem, id_abrigo_destino, id_usuario, motivo)
+       SELECT pessoa, $2, $3, $4, $5 FROM unnest($1::int[]) AS pessoa
+       RETURNING id`,
+      [dados.idsAbrigados, idAbrigoOrigem, destino.id, ctx.usuario.id, dados.motivo],
+    );
+
+    return {
+      transferidos: rows.length,
+      idsTransferencias: rows.map((r) => r.id),
+      origem: { id: origem.id, nome: origem.nome },
+      destino: { id: destino.id, nome: destino.nome },
+      motivo: dados.motivo,
+    };
+  });
+
+  auditar(ctx, {
+    acao: "ABRIGADOS_TRANSFERIDOS_LOTE",
+    descricao: `${resultado.transferidos} pessoa(s) transferida(s) de "${resultado.origem.nome}" para "${resultado.destino.nome}"`,
+    idAbrigo: idAbrigoOrigem,
+    detalhes: {
+      idsAbrigados: dados.idsAbrigados,
+      idsTransferencias: resultado.idsTransferencias,
+      idAbrigoDestino: resultado.destino.id,
       motivo: dados.motivo,
     },
   });

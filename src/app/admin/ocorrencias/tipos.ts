@@ -24,6 +24,10 @@ export interface Ocorrencia {
   dataResolucao: string | null;
   registradoPor: string;
   resolvidoPor: string | null;
+  /** Reporte pendente: outros reportes iguais a até 300 m, feitos até 2 h antes ou depois. */
+  relatosProximos?: number;
+  /** Reporte pendente: alertas iguais já publicados e ativos a até 300 m. */
+  confirmadosProximos?: number;
 }
 
 /** Tipos que a coordenação pode registrar, com a gravidade que costuma valer para cada um. */
@@ -44,6 +48,22 @@ export const TIPOS_OCORRENCIA: ReadonlyArray<{ tipo: string; gravidadePadrao: Gr
  * comunicação e risco estrutural são da edificação de um abrigo.
  */
 export const TIPOS_REGIONAIS: ReadonlySet<string> = new Set(["VIA_BLOQUEADA", "AREA_RISCO", "ALAGAMENTO", "DESLIZAMENTO", "OUTRO"]);
+
+/**
+ * Quanto um reporte pendente é confirmado por outros no mesmo lugar, em uma
+ * frase para a moderação. Relato isolado não é descartável: só pede mais cuidado.
+ */
+export function descreverCorroboracao(ocorrencia: Ocorrencia): { forte: boolean; texto: string } | null {
+  if (!estaPendente(ocorrencia) || ocorrencia.latitude === null) return null;
+  const relatos = ocorrencia.relatosProximos ?? 0;
+  const confirmados = ocorrencia.confirmadosProximos ?? 0;
+  const partes: string[] = [];
+  if (confirmados > 0) partes.push(confirmados === 1 ? "1 alerta igual já publicado a até 300 m" : `${confirmados} alertas iguais já publicados a até 300 m`);
+  if (relatos > 0) partes.push(relatos === 1 ? "mais 1 relato igual a até 300 m (em 2 h)" : `mais ${relatos} relatos iguais a até 300 m (em 2 h)`);
+  if (partes.length === 0) return { forte: false, texto: "Relato isolado: nenhum outro igual a até 300 m" };
+  const frase = partes.join(" e ");
+  return { forte: true, texto: frase.charAt(0).toUpperCase() + frase.slice(1) };
+}
 
 export function estaPendente(ocorrencia: Ocorrencia): boolean {
   return ocorrencia.statusValidacao === "PENDENTE" && !ocorrencia.dataResolucao;

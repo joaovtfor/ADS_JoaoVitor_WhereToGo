@@ -35,5 +35,6 @@ O sistema deve registrar as pessoas acolhidas em cada abrigo (entrada e saída) 
 ## Implementação
 - `GET|POST /api/abrigos/{id}/abrigados`, `GET|PATCH /api/abrigados/{id}`
 - `POST /api/abrigados/{id}/desligamento`, `GET|POST /api/abrigados/{id}/transferencias`
+- `POST /api/abrigos/{id}/transferencias-lote` (pós-MVP, Etapa 3 do plano de integração): várias pessoas de uma vez para o mesmo destino, tudo ou nada (evacuação preventiva). Na tela, "Transferir em grupo".
 - Código Backend: `src/modules/abrigados/abrigados.service.ts`; triggers `fn_atualizar_lotacao_abrigo`, `fn_sincronizar_nao_triados_abrigo` e `fn_processar_transferencia_abrigado`.
 - Código Frontend: `src/app/admin/abrigados/page.tsx`.

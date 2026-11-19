@@ -17,6 +17,8 @@ export interface SugestaoTransferencia {
   quantidadeAtual: number;
   quantidadeParceiro: number;
   quantidadeSugerida: number;
+  /** O trajeto em linha reta até o parceiro cruza uma área de risco ativa (vem por último na lista). */
+  rotaBloqueada?: boolean;
 }
 
 export interface OcorrenciaAtiva {

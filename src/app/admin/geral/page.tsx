@@ -16,12 +16,15 @@ const AbaAbrigos = dynamic(() => import("./aba-abrigos").then((m) => m.AbaAbrigo
 const AbaUsuarios = dynamic(() => import("./aba-usuarios").then((m) => m.AbaUsuarios), { loading: carregando });
 const AbaCatalogo = dynamic(() => import("./aba-catalogo").then((m) => m.AbaCatalogo), { loading: carregando });
 const AbaAuditoria = dynamic(() => import("./aba-auditoria").then((m) => m.AbaAuditoria), { loading: carregando });
+const AbaRelatorios = dynamic(() => import("./aba-relatorios").then((m) => m.AbaRelatorios), { loading: carregando });
 
 export default function PaginaGestao() {
   const { usuario, abrigoAtivo, abrigos } = useAdmin();
   const ehAdmin = usuario.papel === "ADMIN";
   // A Defesa Civil não gerencia contas: a tela mostra só a auditoria de toda a rede.
   const veEquipe = pode(usuario, "usuario:ver");
+  // Eventos de desastre, subsídios para o FIDE e prestação de contas (Etapa 4).
+  const veRelatorios = pode(usuario, "relatorio:fide");
   const acao = useAcao();
   const [aba, setAba] = useState<AbaGestao>(ehAdmin ? "abrigos" : veEquipe ? "usuarios" : "auditoria");
   const [pendentes, setPendentes] = useState(0);
@@ -37,7 +40,7 @@ export default function PaginaGestao() {
       });
   }, [veEquipe]);
 
-  const abas: Array<{ id: AbaGestao; rotulo: string; contador?: number }> = ehAdmin
+  const abasBase: Array<{ id: AbaGestao; rotulo: string; contador?: number }> = ehAdmin
     ? [
         { id: "abrigos", rotulo: `Abrigos (${abrigos.length})` },
         { id: "usuarios", rotulo: "Equipe", contador: pendentes },
@@ -50,13 +53,14 @@ export default function PaginaGestao() {
           { id: "auditoria", rotulo: "Auditoria" },
         ]
       : [{ id: "auditoria", rotulo: "Auditoria" }];
+  const abas = veRelatorios ? [...abasBase, { id: "relatorios" as const, rotulo: "Relatórios" }] : abasBase;
 
-  const titulo = ehAdmin ? "Gestão" : veEquipe ? "Equipe" : "Auditoria da rede";
+  const titulo = ehAdmin ? "Gestão" : veEquipe ? "Equipe" : "Auditoria e relatórios";
   const descricao = ehAdmin
     ? "Abrigos, contas, catálogo de itens e auditoria de toda a rede."
     : veEquipe
       ? (abrigoAtivo?.nome ?? usuario.abrigo ?? undefined)
-      : "Registro imutável de tudo o que foi feito em todos os abrigos.";
+      : "Registro imutável de tudo o que foi feito na rede, eventos de desastre e relatórios para o S2iD e a prestação de contas.";
 
   return (
     <div className="space-y-6">
@@ -70,6 +74,7 @@ export default function PaginaGestao() {
       {aba === "usuarios" && veEquipe && <AbaUsuarios acao={acao} onPendentes={atualizarPendentes} />}
       {aba === "catalogo" && ehAdmin && <AbaCatalogo acao={acao} />}
       {aba === "auditoria" && <AbaAuditoria acao={acao} />}
+      {aba === "relatorios" && veRelatorios && <AbaRelatorios acao={acao} />}
     </div>
   );
 }

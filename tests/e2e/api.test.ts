@@ -154,6 +154,23 @@ describe.skipIf(!BASE)("API HTTP (e2e)", () => {
       expect((await api("/api/ocorrencias", { method: "POST", token: coordenador.token, json: { tipo: "ALAGAMENTO", latitude: -28.25, longitude: -52.4 } })).status).toBe(403);
     });
 
+    it("relatórios: evento com COBRADE, subsídios FIDE em JSON e prestação de contas em CSV com SHA-256", async () => {
+      const defesaCivil = await entrar("defesacivil@wheretogo.local");
+      const hoje = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+      const evento = await api("/api/eventos", { method: "POST", token: defesaCivil.token, json: { nome: "Evento e2e", cobrade: "1.3.2.1.4", inicio: hoje } });
+      expect(evento.status).toBe(201);
+
+      const fide = await api(`/api/relatorios/fide?idEvento=${evento.corpo.dados.id}`, { token: defesaCivil.token });
+      expect(fide.status).toBe(200);
+      expect(fide.corpo.dados.danosHumanos).toMatchObject({ desabrigados: expect.any(Number) });
+
+      const csv = await fetch(`${BASE}/api/relatorios/prestacao-contas?inicio=${hoje}&fim=${hoje}`, { headers: { authorization: `Bearer ${defesaCivil.token}` } });
+      expect(csv.status).toBe(200);
+      expect(csv.headers.get("content-type")).toContain("text/csv");
+      expect(csv.headers.get("x-conteudo-sha256")).toMatch(/^[0-9a-f]{64}$/);
+      await api(`/api/eventos/${evento.corpo.dados.id}`, { method: "PATCH", token: defesaCivil.token, json: { fim: hoje } });
+    });
+
     it("rotas internas exigem autenticação (401) e papel adequado (403)", async () => {
       expect((await api("/api/abrigos")).status).toBe(401);
       const dashboard = `/api/abrigos/${voluntario.idAbrigo}/dashboard`;

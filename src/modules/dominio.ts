@@ -61,6 +61,25 @@ export const DESCRICAO_TIPO_OCORRENCIA_REGIONAL: Record<TipoOcorrenciaRegional, 
   OUTRO: "Ocorrência no município",
 };
 
+/**
+ * Onde cada tipo de ocorrência ajuda no FIDE (Etapa 4). O COBRADE classifica o
+ * evento; as ocorrências são danos e prejuízos dele. Falta de energia, água,
+ * comunicação e via bloqueada correspondem aos serviços essenciais dos
+ * "prejuízos econômicos públicos" do formulário. É uma sugestão para quem
+ * preenche: confirmar no formulário vigente do S2iD.
+ */
+export const CAMPO_FIDE_POR_TIPO_OCORRENCIA: Record<TipoOcorrencia, string> = {
+  SEM_ENERGIA: "Prejuízos públicos: geração e distribuição de energia elétrica",
+  SEM_AGUA: "Prejuízos públicos: abastecimento de água potável",
+  SEM_COMUNICACAO: "Prejuízos públicos: telecomunicações",
+  VIA_BLOQUEADA: "Prejuízos públicos: transportes locais, regionais e de longo curso",
+  RISCO_ESTRUTURAL: "Danos materiais: instalações públicas usadas como abrigo",
+  ALAGAMENTO: "Caracterização do evento e das áreas afetadas",
+  DESLIZAMENTO: "Caracterização do evento e das áreas afetadas",
+  AREA_RISCO: "Caracterização do evento e das áreas afetadas",
+  OUTRO: "A classificar pela Defesa Civil",
+};
+
 export const GRAVIDADES = ["ALERTA", "CRITICO"] as const;
 export type Gravidade = (typeof GRAVIDADES)[number];
 

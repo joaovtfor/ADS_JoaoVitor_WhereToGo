@@ -165,6 +165,16 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 - **Avisos do INMET na visão geral** (`dashboard/faixa-avisos.tsx`):
   - uma `Faixa` por aviso vigente (`atencao` ou `critico`, como no mapa), com "Ver no INMET";
   - o ADMIN vê também uma linha discreta com a última consulta e "Consultar agora", que vira `Faixa` crítica quando a consulta está falhando.
+- **Moderação corroborada** (Infraestrutura): cada reporte pendente ganha uma linha de texto com o que o confirma ("1 alerta igual já publicado a até 300 m e mais 2 relatos iguais..."), em `texto-2` e peso médio, ou "Relato isolado" em `texto-3`. Sem cor nova: a gravidade continua no `SeloStatus`.
+- **Trocas com abrigos próximos:** sugestão cujo trajeto direto cruza área de risco vai para o fim e mostra `SeloStatus` de atenção ("O trajeto direto cruza uma área de risco: combine o caminho antes de enviar"). O botão continua ativo: a decisão é de quem conhece as ruas.
+- **Transferência em grupo** (Acolhidos):
+  - o botão "Transferir em grupo" (ligado em azul enquanto ativo) põe uma caixa de marcação em cada pessoa presente e esconde o menu "..." da linha;
+  - uma `Faixa` `ok` mostra quantos foram marcados, com "Marcar todos da lista", "Transferir" (primária) e "Cancelar";
+  - o modal só lista destinos com vaga para todos.
+- **Relatórios** (Gestão → aba `Relatórios`, `geral/aba-relatorios.tsx`): três seções sem caixa, na ordem eventos, subsídios FIDE e prestação de contas.
+  - Eventos: uma linha por evento com `SeloStatus` (`atencao` em curso, `neutro` encerrado), COBRADE e período; o registro fica num bloco `bg-superficie` abaixo da lista.
+  - A única ação primária da aba é "Baixar planilha" dos subsídios. O resumo na tela usa os mesmos indicadores da visão geral e tabelas densas.
+  - Depois de um download, uma linha mostra o nome do arquivo e o SHA-256 em fonte mono, selecionável, para quem precisa anotar.
 - **Telas grandes são divididas:** dados e ações em um hook ou na página, cada modal e cada aba em seu arquivo com estado próprio. Digitar em um campo não renderiza a lista ao lado.
 
 ### 5.3. Login (`/login`)

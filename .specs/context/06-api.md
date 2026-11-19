@@ -95,7 +95,7 @@ GET /api/public/abrigos?lat=-28.25&lng=-52.40&necessidade=agua
 | GET | `/api/auth/me` | Dados da sessão atual e rota inicial do perfil |
 | PUT | `/api/auth/senha` | `{ senhaAtual, novaSenha }` (mín. 8 caracteres) → 204 |
 
-Redirecionamento por perfil: `VOLUNTARIO → /admin/inventario`, `COORDENADOR → /admin/dashboard`, `ADMIN → /admin/geral`.
+Redirecionamento por perfil: `VOLUNTARIO → /admin/inventario`, `COORDENADOR → /admin/dashboard`, `DEFESA_CIVIL → /admin/ocorrencias`, `ADMIN → /admin/geral`.
 
 ### 3.3. Abrigos (RF10, RF04)
 | Método | Rota | Descrição |
@@ -104,7 +104,7 @@ Redirecionamento por perfil: `VOLUNTARIO → /admin/inventario`, `COORDENADOR �
 | POST | `/api/abrigos` | Cadastra: `{ nome, endereco, latitude, longitude, capacidadeMaxima, telefone?, chavePix?, titularPix? }` |
 | GET | `/api/abrigos/{id}` | Detalhe com `ocupacao` |
 | PATCH | `/api/abrigos/{id}` | Atualização parcial (campos conforme papel). `ativo: false` exige abrigo vazio |
-| GET | `/api/abrigos/{id}/dashboard` | RF04 - ocupação, acolhidos (24h), itens críticos, ocorrências ativas, últimas movimentações |
+| GET | `/api/abrigos/{id}/dashboard` | RF04 - ocupação, acolhidos (24h), itens críticos, ocorrências ativas, últimas movimentações e `sugestoesTransferencia` (cada uma com `rotaBloqueada`: o trajeto direto até o parceiro cruza área de risco ativa; essas vêm por último) |
 
 ### 3.4. Estoque (RF02, RF03)
 | Método | Rota | Descrição |
@@ -127,7 +127,7 @@ Resposta `201`: `{ idAbrigo, idItem, item, unidadeMedida, quantidadeAtual, movim
 ### 3.5. Ocorrências de infraestrutura (RF05, RF09)
 | Método | Rota | Descrição |
 |---|---|---|
-| GET | `/api/abrigos/{id}/ocorrencias` | Query `ativas=true\|false` |
+| GET | `/api/abrigos/{id}/ocorrencias` | Query `ativas=true\|false`. Reportes pendentes trazem `relatosProximos` (outros reportes iguais a até 300 m, feitos até 2 h antes ou depois) e `confirmadosProximos` (alertas iguais já aprovados a até 300 m); a fila vem ordenada pelos mais corroborados |
 | POST | `/api/abrigos/{id}/ocorrencias` | `{ tipo, gravidade?, descricao?, latitude?, longitude? }` → ocorrência + novo `statusInfraestrutura` |
 | POST | `/api/abrigos/{id}/ocorrencias/{ocorrenciaId}/resolucao` | `{ observacao? }` → resolve e recalcula o status |
 | GET | `/api/ocorrencias` | Ocorrências regionais (do município, sem abrigo). Query `ativas=true\|false`. Qualquer usuário logado |
@@ -146,6 +146,7 @@ Tipos: `SEM_ENERGIA`, `SEM_AGUA`, `SEM_COMUNICACAO`, `VIA_BLOQUEADA`, `ALAGAMENT
 | POST | `/api/abrigados/{id}/desligamento` | `{ motivo? }` - saída definitiva, libera a vaga |
 | GET | `/api/abrigados/{id}/transferencias` | Histórico |
 | POST | `/api/abrigados/{id}/transferencias` | `{ idAbrigoDestino, motivo }` - destino precisa estar ativo e com vaga |
+| POST | `/api/abrigos/{id}/transferencias-lote` | `{ idsAbrigados (1 a 200, sem repetir), idAbrigoDestino, motivo }` - várias pessoas de uma vez, tudo ou nada: `409 VAGAS_INSUFICIENTES` se o destino não comporta todos, `409 ABRIGADOS_INDISPONIVEIS` se alguém já saiu ou foi movido. Audita `ABRIGADOS_TRANSFERIDOS_LOTE` |
 
 ### 3.7. Catálogo, usuários e auditoria (RF02, RF11, RF13)
 | Método | Rota | Descrição |
@@ -162,7 +163,16 @@ Tipos: `SEM_ENERGIA`, `SEM_AGUA`, `SEM_COMUNICACAO`, `VIA_BLOQUEADA`, `ALAGAMENT
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/api/integracoes/avisos` | Qualquer usuário logado (`aviso:ver`): `{ avisos, estado }`, com última consulta, falhas seguidas, pausa do breaker e último erro |
-| POST | `/api/integracoes/avisos/sincronizacao` | Só ADMIN (`aviso:sincronizar`): consulta o INMET na hora, ignorando o intervalo e a pausa. Audita `AVISOS_CONSULTADOS` |
+| POST | `/api/integracoes/avisos/sincronizacao` | ADMIN e DEFESA_CIVIL (`aviso:sincronizar`): consulta o INMET na hora, ignorando o intervalo e a pausa. Audita `AVISOS_CONSULTADOS` |
+
+### 3.9. Eventos de desastre e relatórios (Etapa 4)
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/api/eventos` | ADMIN, DEFESA_CIVIL, COORDENADOR: `{ eventos, cobrade }` (eventos com o COBRADE e a lista de códigos conferidos) |
+| POST | `/api/eventos` | ADMIN e DEFESA_CIVIL: `{ nome, cobrade, inicio, fim?, decreto? }` (datas `AAAA-MM-DD`). Código fora da lista → `422 COBRADE_DESCONHECIDO` |
+| PATCH | `/api/eventos/{id}` | Ajusta; `{ fim }` encerra o evento |
+| GET | `/api/relatorios/fide` | `?idEvento=&idAbrigo=&formato=json\|csv`. Subsídios para o FIDE: desabrigados (pessoas distintas, pico diário no consolidado, faixas etárias com supressão de 1 a 4), assistência humanitária (descontados estornos) e ocorrências aprovadas com campo sugerido no FIDE. Coordenação: só o próprio abrigo. Audita `RELATORIO_FIDE_GERADO` |
+| GET | `/api/relatorios/prestacao-contas` | `?inicio=&fim=&idAbrigo=` (até um ano). CSV (`;`, BOM UTF-8) com movimentações de estoque e eventos críticos da auditoria; SHA-256 dos bytes em `X-Conteudo-SHA256`, gravado em `PRESTACAO_CONTAS_EXPORTADA` |
 
 ## 4. Exemplo de uso (curl)
 ```bash

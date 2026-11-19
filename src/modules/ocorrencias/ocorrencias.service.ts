@@ -120,16 +120,58 @@ async function statusAtual(idAbrigo: number): Promise<StatusInfraestrutura> {
   return linha!.status;
 }
 
-/** RF05 - ocorrências do abrigo (por padrão, todas; `ativas=true` filtra as não resolvidas). */
+/** Raio e janela de tempo da corroboração comunitária (Etapa 3 do plano de integração). */
+export const RAIO_CORROBORACAO_M = 300;
+export const JANELA_CORROBORACAO_H = 2;
+
+/**
+ * Corroboração de um reporte pendente: quantas outras ocorrências do mesmo tipo
+ * estão a até RAIO_CORROBORACAO_M dele, em qualquer abrigo (ou regionais).
+ * - `relatosProximos`: outros reportes PENDENTES feitos até JANELA_CORROBORACAO_H
+ *   antes ou depois deste (relatos independentes do mesmo problema);
+ * - `confirmadosProximos`: alertas já APROVADOS e ainda ativos no local.
+ * Só para reportes pendentes com local: é o que ajuda a moderação a priorizar.
+ */
+const CORROBORACAO = `
+  LEFT JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE v.status_validacao = 'PENDENTE')::int AS pendentes,
+           count(*) FILTER (WHERE v.status_validacao = 'APROVADA')::int AS aprovados
+      FROM ocorrencia_infraestrutura v
+     WHERE o.status_validacao = 'PENDENTE' AND o.data_resolucao IS NULL AND o.latitude IS NOT NULL
+       AND v.id <> o.id AND v.tipo = o.tipo AND v.data_resolucao IS NULL AND v.latitude IS NOT NULL
+       AND (
+         v.status_validacao = 'APROVADA'
+         OR (v.status_validacao = 'PENDENTE'
+             AND v.data_registro BETWEEN o.data_registro - make_interval(hours => ${JANELA_CORROBORACAO_H})
+                                     AND o.data_registro + make_interval(hours => ${JANELA_CORROBORACAO_H}))
+       )
+       AND ST_DWithin(
+         ST_SetSRID(ST_MakePoint(v.longitude, v.latitude), 4326)::geography,
+         ST_SetSRID(ST_MakePoint(o.longitude, o.latitude), 4326)::geography,
+         ${RAIO_CORROBORACAO_M}
+       )
+  ) corroboracao ON TRUE`;
+
+/**
+ * RF05 - ocorrências do abrigo (por padrão, todas; `ativas=true` filtra as não
+ * resolvidas). Reportes pendentes vêm primeiro e, entre eles, os mais
+ * corroborados por outros relatos ou por alertas já publicados no local.
+ */
 export async function listarOcorrencias(ctx: Contexto, idAbrigo: number, filtros: z.infer<typeof esquemaFiltroOcorrencias>) {
   exigirPermissao(ctx.usuario, "ocorrencia:ver", idAbrigo);
   const abrigo = await consultarUm("SELECT id FROM abrigo WHERE id = $1", [idAbrigo]);
   if (!abrigo) throw erros.naoEncontrado("Abrigo");
 
-  const linhas = await consultar<Ocorrencia>(
-    `SELECT ${COLUNAS_OCORRENCIA} ${FROM_OCORRENCIA}
+  const linhas = await consultar<Ocorrencia & { relatosProximos: number; confirmadosProximos: number }>(
+    `SELECT ${COLUNAS_OCORRENCIA},
+            COALESCE(corroboracao.pendentes, 0) AS "relatosProximos",
+            COALESCE(corroboracao.aprovados, 0) AS "confirmadosProximos"
+       ${FROM_OCORRENCIA}
+       ${CORROBORACAO}
       WHERE o.id_abrigo = $1 AND ($2::boolean IS NULL OR (o.data_resolucao IS NULL) = $2)
-      ORDER BY (o.data_resolucao IS NULL) DESC, (o.status_validacao = 'PENDENTE') DESC, o.data_registro DESC`,
+      ORDER BY (o.data_resolucao IS NULL) DESC, (o.status_validacao = 'PENDENTE') DESC,
+               COALESCE(corroboracao.pendentes, 0) + COALESCE(corroboracao.aprovados, 0) DESC,
+               o.data_registro DESC`,
     [idAbrigo, filtros.ativas ?? null],
   );
   return linhas.map(apresentar);

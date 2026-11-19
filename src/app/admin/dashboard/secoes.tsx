@@ -193,6 +193,11 @@ export function SecaoSugestoes({ sugestoes, bloqueado, onEnviar }: PropriedadesS
                 {s.distanciaKm} km
                 {s.telefoneParceiro && ` · ${s.telefoneParceiro}`}
               </p>
+              {s.rotaBloqueada && (
+                <SeloStatus nivel="atencao" className="mt-1">
+                  O trajeto direto cruza uma área de risco: combine o caminho antes de enviar
+                </SeloStatus>
+              )}
             </div>
             {s.direcao === "ENVIAR" ? (
               <Botao tamanho="sm" disabled={bloqueado} onClick={() => onEnviar(s)}>

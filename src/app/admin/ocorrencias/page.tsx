@@ -13,7 +13,7 @@ import { api, mensagemErro } from "@/lib/cliente-api";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
 import { rotuloOcorrencia } from "../rotulos";
 import { FormOcorrencia } from "./form-ocorrencia";
-import { estaAtiva, estaPendente, statusDaOcorrencia, type Ocorrencia } from "./tipos";
+import { descreverCorroboracao, estaAtiva, estaPendente, statusDaOcorrencia, type Ocorrencia } from "./tipos";
 
 /** Ocorrências do abrigo escolhido no topo, ou as regionais (do município, sem abrigo). */
 type Escopo = "abrigo" | "regional";
@@ -207,6 +207,7 @@ export default function PaginaOcorrencias() {
                 {ocorrencias.map((ocorrencia) => {
                   const status = statusDaOcorrencia(ocorrencia);
                   const pendente = estaPendente(ocorrencia);
+                  const corroboracao = descreverCorroboracao(ocorrencia);
                   return (
                     <li key={ocorrencia.id} className="border-b border-borda py-4">
                       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
@@ -233,6 +234,9 @@ export default function PaginaOcorrencias() {
                           </span>
                         )}
                       </p>
+                      {corroboracao && (
+                        <p className={corroboracao.forte ? "mt-1 text-meta font-medium text-texto-2" : "mt-1 text-meta text-texto-3"}>{corroboracao.texto}</p>
+                      )}
 
                       {estaAtiva(ocorrencia) && podeEditar && (
                         <div className="mt-3 flex flex-wrap gap-2">

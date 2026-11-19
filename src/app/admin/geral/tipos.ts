@@ -62,6 +62,6 @@ export interface PaginaAuditoria {
   paginacao: Paginacao;
 }
 
-export type AbaGestao = "abrigos" | "usuarios" | "catalogo" | "auditoria";
+export type AbaGestao = "abrigos" | "usuarios" | "catalogo" | "auditoria" | "relatorios";
 
 export const TAMANHO_PAGINA_USUARIOS = 50;

@@ -401,6 +401,7 @@ export async function obterDashboard(ctx: Contexto, id: number) {
         quantidadeAtual: number;
         quantidadeParceiro: number;
         quantidadeSugerida: number;
+        rotaBloqueada: boolean;
       }>(
         `SELECT CASE
                   WHEN s_atual.codigo = 'URGENTE' OR e_atual.quantidade < e_atual.quantidade_minima THEN 'RECEBER'
@@ -430,7 +431,18 @@ export async function obterDashboard(ctx: Contexto, id: number) {
                       ELSE GREATEST(e_atual.quantidade - e_atual.quantidade_minima, 1)
                     END
                   )
-                )::int AS "quantidadeSugerida"
+                )::int AS "quantidadeSugerida",
+                -- O trajeto direto (linha reta) entre os dois abrigos cruza uma área de risco
+                -- ativa e aprovada, do abrigo ou regional (o mesmo cálculo do mapa público).
+                -- Avisos do INMET não entram: ficam em aviso_oficial.
+                EXISTS (
+                  SELECT 1 FROM ocorrencia_infraestrutura r
+                   WHERE r.area_risco IS NOT NULL AND r.data_resolucao IS NULL AND r.status_validacao = 'APROVADA'
+                     AND ST_Intersects(
+                       r.area_risco::geometry,
+                       ST_MakeLine(a_atual.localizacao::geometry, a_parceiro.localizacao::geometry)
+                     )
+                ) AS "rotaBloqueada"
            FROM abrigo a_atual
            JOIN estoque_abrigo e_atual ON e_atual.id_abrigo = a_atual.id
            JOIN status_necessidade s_atual ON s_atual.id = e_atual.id_status_necessidade
@@ -453,7 +465,9 @@ export async function obterDashboard(ctx: Contexto, id: number) {
                 AND (s_parceiro.codigo = 'URGENTE' OR e_parceiro.quantidade < e_parceiro.quantidade_minima)
               )
             )
-          ORDER BY (s_atual.codigo = 'URGENTE' OR s_parceiro.codigo = 'URGENTE') DESC,
+          -- Trajeto cortado por área de risco vai para o fim: continua possível, mas é a última opção.
+          ORDER BY "rotaBloqueada" ASC,
+                   (s_atual.codigo = 'URGENTE' OR s_parceiro.codigo = 'URGENTE') DESC,
                    ST_Distance(a_atual.localizacao, a_parceiro.localizacao) ASC,
                    i.nome_micro ASC
           LIMIT 8`,

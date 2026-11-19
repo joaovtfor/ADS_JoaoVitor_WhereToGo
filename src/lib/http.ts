@@ -96,6 +96,8 @@ const MENSAGENS_CHECK: Record<string, [status: number, codigo: string, mensagem:
   ],
   abrigo_lotacao_ck: [409, "LOTACAO_INVALIDA", "A lotação do abrigo não pode ficar negativa."],
   abrigo_nao_triados_ck: [409, "NAO_TRIADOS_INVALIDO", "O contador de acolhidos não triados não pode ficar negativo."],
+  evento_desastre_periodo_ck: [422, "PERIODO_INVALIDO", "O fim do evento não pode ser antes do início."],
+  evento_desastre_duracao_ck: [422, "PERIODO_LONGO_DEMAIS", "Um evento pode durar no máximo um ano: registre o restante como outro evento."],
   ocorrencia_infraestrutura_area_risco_valida_ck: [
     422,
     "POLIGONO_INVALIDO",

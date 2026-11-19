@@ -148,9 +148,9 @@ function abasDoPapel(papel: PapelUsuario): Aba[] {
     { href: "/admin/inventario", icone: Package, rotulo: "Estoque" },
     { href: "/admin/ocorrencias", icone: TriangleExclamationPoint, rotulo: "Infra" },
     { href: "/admin/abrigados", icone: Users, rotulo: "Acolhidos" },
-    // A Defesa Civil não gerencia contas nem catálogo: em "Gestão" só vê a auditoria.
+    // A Defesa Civil não gerencia contas nem catálogo: em "Gestão" vê auditoria e relatórios.
     papel === "DEFESA_CIVIL"
-      ? { href: "/admin/geral", icone: ScrollText, rotulo: "Auditoria" }
+      ? { href: "/admin/geral", icone: ScrollText, rotulo: "Relatórios" }
       : { href: "/admin/geral", icone: Settings, rotulo: papel === "ADMIN" ? "Gestão" : "Equipe" },
   ];
 }

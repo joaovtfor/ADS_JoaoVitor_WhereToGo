@@ -168,12 +168,37 @@ INMET_AVISOS_URL=https://apiprevmet3.inmet.gov.br/avisos/ativos
   - E2E em `tests/e2e/api.test.ts`.
 - **Pendente:** sem contato com a Defesa Civil de Passo Fundo, as permissões acima são um desenho a validar com um agente real.
 
-### 4.3 Frente 3 — Ganhos internos sem API externa · **Etapa 3 (planejada)**
-1. **Corroboração comunitária na moderação:** para cada reporte pendente, contar relatos do mesmo tipo a até 300 m nas últimas 2 h (`ST_DWithin`) e ordenar a fila por isso ("3 relatos em 300 m"). Se o volume crescer, uma coluna `localizacao` gerada com GiST evita o `ST_MakePoint` linha a linha.
-2. **`rotaBloqueada` nas sugestões de transferência** (`obterDashboard`): o mesmo `ST_Intersects` do mapa, só com ocorrências locais aprovadas (nunca avisos regionais). Rota cortada vai para o fim da lista, com aviso "trajeto direto cruza área de risco" (é aproximação em linha reta).
-3. **Transferência de abrigados em lote** (`POST /api/abrigos/[id]/transferencias-lote`): uma transação, bloqueio dos dois abrigos em ordem de id (mesmo padrão de `transferirAbrigado`) e rollback total se faltar vaga.
+### 4.3 Frente 3 — Ganhos internos sem API externa · **Etapa 3 (implementada)**
+Nenhuma migration: tudo usa tabelas e índices existentes.
 
-### 4.4 Frente 4 — Subsídios para o FIDE (S2iD) e prestação de contas · **Etapa 4 (planejada)**
+1. **Corroboração comunitária na moderação** (`listarOcorrencias` em `src/modules/ocorrencias/ocorrencias.service.ts`). Para cada reporte **pendente** com local, conta outras ocorrências do **mesmo tipo** a até **300 m** (`ST_DWithin`), em qualquer abrigo ou regionais:
+   - `relatosProximos`: outros reportes pendentes feitos até **2 h antes ou depois** deste. A janela é em volta do reporte, não de "agora": o número não muda conforme a hora em que a coordenação abre a fila.
+   - `confirmadosProximos`: alertas já **aprovados** e ainda ativos no local, de qualquer idade.
+   - **Ordem da fila:** pendentes primeiro e, entre eles, os mais corroborados.
+   - **Na tela de Infraestrutura:** "1 alerta igual já publicado a até 300 m e mais 2 relatos iguais a até 300 m (em 2 h)" ou "Relato isolado".
+   - **Desempenho:** a contagem faz `ST_MakePoint` linha a linha, o que basta no volume atual. Se crescer, uma coluna `localizacao` gerada com GiST resolve.
+2. **`rotaBloqueada` nas sugestões de troca** (`obterDashboard` em `src/modules/abrigos/abrigos.service.ts`):
+   - **Cálculo:** `ST_Intersects` entre a linha reta dos dois abrigos e qualquer área de risco aprovada e ativa, do abrigo ou regional. Avisos do INMET não entram, porque ficam em `aviso_oficial`.
+   - **Ordem:** a sugestão continua aparecendo, mas vai para o fim.
+   - **Na visão geral:** o aviso "O trajeto direto cruza uma área de risco: combine o caminho antes de enviar". É uma aproximação em linha reta, não um roteamento por ruas.
+3. **Transferência de acolhidos em lote** (`transferirAbrigadosEmLote` e `POST /api/abrigos/[id]/transferencias-lote`, com `{ idsAbrigados, idAbrigoDestino, motivo }`, de 1 a 200 pessoas sem repetição):
+   - **Transação:** é uma só, tudo ou nada.
+   - **Travas:** primeiro as pessoas, por id; depois os dois abrigos, por id. É a mesma ordem de `transferirAbrigado`, para as duas operações nunca se travarem mutuamente.
+   - **Erros:**
+     - `VAGAS_INSUFICIENTES` (409) se o destino não comporta todos;
+     - `ABRIGADOS_INDISPONIVEIS` (409) se alguém já saiu ou foi movido.
+   - **Auditoria:** registra `ABRIGADOS_TRANSFERIDOS_LOTE`.
+   - **Permissão:** `abrigado:transferir`, ou seja, ADMIN, DEFESA_CIVIL e o COORDENADOR da origem.
+   - **Na tela de Acolhidos:**
+     - "Transferir em grupo" liga caixas de marcação nos presentes;
+     - a faixa mostra quantos foram marcados, com "Marcar todos da lista";
+     - o modal só oferece destinos com vaga para todos.
+- **Testes:** `tests/integration/moderacao-transferencias.test.ts`.
+  - Corroboração: contagens, raio, janela de 2 h e ordem.
+  - Rota bloqueada por área regional.
+  - Lote: sucesso com lotações, tudo ou nada sem vaga, pessoa já movida, RBAC dos quatro papéis e validação.
+
+### 4.4 Frente 4 — Subsídios para o FIDE (S2iD) e prestação de contas · **Etapa 4 (implementada)**
 - **O que o WhereToGo pode afirmar (corrigido):** o FIDE (Portaria MDR 260/2022, consolidada com a 3.646/2022) pede, em danos humanos, mortos, feridos, enfermos, **desabrigados**, desalojados, desaparecidos e outros afetados. O sistema só conhece **desabrigados** (pessoas em abrigo público) e a **assistência humanitária** prestada. Por isso o relatório é "subsídio para o FIDE", não "FIDE pronto".
 - **Conteúdo:**
   - desabrigados no período e no pico, contando cada pessoa uma vez mesmo se transferida (`transferencia_abrigado`);
@@ -197,8 +222,52 @@ INMET_AVISOS_URL=https://apiprevmet3.inmet.gov.br/avisos/ativos
   | Colapso de edificações (só se houver colapso) | 2.4.1.0.0 |
 
   **Removidos da v1.1:** 2.4.2.1.0, 2.4.2.2.0 e 2.4.2.3.0 **não existem** (2.4.2.0.0 é rompimento/colapso de barragens), e 2.5.1.0.0 é transporte rodoviário (acidente), não bloqueio de via. Conferir a versão vigente no site da Defesa Civil Nacional antes de uso oficial.
-- **LGPD:** só agregados. Contagens abaixo de 5 numa faixa etária são suprimidas na exportação (abrigo pequeno identificaria a pessoa). Cada exportação grava `RELATORIO_S2ID_EXPORTADO` em `log_auditoria`.
+- **LGPD:** só agregados. Faixa etária com 1 a 4 pessoas sai como "menos de 5" (abrigo pequeno identificaria a pessoa); nenhum nome ou CPF. Cada geração grava `RELATORIO_FIDE_GERADO` em `log_auditoria`.
 - **Prestação de contas (TCE/CGU):** CSV de `movimentacao_estoque` e eventos críticos de `log_auditoria` no período. O hash SHA-256 do arquivo fica registrado em `log_auditoria` no momento da exportação; sem esse registro, o hash não prova nada.
+
+**Como ficou (implementado):**
+- **Banco (`db/migrations/0013_eventos_desastre.sql`):**
+  - tabela de referência `cobrade`, só com os 10 códigos acima. Um código novo entra com `INSERT`, depois de conferido;
+  - `evento_desastre`: nome, `cobrade` (FK), `inicio`/`fim` como DATE (fim nulo = em curso), `decreto`. No máximo um ano por evento.
+- **Permissões:**
+  - `evento:ver`: ADMIN, DEFESA_CIVIL e COORDENADOR;
+  - `evento:gerenciar`: ADMIN e DEFESA_CIVIL;
+  - `relatorio:fide` e `relatorio:prestacao-contas`: os três, mas a coordenação sempre só do próprio abrigo.
+- **Subsídios FIDE** (`src/modules/relatorios/fide.service.ts`, `GET /api/relatorios/fide?idEvento=&idAbrigo=&formato=json|csv`). O período é o do evento, até hoje se estiver em curso, em dias de Brasília.
+  - **Desabrigados:** pessoas distintas (por CPF; sem CPF, por cadastro) com estadia no período. Transferência não duplica e reentrada conta uma vez.
+  - **Agora:** presentes e "chegaram, sem cadastro".
+  - **Pico diário:** maior número de presentes ao fim de um dia; só no consolidado, porque num abrigo as transferências deixam a série imprecisa.
+  - **Faixas etárias:** com supressão de 1 a 4 pessoas.
+  - **Assistência humanitária:** por item. Distribuído = `SAIDA_CONSUMO` menos os estornos dela; doações e perdas também descontam estornos.
+  - **Ocorrências aprovadas:** por tipo, com um "campo sugerido no FIDE" (`CAMPO_FIDE_POR_TIPO_OCORRENCIA`). Exemplo: falta de água → prejuízos públicos, abastecimento de água potável. É uma sugestão a conferir no formulário vigente.
+  - **No escopo de um abrigo:** conta quem estava nele ou foi transferido de/para ele no período (aproximação).
+- **Prestação de contas** (`src/modules/relatorios/prestacao-contas.service.ts`, `GET /api/relatorios/prestacao-contas?inicio=&fim=&idAbrigo=`):
+  - **Conteúdo:**
+    - uma linha por movimentação (inclusive transferências, ajustes e estornos);
+    - os eventos críticos da auditoria: cadastro/PIX de abrigo, estornos, transferências, contas e exportações anteriores (isso dá a cadeia de custódia);
+    - no máximo 50 mil linhas e um ano.
+  - **Hash:** o SHA-256 vai no cabeçalho `X-Conteudo-SHA256` e em `PRESTACAO_CONTAS_EXPORTADA`. É o hash dos bytes do arquivo, incluindo o BOM, então `sha256sum arquivo.csv` confere.
+- **CSV** (`src/lib/csv.ts`):
+  - separador `;` e BOM UTF-8, para o Excel em português;
+  - texto que começa com `= + - @` ganha um apóstrofo (contra *CSV injection*, porque observações são digitadas por usuários).
+- **Tela:** Gestão → aba **Relatórios** (ADMIN, Defesa Civil e coordenação). Ela tem:
+  - eventos (lista, registro, "Encerrar hoje");
+  - subsídios FIDE ("Ver resumo" na tela, "Baixar planilha");
+  - prestação de contas (período e abrangência; depois do download, mostra o SHA-256).
+  - Para a Defesa Civil, o item de navegação passou a se chamar "Relatórios".
+- **Testes:**
+  - `tests/unit/csv.test.ts`;
+  - `tests/integration/relatorios.test.ts`:
+    - COBRADE fora da lista;
+    - pessoa contada uma vez com reentrada e transferência;
+    - pico;
+    - supressão;
+    - LGPD (sem nome/CPF);
+    - estornos;
+    - só ocorrências aprovadas;
+    - escopo/RBAC;
+    - hash gravado na auditoria;
+    - fórmula neutralizada.
 
 ### 4.5 Frente 5 — Pluviômetros do CEMADEN · **Adiada (credencial)**
 - **Para seguir:** cadastro na PED (token via SGAA) e confirmação de termos de uso e limites com o CEMADEN.
@@ -255,8 +324,8 @@ A Portaria MIDR 2.458/2026 diz que os alertas ficam em CAP "públicos para consu
 | 0 | Validar o INMET a partir do Render; pedir credenciais PED/ANA e cotas da estação 73371000 | — | INMET: no primeiro deploy. Pedidos: quando houver contato institucional |
 | **1** | **Avisos do INMET (Frente 1)** | — | **Implementada** |
 | **2** | **Papel `DEFESA_CIVIL` e ocorrências regionais (4.2)** | — | **Implementada** |
-| 3 | Corroboração, `rotaBloqueada`, transferência em lote (4.3) | — | Planejada |
-| 4 | Subsídios FIDE e prestação de contas (4.4) | 2 (permissão `relatorio:s2id`) | Planejada |
+| **3** | **Corroboração, `rotaBloqueada`, transferência em lote (4.3)** | — | **Implementada** |
+| **4** | **Subsídios FIDE e prestação de contas (4.4)** | 2 (papel `DEFESA_CIVIL`) | **Implementada** |
 | 5 | CEMADEN (4.5) | Credencial PED | Adiada |
 | 6 | ANA (4.6) | Limiares oficiais | Adiada |
 | — | CAP de saída (4.7) | Decisão futura | Fora do escopo |

@@ -7,12 +7,12 @@ import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { Chip } from "@/components/ui/chip";
 import { Icone } from "@/components/ui/icone";
 import { ItemMenu, Menu } from "@/components/ui/menu";
-import { CabecalhoPagina, EstadoVazio, Secao } from "@/components/ui/pagina";
+import { CabecalhoPagina, EstadoVazio, Faixa, Secao } from "@/components/ui/pagina";
 import { SeloStatus } from "@/components/ui/selo-status";
 import { api, mensagemErro } from "@/lib/cliente-api";
 import { pode } from "@/lib/auth/permissoes";
 import { ToastFlutuante, useAdmin } from "../contexto-admin";
-import { ModalEdicao, ModalHistorico, ModalSaida, ModalTransferenciaAcolhido } from "./modais";
+import { ModalEdicao, ModalHistorico, ModalSaida, ModalTransferenciaAcolhido, ModalTransferenciaLote } from "./modais";
 import { formatarCpf, formatarMomento, formatarNascimento, type Abrigado, type FiltroAcolhimento, type PaginaAbrigados } from "./tipos";
 
 type ModalAberto = { tipo: "saida" | "transferencia" | "edicao" | "historico"; abrigado: Abrigado } | null;
@@ -113,6 +113,20 @@ export default function PaginaAbrigados() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [modal, setModal] = useState<ModalAberto>(null);
+  // Transferência em grupo (evacuação preventiva): marca várias pessoas e transfere tudo ou nada.
+  const [selecionando, setSelecionando] = useState(false);
+  const [selecionados, setSelecionados] = useState<number[]>([]);
+  const [loteAberto, setLoteAberto] = useState(false);
+
+  function encerrarSelecao() {
+    setSelecionando(false);
+    setSelecionados([]);
+    setLoteAberto(false);
+  }
+
+  function alternarSelecionado(id: number) {
+    setSelecionados((atuais) => (atuais.includes(id) ? atuais.filter((x) => x !== id) : [...atuais, id]));
+  }
 
   // Espera 300 ms depois da última tecla antes de buscar, para poupar rede.
   useEffect(() => {
@@ -161,6 +175,10 @@ export default function PaginaAbrigados() {
   const abrigosDestino = abrigos.filter((a) => a.ativo && a.id !== idAbrigoAtivo && a.ocupacao.vagasDisponiveis > 0);
   const vagasLivres = abrigoAtivo?.ocupacao.vagasDisponiveis ?? 0;
   const fecharSeDeuCerto = (ok: boolean) => ok && setModal(null);
+  const podeTransferirEmGrupo = podeTransferir && !somenteLeitura && filtro === "PRESENTE";
+  const presentesNaLista = (dados?.itens ?? []).filter((a) => a.statusAcolhimento === "PRESENTE");
+  // Só vale quem ainda está na lista: depois de recarregar, quem saiu ou foi movido deixa de contar.
+  const marcados = selecionados.filter((id) => presentesNaLista.some((a) => a.id === id));
 
   return (
     <div className="space-y-6">
@@ -204,11 +222,54 @@ export default function PaginaAbrigados() {
               />
             </div>
             {FILTROS.map((opcao) => (
-              <Chip key={opcao.id} ativo={filtro === opcao.id} onClick={() => setFiltro(opcao.id)}>
+              <Chip
+                key={opcao.id}
+                ativo={filtro === opcao.id}
+                onClick={() => {
+                  setFiltro(opcao.id);
+                  encerrarSelecao();
+                }}
+              >
                 {opcao.rotulo}
               </Chip>
             ))}
+            {podeTransferirEmGrupo && (
+              <Botao tamanho="sm" icone={ArrowLeftRight} ligado={selecionando} onClick={() => (selecionando ? encerrarSelecao() : setSelecionando(true))}>
+                Transferir em grupo
+              </Botao>
+            )}
           </div>
+
+          {selecionando && (
+            <Faixa
+              nivel="ok"
+              acoes={
+                <>
+                  <Botao
+                    tamanho="sm"
+                    variante="fantasma"
+                    onClick={() =>
+                      setSelecionados(marcados.length === presentesNaLista.length ? [] : presentesNaLista.map((a) => a.id))
+                    }
+                  >
+                    {marcados.length === presentesNaLista.length && presentesNaLista.length > 0 ? "Limpar seleção" : "Marcar todos da lista"}
+                  </Botao>
+                  <Botao tamanho="sm" variante="primaria" disabled={marcados.length === 0} onClick={() => setLoteAberto(true)}>
+                    Transferir
+                  </Botao>
+                  <Botao tamanho="sm" variante="fantasma" onClick={encerrarSelecao}>
+                    Cancelar
+                  </Botao>
+                </>
+              }
+            >
+              {marcados.length === 0
+                ? "Marque as pessoas que vão juntas para outro abrigo."
+                : marcados.length === 1
+                  ? "1 pessoa marcada."
+                  : `${marcados.length} pessoas marcadas.`}
+            </Faixa>
+          )}
 
           {carregando ? (
             <EstadoVazio>Carregando acolhidos...</EstadoVazio>
@@ -218,8 +279,18 @@ export default function PaginaAbrigados() {
             <ul className="border-t border-borda">
               {dados.itens.map((abrigado) => {
                 const presente = abrigado.statusAcolhimento === "PRESENTE";
+                const marcavel = selecionando && presente;
                 return (
                   <li key={abrigado.id} className="flex items-center gap-3 border-b border-borda py-3">
+                    {marcavel && (
+                      <input
+                        type="checkbox"
+                        checked={selecionados.includes(abrigado.id)}
+                        onChange={() => alternarSelecionado(abrigado.id)}
+                        aria-label={`Marcar ${abrigado.nomeCompleto} para transferir`}
+                        className="size-5 shrink-0 cursor-pointer accent-primaria"
+                      />
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-corpo font-medium text-texto">{abrigado.nomeCompleto}</p>
                       <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-meta text-texto-3 tabular-nums">
@@ -230,7 +301,7 @@ export default function PaginaAbrigados() {
                       </p>
                     </div>
 
-                    {temAcoes ? (
+                    {selecionando ? null : temAcoes ? (
                       <Menu rotulo={`Ações para ${abrigado.nomeCompleto}`} icone={Ellipsis}>
                         <ItemMenu icone={History} onClick={() => setModal({ tipo: "historico", abrigado })}>
                           Histórico de transferências
@@ -310,6 +381,30 @@ export default function PaginaAbrigados() {
         />
       )}
       {modal?.tipo === "historico" && <ModalHistorico abrigado={modal.abrigado} onFechar={() => setModal(null)} />}
+      {loteAberto && marcados.length > 0 && (
+        <ModalTransferenciaLote
+          quantidade={marcados.length}
+          abrigosDestino={abrigosDestino}
+          salvando={enviando}
+          onFechar={() => setLoteAberto(false)}
+          onConfirmar={(corpo) =>
+            void executar(
+              () =>
+                api<{ transferidos: number; destino: { nome: string } }>(`/api/abrigos/${idAbrigoAtivo}/transferencias-lote`, {
+                  method: "POST",
+                  body: JSON.stringify({ ...corpo, idsAbrigados: marcados }),
+                }),
+              (resposta) =>
+                `${resposta.transferidos === 1 ? "1 pessoa foi" : `${resposta.transferidos} pessoas foram`} para ${resposta.destino.nome}.`,
+            ).then((ok) => {
+              if (ok) return encerrarSelecao();
+              // Falhou (ex.: alguém saiu no meio do caminho): recarrega; quem não está mais na lista sai da seleção.
+              setLoteAberto(false);
+              void carregar();
+            })
+          }
+        />
+      )}
     </div>
   );
 }

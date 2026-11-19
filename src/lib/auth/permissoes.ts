@@ -67,6 +67,13 @@ export const PERMISSOES = {
   // Auditoria (RF13)
   "auditoria:ver": ["ADMIN", "DEFESA_CIVIL", "COORDENADOR"],
 
+  // Eventos de desastre (COBRADE por evento) e relatórios (Etapa 4): a coordenação
+  // gera os do próprio abrigo; ADMIN e Defesa Civil, os de toda a rede.
+  "evento:ver": ["ADMIN", "DEFESA_CIVIL", "COORDENADOR"],
+  "evento:gerenciar": ["ADMIN", "DEFESA_CIVIL"],
+  "relatorio:fide": ["ADMIN", "DEFESA_CIVIL", "COORDENADOR"],
+  "relatorio:prestacao-contas": ["ADMIN", "DEFESA_CIVIL", "COORDENADOR"],
+
   // Avisos oficiais do INMET: todos veem (também estão no mapa público); ADMIN e Defesa Civil forçam uma consulta.
   "aviso:ver": TODOS,
   "aviso:sincronizar": ["ADMIN", "DEFESA_CIVIL"],
