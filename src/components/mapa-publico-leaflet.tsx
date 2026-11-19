@@ -15,6 +15,8 @@ interface PropriedadesMapaLeaflet {
   /** Muda a cada pedido de "enquadrar todos os abrigos". */
   enquadrarTick?: number;
   posicaoUsuario: { lat: number; lng: number } | null;
+  /** Há uma tela do painel aberta (lista, ficha, filtros...) cobrindo parte do mapa. */
+  painelAberto?: boolean;
   aoSelecionarAbrigo: (id: number) => void;
 }
 
@@ -22,9 +24,37 @@ interface PropriedadesMapaLeaflet {
 const CENTRO_PADRAO: [number, number] = [-28.258, -52.406];
 const ZOOM_PADRAO = 13;
 
+/** Largura que o painel ocupa à esquerda no desktop: 400 px mais as margens (folha.tsx). */
+const LARGURA_PAINEL = 424;
+/** Fração da altura do mapa que a folha cobre no celular, na altura média (folha.tsx). */
+const ALTURA_FOLHA = 0.62;
+
 /** Movimento reduzido no aparelho: o mapa vai direto ao lugar, sem voo nem zoom animado. */
 function movimentoReduzido(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function telaLarga(): boolean {
+  return window.matchMedia("(min-width: 640px)").matches;
+}
+
+/**
+ * Parte do mapa coberta pelo painel, para centralizar e enquadrar só na parte
+ * que continua visível: a faixa da esquerda no desktop, a de baixo no celular.
+ */
+function areaCoberta(mapa: L.Map): { esquerda: number; baixo: number } {
+  return telaLarga() ? { esquerda: LARGURA_PAINEL, baixo: 0 } : { esquerda: 0, baixo: Math.round(mapa.getSize().y * ALTURA_FOLHA) };
+}
+
+/** Voa até o ponto deixando-o no centro da área que o painel não cobre. */
+function voarAte(mapa: L.Map, destino: L.LatLngExpression, painelAberto: boolean) {
+  mapa.stop();
+  const zoom = Math.max(mapa.getZoom(), 15);
+  const coberta = painelAberto ? areaCoberta(mapa) : { esquerda: 0, baixo: 0 };
+  const ponto = mapa.project(destino, zoom);
+  // O centro do mapa anda metade da faixa coberta para o lado dela.
+  const centro = mapa.unproject(L.point(ponto.x - coberta.esquerda / 2, ponto.y + coberta.baixo / 2), zoom);
+  mapa.flyTo(centro, zoom, { animate: !movimentoReduzido(), duration: 0.5 });
 }
 
 /** Triângulo de alerta (mesmo desenho do ícone do sistema), para os marcadores em HTML do Leaflet. */
@@ -101,6 +131,7 @@ export default function MapaPublicoLeaflet({
   focoCoordenada = null,
   enquadrarTick = 0,
   posicaoUsuario,
+  painelAberto = false,
   aoSelecionarAbrigo,
 }: PropriedadesMapaLeaflet) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -135,7 +166,8 @@ export default function MapaPublicoLeaflet({
       markerZoomAnimation: animar,
     });
 
-    L.control.zoom({ position: "topleft", zoomInTitle: "Aproximar", zoomOutTitle: "Afastar" }).addTo(mapa);
+    // Embaixo à direita: o alto é dos filtros e a esquerda, do painel (DESIGN.md §5.1).
+    L.control.zoom({ position: "bottomright", zoomInTitle: "Aproximar", zoomOutTitle: "Afastar" }).addTo(mapa);
 
     // Tiles Humanitarian OpenStreetMap Team (HOT). O estilo escuro e neutro vem de
     // um filtro CSS em globals.css: mesmo servidor, mesmo cache offline.
@@ -158,6 +190,11 @@ export default function MapaPublicoLeaflet({
     return () => {
       mapa.remove();
       mapaRef.current = null;
+      // O que já foi feito valia para este mapa. Um mapa novo (ex.: a remontagem do
+      // StrictMode em desenvolvimento) precisa enquadrar e focar de novo.
+      jaAjustouBoundsIniciaisRef.current = false;
+      ultimoFocoRef.current = { id: null, tick: -1 };
+      ultimoFocoCoordTickRef.current = -1;
       camadaAbrigosRef.current = null;
       marcadoresRef.current = null;
       camadaAlertasRef.current = null;
@@ -215,11 +252,13 @@ export default function MapaPublicoLeaflet({
       marcadores.delete(id);
     }
 
-    // Ajusta o enquadramento inicial quando os abrigos chegam pela primeira vez
+    // Ajusta o enquadramento inicial quando os abrigos chegam pela primeira vez.
+    // Com um abrigo aberto pelo link (?abrigo=ID), quem enquadra é o foco nele (efeito 5):
+    // a animação do fitBounds começa no quadro seguinte e atropelaria o voo até o abrigo.
     if (!jaAjustouBoundsIniciaisRef.current && abrigos.length > 0) {
       const bounds = camada.getBounds();
       if (bounds.isValid()) {
-        mapa.fitBounds(bounds.pad(0.22), { maxZoom: 15 });
+        if (!abrigos.some((a) => a.id === idSelecionado)) mapa.fitBounds(bounds.pad(0.22), { maxZoom: 15 });
         jaAjustouBoundsIniciaisRef.current = true;
       }
     }
@@ -300,18 +339,8 @@ export default function MapaPublicoLeaflet({
     if (ultimoFocoRef.current.id === idSelecionado && ultimoFocoRef.current.tick === focoTick) return;
 
     ultimoFocoRef.current = { id: idSelecionado, tick: focoTick };
-
-    mapa.stop();
-    const zoomDestino = Math.max(mapa.getZoom(), 15);
-    const pontoAlvo = mapa.project([alvo.latitude, alvo.longitude], zoomDestino);
-    // A ficha cobre parte do mapa: no desktop, 400 px à direita; no celular, os 62% de baixo.
-    // O pino vai para o centro da área que continua visível.
-    const telaLarga = window.innerWidth >= 640;
-    const deslocamentoX = telaLarga ? 200 : 0;
-    const deslocamentoY = telaLarga ? 0 : mapa.getSize().y * 0.31;
-    const centroCompensado = mapa.unproject(L.point(pontoAlvo.x + deslocamentoX, pontoAlvo.y + deslocamentoY), zoomDestino);
-
-    mapa.flyTo(centroCompensado, zoomDestino, { animate: !movimentoReduzido(), duration: 0.5 });
+    // A ficha está aberta no painel: o pino vai para o centro da área que continua visível.
+    voarAte(mapa, [alvo.latitude, alvo.longitude], true);
   }, [idSelecionado, focoTick, abrigos]);
 
   // 6. Centraliza em uma coordenada de alerta quando acionado no painel de alertas (RF09)
@@ -320,17 +349,24 @@ export default function MapaPublicoLeaflet({
     if (!mapa || !focoCoordenada || focoCoordenada.tick === ultimoFocoCoordTickRef.current) return;
 
     ultimoFocoCoordTickRef.current = focoCoordenada.tick;
-    mapa.stop();
-    mapa.flyTo([focoCoordenada.lat, focoCoordenada.lng], Math.max(mapa.getZoom(), 15), { animate: !movimentoReduzido(), duration: 0.5 });
-  }, [focoCoordenada]);
+    voarAte(mapa, [focoCoordenada.lat, focoCoordenada.lng], painelAberto);
+  }, [focoCoordenada, painelAberto]);
 
-  // 7. Enquadra todos os abrigos visíveis quando pedido pela barra de resumo
+  // 7. Enquadra todos os abrigos visíveis quando pedido pela barra de resumo, fora do painel aberto
   useEffect(() => {
-    if (enquadrarTick === ultimoEnquadrarTickRef.current) return;
+    const mapa = mapaRef.current;
+    if (!mapa || enquadrarTick === ultimoEnquadrarTickRef.current) return;
     ultimoEnquadrarTickRef.current = enquadrarTick;
     const bounds = camadaAbrigosRef.current?.getBounds();
-    if (bounds?.isValid()) mapaRef.current?.fitBounds(bounds.pad(0.22), { maxZoom: 15, animate: !movimentoReduzido() });
-  }, [enquadrarTick]);
+    if (!bounds?.isValid()) return;
+    const coberta = painelAberto ? areaCoberta(mapa) : { esquerda: 0, baixo: 0 };
+    mapa.fitBounds(bounds.pad(0.22), {
+      maxZoom: 15,
+      animate: !movimentoReduzido(),
+      paddingTopLeft: [coberta.esquerda, 0],
+      paddingBottomRight: [0, coberta.baixo],
+    });
+  }, [enquadrarTick, painelAberto]);
 
   return <div ref={containerRef} aria-label="Mapa interativo de abrigos emergenciais" className="z-0 h-full w-full" />;
 }

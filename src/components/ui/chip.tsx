@@ -20,7 +20,7 @@ export function Chip({ ativo, icone, className, children, type = "button", ...re
       className={juntarClasses(
         "inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-controle border px-3 text-meta font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         FOCO,
-        ativo ? "border-primaria bg-primaria/15 text-primaria-clara" : "border-borda bg-superficie text-texto-2 hover:bg-superficie-2 hover:text-texto",
+        ativo ? "border-primaria bg-primaria-suave text-primaria-clara" : "border-borda bg-superficie text-texto-2 hover:bg-superficie-2 hover:text-texto",
         className,
       )}
       {...resto}

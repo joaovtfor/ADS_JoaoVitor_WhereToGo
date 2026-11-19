@@ -19,7 +19,7 @@ const VARIANTES: Record<VarianteBotao, string> = {
 };
 
 /** Botão de alternância ligado (ex.: lista aberta, localização ativa): azul, como todo "selecionado". */
-const LIGADO = "bg-primaria/15 text-primaria-clara";
+const LIGADO = "bg-primaria-suave text-primaria-clara";
 
 const TAMANHOS: Record<TamanhoBotao, string> = {
   md: "min-h-11 px-4 text-corpo",

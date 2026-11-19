@@ -53,7 +53,10 @@ export function Menu({ rotulo, icone, texto, children }: PropriedadesMenu) {
       if (!menuRef.current?.contains(e.target as Node)) setAberto(false);
     };
     const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAberto(false);
+      if (e.key !== "Escape") return;
+      // Marca o Esc como usado: a tela por trás (ex.: o painel do mapa) não fecha junto.
+      e.preventDefault();
+      setAberto(false);
     };
     document.addEventListener("pointerdown", aoClicarFora);
     document.addEventListener("keydown", aoTeclar);

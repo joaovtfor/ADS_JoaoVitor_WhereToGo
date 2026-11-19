@@ -1,7 +1,7 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
-import { X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
+import { ChevronLeft, X } from "lucide-react";
 import { BotaoIcone } from "./botao";
 import { juntarClasses } from "./classes";
 
@@ -13,11 +13,11 @@ const ALTURA: Record<NivelFolha, string> = {
   expandido: "h-full max-sm:rounded-none max-sm:border-t-0",
 };
 
-const LADO = {
-  direita: "sm:right-3 sm:bottom-3 sm:left-auto sm:w-[400px]",
-  /** À esquerda sobra espaço embaixo para a barra de resumo do mapa. */
-  esquerda: "sm:bottom-20 sm:left-3 sm:right-auto sm:w-96",
-} as const;
+/**
+ * Lugar da folha no desktop: um painel só, à esquerda, com 400 px. Embaixo
+ * sobra espaço para a barra de resumo do mapa, que tem a mesma largura.
+ */
+const LATERAL = "sm:top-3 sm:bottom-20 sm:left-3 sm:right-auto sm:w-[400px]";
 
 const TRANSICAO = "transform 200ms ease-out";
 
@@ -40,29 +40,40 @@ function decidirDestino(nivel: NivelFolha, dy: number): NivelFolha | "fechar" {
   return nivel;
 }
 
-interface PropriedadesFolha {
+/**
+ * Lugar da folha numa pilha de telas (ex.: lista e, por cima, a ficha de um
+ * abrigo). Quem monta a pilha passa isto adiante sem olhar o conteúdo.
+ */
+export interface NavegacaoFolha {
+  /**
+   * Há outra tela por cima: a folha continua montada (guarda rolagem, campos e
+   * resultados para quando a pessoa voltar), mas fica invisível e inerte.
+   */
+  oculta?: boolean;
+  /** Botão de voltar à tela de baixo, à esquerda do título. */
+  voltar?: { rotulo: string; onVoltar: () => void };
+}
+
+interface PropriedadesFolha extends NavegacaoFolha {
   /** Nome do painel para leitores de tela. */
   rotulo: string;
   /** Conteúdo do cabeçalho (título e resumo). No celular é a área de arraste. */
   titulo: ReactNode;
   rotuloFechar: string;
   onFechar: () => void;
-  lado: "direita" | "esquerda";
   nivelInicial?: NivelFolha;
   /** Faixa fixa no fim do painel (ações, navegação). */
   rodape?: ReactNode;
-  /** Só para camada (`z-*`). */
-  className?: string;
   children: ReactNode;
 }
 
 /**
- * Painel deslizante: folha inferior arrastável no celular e painel lateral a
- * partir de `sm`. O arraste move a folha só com `transform`, direto no
- * elemento, sem passar pelo estado do React: o conteúdo não é renderizado de
+ * Painel deslizante: folha inferior arrastável no celular e painel lateral à
+ * esquerda a partir de `sm`. O arraste move a folha só com `transform`, direto
+ * no elemento, sem passar pelo estado do React: o conteúdo não é renderizado de
  * novo a cada quadro e a altura só muda uma vez, ao soltar (DESIGN.md §6).
  */
-export function Folha({ rotulo, titulo, rotuloFechar, onFechar, lado, nivelInicial = "medio", rodape, className, children }: PropriedadesFolha) {
+export function Folha({ rotulo, titulo, rotuloFechar, onFechar, nivelInicial = "medio", rodape, oculta = false, voltar, children }: PropriedadesFolha) {
   const [nivel, setNivel] = useState<NivelFolha>(nivelInicial);
   const folhaRef = useRef<HTMLElement | null>(null);
   const arrasteRef = useRef<{ inicioY: number; dy: number; quadro: number } | null>(null);
@@ -100,6 +111,15 @@ export function Folha({ rotulo, titulo, rotuloFechar, onFechar, lado, nivelInici
     folha.style.transition = TRANSICAO;
     folha.style.transform = "";
   }, [nivel]);
+
+  // Ao virar a tela da vez (abriu, ou a de cima saiu), recebe o foco se ele se
+  // perdeu: o botão tocado sumiu junto com a tela anterior ou ficou inerte.
+  // Quem estava num chip ou na busca continua onde estava.
+  useEffect(() => {
+    if (oculta) return;
+    const ativo = document.activeElement;
+    if (!ativo || ativo === document.body || ativo.closest("[inert]")) folhaRef.current?.focus({ preventScroll: true });
+  }, [oculta]);
 
   function iniciarArraste(e: TouchEvent<HTMLElement>) {
     if (e.touches.length !== 1 || !ehCelular()) return;
@@ -150,14 +170,16 @@ export function Folha({ rotulo, titulo, rotuloFechar, onFechar, lado, nivelInici
       ref={folhaRef}
       role="dialog"
       aria-label={rotulo}
+      tabIndex={-1}
+      inert={oculta}
       className={juntarClasses(
-        "pointer-events-auto absolute inset-x-0 bottom-0 flex flex-col rounded-t-painel border-t border-borda bg-superficie",
+        "absolute inset-x-0 bottom-0 z-[450] flex flex-col rounded-t-painel border-t border-borda bg-superficie outline-none",
         // Ao puxar para cima, esta extensão cobre o vão que abriria embaixo da folha.
         "after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-[60vh] after:bg-superficie after:content-['']",
-        "sm:top-3 sm:h-auto sm:rounded-painel sm:border sm:after:hidden",
+        "sm:h-auto sm:rounded-painel sm:border sm:after:hidden",
         ALTURA[nivel],
-        LADO[lado],
-        className,
+        LATERAL,
+        oculta ? "pointer-events-none invisible" : "pointer-events-auto",
       )}
     >
       <div
@@ -178,6 +200,7 @@ export function Folha({ rotulo, titulo, rotuloFechar, onFechar, lado, nivelInici
           <span className="h-1 w-9 rounded-full bg-borda-forte" />
         </div>
         <div className="flex items-start gap-2">
+          {voltar && <BotaoIcone icone={ChevronLeft} rotulo={voltar.rotulo} tamanho="sm" onClick={voltar.onVoltar} className="-ml-2" />}
           <div className="min-w-0 flex-1">{titulo}</div>
           <BotaoIcone icone={X} rotulo={rotuloFechar} tamanho="sm" onClick={onFechar} className="-mr-2" />
         </div>

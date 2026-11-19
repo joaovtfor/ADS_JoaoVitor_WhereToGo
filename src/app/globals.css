@@ -33,6 +33,9 @@
   --wtg-primaria-forte: #1d4ed8;
   /* Azul como texto/ícone: no claro, mais escuro para manter o contraste sobre branco */
   --wtg-primaria-clara: light-dark(#1d4ed8, #60a5fa);
+  /* Fundo de "ligado" (chip, botão de alternância): 15% de azul já misturado à
+     superfície, opaco. Sobre o mapa, um azul translúcido deixaria o mapa vazar. */
+  --wtg-primaria-suave: color-mix(in srgb, var(--wtg-primaria) 15%, var(--wtg-superficie));
 
   /* Semáforo: usado somente para comunicar estado. Os sólidos (pinos) são iguais
      nos dois temas; os "-claro" são a variante para texto e escurecem no tema claro. */
@@ -112,6 +115,7 @@
   --color-primaria: var(--wtg-primaria);
   --color-primaria-forte: var(--wtg-primaria-forte);
   --color-primaria-clara: var(--wtg-primaria-clara);
+  --color-primaria-suave: var(--wtg-primaria-suave);
 
   --color-ok: var(--wtg-ok);
   --color-ok-claro: var(--wtg-ok-claro);

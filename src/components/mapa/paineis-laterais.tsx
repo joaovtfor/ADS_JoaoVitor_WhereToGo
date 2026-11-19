@@ -5,21 +5,32 @@ import { Accessibility, MapPin, Megaphone, PawPrint, Search } from "lucide-react
 import { Botao } from "@/components/ui/botao";
 import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
-import { Folha } from "@/components/ui/folha";
+import { Folha, type NavegacaoFolha } from "@/components/ui/folha";
 import { Icone } from "@/components/ui/icone";
 import { SeloStatus } from "@/components/ui/selo-status";
 import { ListaAvisosOficiais } from "./avisos-oficiais";
 import { obterSeloAtualizacao, obterStatusGravidade, obterStatusOcupacao, type AbrigoMapa, type AlertaMapa, type AvisoOficialMapa } from "./tipos";
 
-/** Painel à esquerda do mapa (folha inferior no celular), com título e resumo no cabeçalho. */
-function Gaveta({ titulo, subtitulo, onFechar, children }: { titulo: string; subtitulo: string; onFechar: () => void; children: ReactNode }) {
+/** Uma tela do painel do mapa (folha inferior no celular), com título e resumo no cabeçalho. */
+function Gaveta({
+  titulo,
+  subtitulo,
+  navegacao,
+  onFechar,
+  children,
+}: {
+  titulo: string;
+  subtitulo: string;
+  navegacao?: NavegacaoFolha;
+  onFechar: () => void;
+  children: ReactNode;
+}) {
   return (
     <Folha
       rotulo={titulo}
-      rotuloFechar={`Fechar ${titulo.toLowerCase()}`}
+      rotuloFechar="Fechar painel"
       onFechar={onFechar}
-      lado="esquerda"
-      className="z-[450]"
+      {...navegacao}
       titulo={
         <>
           <h2 className="truncate text-titulo font-semibold text-texto">{titulo}</h2>
@@ -52,6 +63,7 @@ interface PropriedadesPainelAlertas {
   posicaoUsuario?: { lat: number; lng: number } | null;
   onVerNoMapa: (alerta: AlertaMapa) => void;
   onVerAbrigo: (idAbrigo: number) => void;
+  navegacao?: NavegacaoFolha;
   onFechar: () => void;
 }
 
@@ -80,6 +92,7 @@ export function PainelAlertas({
   posicaoUsuario = null,
   onVerNoMapa,
   onVerAbrigo,
+  navegacao,
   onFechar,
 }: PropriedadesPainelAlertas) {
   const [formAberto, setFormAberto] = useState(false);
@@ -137,7 +150,7 @@ export function PainelAlertas({
   }
 
   return (
-    <Gaveta titulo="Alertas e avisos" subtitulo={resumirAlertasEAvisos(alertas.length, avisos.length)} onFechar={onFechar}>
+    <Gaveta titulo="Alertas e avisos" subtitulo={resumirAlertasEAvisos(alertas.length, avisos.length)} navegacao={navegacao} onFechar={onFechar}>
       <ListaAvisosOficiais avisos={avisos} />
 
       <div className={juntarClasses("space-y-3 py-4", avisos.length > 0 && "border-t border-borda")}>
@@ -251,15 +264,17 @@ interface PropriedadesListaAbrigos {
   idSelecionado: number | null;
   onSelecionar: (id: number) => void;
   onLimparFiltros: () => void;
+  navegacao?: NavegacaoFolha;
   onFechar: () => void;
 }
 
 /** Lista dos abrigos que atendem aos filtros: uma linha por abrigo, com o número de vagas à direita. */
-export function ListaAbrigos({ abrigos, carregando, idSelecionado, onSelecionar, onLimparFiltros, onFechar }: PropriedadesListaAbrigos) {
+export function ListaAbrigos({ abrigos, carregando, idSelecionado, onSelecionar, onLimparFiltros, navegacao, onFechar }: PropriedadesListaAbrigos) {
   return (
     <Gaveta
       titulo="Abrigos"
       subtitulo={abrigos.length === 1 ? "1 abrigo com os filtros atuais" : `${abrigos.length} abrigos com os filtros atuais`}
+      navegacao={navegacao}
       onFechar={onFechar}
     >
       {carregando && abrigos.length === 0 ? (
@@ -342,9 +357,11 @@ interface ResultadoFamiliarPublico {
 /** Busca pública de familiares acolhidos, com os dados pessoais protegidos (LGPD). */
 export function PainelBuscaFamiliar({
   onVerAbrigo,
+  navegacao,
   onFechar,
 }: {
   onVerAbrigo: (idAbrigo: number) => void;
+  navegacao?: NavegacaoFolha;
   onFechar: () => void;
 }) {
   const [termo, setTermo] = useState("");
@@ -380,7 +397,7 @@ export function PainelBuscaFamiliar({
   }
 
   return (
-    <Gaveta titulo="Encontrar familiar" subtitulo="Pessoas acolhidas nos abrigos agora" onFechar={onFechar}>
+    <Gaveta titulo="Encontrar familiar" subtitulo="Pessoas acolhidas nos abrigos agora" navegacao={navegacao} onFechar={onFechar}>
       <form onSubmit={buscar} className="space-y-3 py-4">
         <Campo rotulo="Nome ou CPF" dica="Por privacidade, parte do nome é abreviada e o CPF aparece mascarado." erro={erro}>
           <input

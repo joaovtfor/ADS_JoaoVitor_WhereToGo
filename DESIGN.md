@@ -47,6 +47,7 @@ Os valores ficam em `src/app/globals.css` (`--wtg-*`) e viram classes do Tailwin
 Regras de uso:
 
 - **Fundos tingidos** usam a cor com opacidade: `bg-primaria/15`, `bg-critico/12`. Nunca um fundo sólido de status em área grande.
+  - Exceção: o "ligado" de `Chip` e `Botao` usa `bg-primaria-suave`, os mesmos 15% de azul já misturados à superfície (opaco). Sobre a superfície o resultado é idêntico; sobre o mapa (filtros flutuantes), um azul translúcido deixaria o mapa vazar.
 - **Texto colorido** usa sempre a variante clara (`text-ok-claro`, `text-primaria-clara`), que tem contraste de pelo menos 4,5:1 sobre as superfícies.
 - **Estado nunca depende só da cor.** Todo selo de status tem rótulo em texto; todo pino tem número.
 - **Um estado, um sinal.** Nada de emoji + bolinha + cor + texto para a mesma informação: bolinha colorida e texto bastam.
@@ -111,7 +112,7 @@ Toda tela é montada com estes componentes. Se um padrão novo aparecer em duas 
 | `Campo` / `CLASSES_CAMPO` | `campo.tsx` | Rótulo acima, dica ou erro abaixo. Erro em `text-critico-claro` com `role="alert"`. |
 | `Icone` | `icone.tsx` | Invólucro dos ícones lucide com o traço e o tamanho padrão. |
 
-| `Folha` | `folha.tsx` | Painel deslizante: folha inferior arrastável no celular, painel lateral no desktop. O arraste usa só `transform`, fora do estado do React. |
+| `Folha` | `folha.tsx` | Painel deslizante: folha inferior arrastável no celular, painel lateral à esquerda (400 px) no desktop. O arraste usa só `transform`, fora do estado do React. Para pilhas de telas, recebe `NavegacaoFolha`: `voltar` (seta à esquerda do título) e `oculta` (fica montada, invisível e `inert`, guardando rolagem e campos). |
 
 | `Menu` / `ItemMenu` | `menu.tsx` | Menu suspenso para ações de uso ocasional. Fecha ao escolher, ao clicar fora e com Esc. `ItemMenu` aceita `className` só para separar grupos (`border-t border-borda`). |
 | `SeletorTema` | `seletor-tema.tsx` | Bloco "Aparência" (Sistema / Claro / Escuro) para o fim de um `Menu`. Escolher não fecha o menu (seção 8). |
@@ -133,8 +134,20 @@ Toda tela é montada com estes componentes. Se um padrão novo aparecer em duas 
 
 O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço que ocupa.
 
-- **Cabeçalho (uma linha):** marca, busca e duas ações: `Filtros` e `Lista`. Acesso da equipe, busca de familiar, atualização manual e a escolha de **Aparência** (seção 8.1) ficam no menu (ícone de hambúrguer, à direita). Os "três pontos" ficam só para o menu de ações de uma linha de lista no painel.
-- **Filtros:** no máximo três atalhos visíveis (`Com vagas`, `Aceita pets`, `Precisa de doações`) e um botão `Filtros` que abre uma folha com todos os demais (categorias de doação, acessibilidade, distância, alertas). O botão mostra quantos filtros estão ativos. "Limpar" é um botão fantasma, não um alerta.
+- **Cabeçalho (uma linha, 56 px):** marca, busca e as ações do site. Filtros e lista não ficam aqui.
+  - **`Área da equipe`** sempre à vista: botão secundário com ícone de pessoa e texto a partir de `md`; abaixo disso, só o ícone (48 px no toque). Aponta para `/admin`: o proxy manda quem não tem sessão para `/login` e quem tem para a tela do seu papel.
+  - O cabeçalho **não muda com a sessão** (sem nome nem "Olá"): o service worker guarda o HTML de `/` para o modo offline, e um nome ficaria salvo num aparelho compartilhado.
+  - A partir de `lg`: `Alertas` (com o total) e `Encontrar familiar` como botões fantasma, ligados enquanto a tela está aberta.
+  - Menu (hambúrguer, à direita): `Encontrar familiar` e `Alertas e avisos` abaixo de `lg`, `Atualizar dados` e **Aparência** (seção 8.1). Os "três pontos" ficam só para o menu de ações de uma linha de lista no painel.
+- **Filtros:** flutuam no alto do mapa, separados do cabeçalho; cada controle tem fundo opaco e o vão entre eles mostra o mapa. No desktop ficam à direita do painel aberto.
+  - O botão `Filtros` vem primeiro (no celular a fileira rola de ponta a ponta e ele continua à vista) e abre a tela com todos os demais (categorias de doação, acessibilidade, distância, alertas). Mostra quantos filtros estão ativos. "Limpar" é um botão fantasma, não um alerta; "Ver N abrigos" troca os filtros pela lista.
+  - No máximo três atalhos visíveis (`Com vagas`, `Aceita pets`, `Precisa de doações`), com rótulo curto (`Pets`, `Doações`) abaixo de `lg`. A partir de `sm` a fileira quebra linha em vez de rolar (mouse não rola de lado).
+- **Painel único** (`mapa-publico.tsx`): lista, filtros, alertas, busca de familiar e a ficha do abrigo abrem no mesmo lugar, como uma pilha de telas.
+  - **Desktop:** painel à esquerda, 400 px, acima da barra de resumo. Nunca dois painéis ao mesmo tempo: em telas de 640 a 830 px eles se sobrepunham, e no notebook sobravam 530 px de mapa.
+  - **Celular:** uma folha inferior só.
+  - **Pilha sem repetição:** abrir uma tela a põe no topo (se já estava na pilha, sai de onde estava). A ficha aberta a partir da lista, de um alerta ou da busca de familiar mostra a seta de voltar, que diz para onde volta ("Voltar para a lista de abrigos"); as telas de baixo continuam montadas e voltam como estavam.
+  - `Esc` volta uma tela; o `X` e o arraste para baixo fecham o painel inteiro e tiram a seleção do abrigo. Um `Esc` usado para fechar um menu não conta.
+  - O mapa centraliza abrigo e alerta, e enquadra todos, só na área que o painel não cobre (`voarAte` e `areaCoberta` em `mapa-publico-leaflet.tsx`). Os botões de zoom ficam embaixo à direita.
 - **Pinos:** um retângulo arredondado com o **número de vagas**, preenchido com a cor do estado (ok, atenção, crítico). Lotado mostra `0`. No máximo um indicador extra: um ponto de aviso quando há problema de infraestrutura. Selecionado ganha anel azul. Nome do abrigo só aparece no pino selecionado.
 - **Você está aqui:** ponto azul (`primaria-clara`) com halo.
 - **Alertas no mapa:** área de risco e via interditada em contorno `critico` com preenchimento a 12%. Rótulo só ao tocar.
@@ -145,11 +158,14 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
   - **Cores:** amarelo do INMET ("Perigo Potencial") é `atencao`; laranja e vermelho são `critico`. A cor oficial do INMET não entra na paleta: o nível vem do `SeloStatus` e o rótulo oficial vai em texto.
   - **Horários:** só renderizados no navegador, porque o servidor está em UTC.
 - **Mapa base:** escuro e neutro, para que a única cor sobre o mapa seja a dos pinos. São os tiles Humanitarian (HOT) de sempre, convertidos para cinza e invertidos por um filtro CSS no painel de tiles (`.leaflet-tile-pane` em `globals.css`). Assim não há provedor novo nem chave de API, e o cache offline de tiles continua valendo.
-- **Ficha do abrigo:** folha inferior no celular, painel lateral no desktop. Ordem fixa:
+- **Ficha do abrigo:** uma tela do painel único. Um link `?abrigo=ID` abre direto nela, sem seta de voltar, com o mapa focado no abrigo (sem o enquadramento inicial de todos). Ordem fixa:
   1. Nome, distância e `SeloStatus`.
   2. O número de vagas em `text-numero` e, ao lado, vagas para pets.
   3. Uma ação primária (`Traçar rota`) e ações secundárias em ícone (`Ligar`, `Compartilhar`). A rota sai sempre da localização atual (`origin` no link do Google Maps); sem localização ainda, o botão a pede nesta aba e só então abre o trajeto.
   4. Linhas simples separadas por divisória: energia, água, acessibilidade, itens urgentes para doação.
+- **Barra de resumo** (embaixo à esquerda, com a largura do painel): vagas livres e abrigos com os filtros atuais. O resumo é a porta da lista ("em 4 abrigos ⌃", em azul).
+  - No celular é a alça da folha: tocar ou puxar para cima abre a lista, ao alcance do polegar.
+  - Ao lado, os controles do mapa: legenda, enquadrar e localização.
 - **Abrigos perto de mim** (botão de localização na barra de resumo): sempre lê a localização de novo e abre o abrigo mais próximo **pela distância**, mesmo com outro abrigo aberto. Desligar a localização fica no painel `Filtros`, seção "Distância".
 - **Legenda:** recolhida por padrão, atrás de um botão de ajuda.
 - **Movimento reduzido** (preferência do aparelho): o mapa vai direto ao abrigo ou ao alerta, sem voo nem zoom animado (`movimentoReduzido()` em `mapa-publico-leaflet.tsx`). Folhas e toasts já respeitavam a preferência.
@@ -243,7 +259,7 @@ Trocar o tema é uma ação ocasional (princípio 6): fica em um menu, nunca sol
 
 | Tela | Local | Por quê |
 | :--- | :--- | :--- |
-| Mapa público (`/`) | Menu de hambúrguer do cabeçalho, último bloco, abaixo de "Acesso da equipe": linha **Aparência** com três botões de ícone, `Sistema` (monitor), `Claro` (sol) e `Escuro` (lua). | É onde já ficam as ações ocasionais do mapa; não ocupa espaço sobre o mapa. |
+| Mapa público (`/`) | Menu de hambúrguer do cabeçalho, último bloco, abaixo de "Atualizar dados": linha **Aparência** com três botões de ícone, `Sistema` (monitor), `Claro` (sol) e `Escuro` (lua). | É onde já ficam as ações ocasionais do mapa; não ocupa espaço sobre o mapa. |
 | Painel (`/admin/**`) | Menu da conta (com "Alterar senha", "Ver mapa público" e "Sair"), com o mesmo controle. | Preferência pessoal fica junto da conta. |
 | Login (`/login`) | Sem controle. Segue a escolha salva neste aparelho ou o sistema. | Uma tela, uma ação (seção 5.3). |
 

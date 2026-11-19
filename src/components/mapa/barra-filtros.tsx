@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { LocateFixed, LocateOff, SlidersHorizontal } from "lucide-react";
 import { Botao } from "@/components/ui/botao";
 import { Chip } from "@/components/ui/chip";
-import { Folha } from "@/components/ui/folha";
+import { Folha, type NavegacaoFolha } from "@/components/ui/folha";
 import { ATALHOS_FILTRO, FILTROS_RAPIDOS, obterIconeCategoria, type CategoriaPublica, type FiltroRapido } from "./tipos";
 
 interface PropriedadesBarraFiltros {
@@ -16,27 +16,37 @@ interface PropriedadesBarraFiltros {
   onAlternarPainel: () => void;
 }
 
-/** Faixa logo abaixo do cabeçalho: os três filtros mais usados e a porta para os demais. */
+/**
+ * Fileira que flutua no alto do mapa, separada do cabeçalho: o botão `Filtros`
+ * primeiro (no celular a fileira rola e ele continua à vista) e os três atalhos
+ * mais usados. Cada controle tem fundo opaco; o vão entre eles mostra o mapa.
+ * No celular rola de ponta a ponta da tela, sem barra de rolagem; a partir de
+ * `sm` quebra em mais linhas quando falta largura (mouse não rola de lado).
+ * Rótulos curtos abaixo de `lg`: ao lado do painel aberto sobram ~250 px.
+ */
 export function BarraFiltros({ filtroRapido, onFiltroRapido, totalOutrosFiltros, painelAberto, onAlternarPainel }: PropriedadesBarraFiltros) {
   return (
-    <div className="barra-filtros-scroll flex shrink-0 items-center gap-2 border-b border-borda bg-superficie px-3 py-2 sm:px-4">
-      {ATALHOS_FILTRO.map((filtro) => (
-        <Chip key={filtro.id} ativo={filtroRapido === filtro.id} icone={filtro.icone} onClick={() => onFiltroRapido(filtro.id)}>
-          <span className="sm:hidden">{filtro.rotuloCurto}</span>
-          <span className="hidden sm:inline">{filtro.rotulo}</span>
-        </Chip>
-      ))}
+    <div
+      role="group"
+      aria-label="Filtros do mapa"
+      className="pointer-events-auto -mx-3 flex max-w-[calc(100%+1.5rem)] items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:mx-0 sm:max-w-full sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+    >
       <Botao
         tamanho="sm"
         icone={SlidersHorizontal}
         ligado={painelAberto || totalOutrosFiltros > 0}
         aria-label={totalOutrosFiltros > 0 ? `Filtros (${totalOutrosFiltros} ativos)` : "Filtros"}
         onClick={onAlternarPainel}
-        className="ml-auto"
       >
-        <span className="hidden sm:inline">Filtros</span>
+        <span className="hidden lg:inline">Filtros</span>
         {totalOutrosFiltros > 0 && <span className="tabular-nums">{totalOutrosFiltros}</span>}
       </Botao>
+      {ATALHOS_FILTRO.map((filtro) => (
+        <Chip key={filtro.id} ativo={filtroRapido === filtro.id} icone={filtro.icone} onClick={() => onFiltroRapido(filtro.id)}>
+          <span className="lg:hidden">{filtro.rotuloCurto}</span>
+          <span className="hidden lg:inline">{filtro.rotulo}</span>
+        </Chip>
+      ))}
     </div>
   );
 }
@@ -73,6 +83,9 @@ interface PropriedadesPainelFiltros {
   totalResultados: number;
   temFiltroAtivo: boolean;
   onLimparTudo: () => void;
+  /** "Ver N abrigos": troca os filtros pela lista com o resultado. */
+  onVerResultados: () => void;
+  navegacao?: NavegacaoFolha;
   onFechar: () => void;
 }
 
@@ -85,16 +98,15 @@ export function PainelFiltros(props: PropriedadesPainelFiltros) {
     <Folha
       rotulo="Filtros do mapa"
       titulo={<h2 className="text-titulo font-semibold text-texto">Filtros</h2>}
-      rotuloFechar="Fechar filtros"
+      rotuloFechar="Fechar painel"
       onFechar={props.onFechar}
-      lado="esquerda"
-      className="z-[450]"
+      {...props.navegacao}
       rodape={
         <div className="flex gap-2">
           <Botao variante="fantasma" onClick={props.onLimparTudo} disabled={!props.temFiltroAtivo}>
             Limpar
           </Botao>
-          <Botao variante="primaria" onClick={props.onFechar} className="flex-1 tabular-nums">
+          <Botao variante="primaria" onClick={props.onVerResultados} className="flex-1 tabular-nums">
             {props.totalResultados === 1 ? "Ver 1 abrigo" : `Ver ${props.totalResultados} abrigos`}
           </Botao>
         </div>

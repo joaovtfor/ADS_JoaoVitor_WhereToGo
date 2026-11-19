@@ -12,6 +12,8 @@ import { ListaAbrigos, PainelAlertas, PainelBuscaFamiliar } from "@/components/m
 import { ATALHOS_FILTRO, filtrarAvisosNaoVencidos, type AlertaMapa, type FiltroRapido } from "@/components/mapa/tipos";
 import { useDadosMapa, type DadosIniciaisMapa } from "@/components/mapa/use-dados-mapa";
 import { useServiceWorker } from "@/components/mapa/use-service-worker";
+import { juntarClasses } from "@/components/ui/classes";
+import type { NavegacaoFolha } from "@/components/ui/folha";
 import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
 import { ProvedorToast, RegiaoToasts, useToast } from "@/components/ui/toast";
 
@@ -26,7 +28,15 @@ const MapaPublicoLeaflet = dynamic(() => import("@/components/mapa-publico-leafl
 });
 
 type Posicao = { lat: number; lng: number };
-type Painel = "alertas" | "lista" | "familiares" | "filtros";
+/** Telas do painel do mapa. A ficha do abrigo é uma delas: tudo abre no mesmo lugar. */
+type Tela = "lista" | "filtros" | "alertas" | "familiares" | "abrigo";
+/** Como cada tela é chamada no botão de voltar ("Voltar para ..."). A ficha usa o nome do abrigo. */
+const NOME_PARA_VOLTAR: Record<Exclude<Tela, "abrigo">, string> = {
+  lista: "a lista de abrigos",
+  filtros: "os filtros",
+  alertas: "alertas e avisos",
+  familiares: "a busca de familiar",
+};
 /** O que pediu para selecionar automaticamente o abrigo mais adequado. */
 type MotivoAutoSelecao = "gps" | "filtro";
 
@@ -113,9 +123,11 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   const [raioKm, setRaioKm] = useState<number | null>(null);
   const [ocultarNaoDestaque, setOcultarNaoDestaque] = useState(false);
 
-  // Painéis e camadas (RF09 + Busca de Familiares)
+  // Camadas (RF09) e o painel único: uma pilha de telas, sem repetição. A de cima
+  // aparece; as de baixo continuam montadas (rolagem, busca, formulário) e
+  // "voltar" as traz de volta como estavam.
   const [camadaAlertasVisivel, setCamadaAlertasVisivel] = useState(true);
-  const [painelAberto, setPainelAberto] = useState<Painel | null>(null);
+  const [pilha, setPilha] = useState<Tela[]>(abrigoInicial ? ["abrigo"] : []);
   const [enquadrarTick, setEnquadrarTick] = useState(0);
 
   // Localização do doador/cidadão (distância e raio calculados no servidor)
@@ -149,7 +161,11 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
 
   // A página pode ter vindo do cache offline (gerada para outro endereço): vale o que está na URL.
   useEffect(() => {
-    void Promise.resolve().then(() => setIdSelecionado(lerAbrigoDaUrl()));
+    void Promise.resolve().then(() => {
+      const id = lerAbrigoDaUrl();
+      setIdSelecionado(id);
+      setPilha(id ? ["abrigo"] : []);
+    });
   }, []);
 
   const abrigosFiltrados = useMemo(
@@ -169,27 +185,61 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   const abrigoSelecionado =
     (indiceSelecionado >= 0 ? abrigosFiltrados[indiceSelecionado] : abrigos.find((a) => a.id === idSelecionado)) ?? null;
 
+  // A ficha só conta se o abrigo existe (um link antigo pode apontar para um abrigo desativado).
+  const pilhaVisivel = useMemo(() => (abrigoSelecionado ? pilha : pilha.filter((tela) => tela !== "abrigo")), [pilha, abrigoSelecionado]);
+  const telaAtual = pilhaVisivel.at(-1) ?? null;
+
+  /** Abre a ficha do abrigo por cima do que estiver aberto (lista, alertas...): "voltar" retorna a isso. */
   const selecionarAbrigo = useCallback((id: number) => {
     setIdSelecionado(id);
     setFocoTick((t) => t + 1);
     atualizarAbrigoNaUrl(id);
+    setPilha((atual) => [...atual.filter((tela) => tela !== "abrigo"), "abrigo"]);
   }, []);
 
-  const fecharFicha = useCallback(() => {
-    setIdSelecionado(null);
-    atualizarAbrigoNaUrl(null);
+  /** Troca a pilha inteira. Se a ficha sai dela, o abrigo deixa de estar selecionado. */
+  const trocarPilha = useCallback((nova: Tela[]) => {
+    setPilha(nova);
+    if (!nova.includes("abrigo")) {
+      setIdSelecionado(null);
+      atualizarAbrigoNaUrl(null);
+    }
   }, []);
+
+  const fecharPainel = useCallback(() => trocarPilha([]), [trocarPilha]);
+  const voltar = useCallback(() => trocarPilha(pilhaVisivel.slice(0, -1)), [trocarPilha, pilhaVisivel]);
+
+  /** Traz a tela para o topo; se já estava na pilha, ela sai de onde estava (não repete). */
+  function abrirTela(tela: Exclude<Tela, "abrigo">) {
+    trocarPilha([...pilhaVisivel.filter((t) => t !== tela), tela]);
+  }
+
+  /** Para botões liga/desliga: se a tela já está à vista, volta; senão, abre. */
+  function alternarTela(tela: Exclude<Tela, "abrigo">) {
+    if (telaAtual === tela) voltar();
+    else abrirTela(tela);
+  }
+
+  /** Posição da tela na pilha: oculta se há outra por cima, e o voltar para a de baixo. */
+  function navegacaoDa(tela: Tela): NavegacaoFolha {
+    const posicao = pilhaVisivel.indexOf(tela);
+    const abaixo = posicao > 0 ? pilhaVisivel[posicao - 1] : null;
+    const nomeAbaixo = abaixo === "abrigo" ? (abrigoSelecionado?.nome ?? "o abrigo") : abaixo ? NOME_PARA_VOLTAR[abaixo] : null;
+    return {
+      oculta: posicao !== pilhaVisivel.length - 1,
+      voltar: nomeAbaixo ? { rotulo: `Voltar para ${nomeAbaixo}`, onVoltar: voltar } : undefined,
+    };
+  }
 
   useEffect(() => {
-    // Esc fecha primeiro o painel aberto e, depois, a ficha.
+    // Esc volta uma tela, como o botão de voltar do painel; na última, fecha o painel.
+    // Um Esc já usado (ex.: para fechar o menu do cabeçalho) não conta.
     const aoPressionar = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (painelAberto) setPainelAberto(null);
-      else fecharFicha();
+      if (e.key === "Escape" && !e.defaultPrevented && pilhaVisivel.length > 0) voltar();
     };
     window.addEventListener("keydown", aoPressionar);
     return () => window.removeEventListener("keydown", aoPressionar);
-  }, [fecharFicha, painelAberto]);
+  }, [voltar, pilhaVisivel.length]);
 
   // Seleciona o abrigo mais adequado depois que a lista reflete o GPS/filtro escolhido.
   useEffect(() => {
@@ -320,10 +370,6 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     pedirAutoSelecao();
   }
 
-  function alternarPainel(painel: Painel) {
-    setPainelAberto((atual) => (atual === painel ? null : painel));
-  }
-
   function navegarAbrigoVizinho(direcao: -1 | 1) {
     if (abrigosFiltrados.length === 0) return;
     const atual = Math.max(0, indiceSelecionado);
@@ -349,23 +395,14 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-fundo text-texto">
       <CabecalhoMapa
-        totalAbrigos={abrigosFiltrados.length}
         totalAlertas={alertas.length + avisosValidos.length}
         termoBusca={termoBusca}
         onBuscar={setTermoBusca}
         onConfirmarBusca={() => abrigosFiltrados[0] && selecionarAbrigo(abrigosFiltrados[0].id)}
-        listaAberta={painelAberto === "lista"}
-        onAlternarLista={() => alternarPainel("lista")}
-        onBuscarFamiliar={() => setPainelAberto("familiares")}
-        onVerAlertas={() => setPainelAberto("alertas")}
+        telaAberta={telaAtual === "alertas" || telaAtual === "familiares" ? telaAtual : null}
+        onAbrirTela={abrirTela}
+        onAlternarTela={alternarTela}
         onAtualizar={recarregar}
-      />
-      <BarraFiltros
-        filtroRapido={filtroRapido}
-        onFiltroRapido={alternarFiltroRapido}
-        totalOutrosFiltros={totalOutrosFiltros}
-        painelAberto={painelAberto === "filtros"}
-        onAlternarPainel={() => alternarPainel("filtros")}
       />
 
       <main className="relative h-full w-full flex-1 overflow-hidden">
@@ -378,15 +415,24 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
           focoCoordenada={focoCoordenada}
           enquadrarTick={enquadrarTick}
           posicaoUsuario={posicaoUsuario}
+          painelAberto={pilhaVisivel.length > 0}
           aoSelecionarAbrigo={selecionarAbrigo}
         />
 
-        {/* Avisos e toasts: ao lado dos botões de zoom no desktop, sem invadir a ficha aberta */}
+        {/* Filtros, avisos e toasts flutuam no alto do mapa; no desktop, à direita do painel aberto */}
         <div
-          className={`pointer-events-none absolute top-3 left-3 z-[400] flex flex-col items-start gap-2 sm:left-14 ${
-            abrigoSelecionado ? "right-3 sm:right-[424px]" : "right-3"
-          }`}
+          className={juntarClasses(
+            "pointer-events-none absolute inset-x-3 top-3 z-[400] flex flex-col items-start gap-2",
+            pilhaVisivel.length > 0 && "sm:left-[424px]",
+          )}
         >
+          <BarraFiltros
+            filtroRapido={filtroRapido}
+            onFiltroRapido={alternarFiltroRapido}
+            totalOutrosFiltros={totalOutrosFiltros}
+            painelAberto={telaAtual === "filtros"}
+            onAlternarPainel={() => alternarTela("filtros")}
+          />
           {dadosSalvosDe && (
             <Aviso nivel="atencao">
               {carregando
@@ -399,7 +445,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
               {erro}
             </Aviso>
           )}
-          <SeloAvisoOficial avisos={avisosValidos} onVer={() => setPainelAberto("alertas")} />
+          <SeloAvisoOficial avisos={avisosValidos} onVer={() => abrirTela("alertas")} />
           <RegiaoToasts origem="topo" className="max-w-full items-start sm:max-w-md" />
         </div>
 
@@ -409,11 +455,13 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
           carregando={carregando}
           filtrado={temFiltroAtivo}
           mostrarAlertas={camadaAlertasVisivel}
+          lista={{ aberta: telaAtual === "lista", onAlternar: () => alternarTela("lista") }}
           gps={{ ativo: gpsAtivo, buscando: buscandoGps, onIrAoMaisProximo: () => void irAoMaisProximo() }}
           onEnquadrar={() => setEnquadrarTick((t) => t + 1)}
         />
 
-        {painelAberto === "filtros" && (
+        {/* Painel único: cada tela da pilha fica montada; só a de cima aparece (navegacaoDa). */}
+        {pilhaVisivel.includes("filtros") && (
           <PainelFiltros
             filtroRapido={filtroRapido}
             onFiltroRapido={alternarFiltroRapido}
@@ -437,7 +485,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
               total: alertas.length,
               camadaVisivel: camadaAlertasVisivel,
               onAlternarCamada: () => setCamadaAlertasVisivel((v) => !v),
-              onVerPainel: () => setPainelAberto("alertas"),
+              onVerPainel: () => abrirTela("alertas"),
             }}
             gps={{
               ativo: gpsAtivo,
@@ -453,11 +501,13 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             totalResultados={abrigosFiltrados.length}
             temFiltroAtivo={temFiltroAtivo}
             onLimparTudo={limparTodosFiltros}
-            onFechar={() => setPainelAberto(null)}
+            onVerResultados={() => trocarPilha([...pilhaVisivel.filter((t) => t !== "filtros" && t !== "lista"), "lista"])}
+            navegacao={navegacaoDa("filtros")}
+            onFechar={fecharPainel}
           />
         )}
 
-        {painelAberto === "alertas" && (
+        {pilhaVisivel.includes("alertas") && (
           <PainelAlertas
             alertas={alertas}
             avisos={avisosValidos}
@@ -465,35 +515,28 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             posicaoUsuario={posicaoUsuario}
             onVerNoMapa={verAlertaNoMapa}
             onVerAbrigo={selecionarAbrigo}
-            onFechar={() => setPainelAberto(null)}
+            navegacao={navegacaoDa("alertas")}
+            onFechar={fecharPainel}
           />
         )}
 
-        {painelAberto === "familiares" && (
-          <PainelBuscaFamiliar
-            onVerAbrigo={(id) => {
-              selecionarAbrigo(id);
-              if (window.innerWidth < 640) setPainelAberto(null);
-            }}
-            onFechar={() => setPainelAberto(null)}
-          />
+        {pilhaVisivel.includes("familiares") && (
+          <PainelBuscaFamiliar onVerAbrigo={selecionarAbrigo} navegacao={navegacaoDa("familiares")} onFechar={fecharPainel} />
         )}
 
-        {painelAberto === "lista" && (
+        {pilhaVisivel.includes("lista") && (
           <ListaAbrigos
             abrigos={abrigosFiltrados}
             carregando={carregando}
             idSelecionado={idSelecionado}
-            onSelecionar={(id) => {
-              selecionarAbrigo(id);
-              if (window.innerWidth < 640) setPainelAberto(null);
-            }}
+            onSelecionar={selecionarAbrigo}
             onLimparFiltros={limparTodosFiltros}
-            onFechar={() => setPainelAberto(null)}
+            navegacao={navegacaoDa("lista")}
+            onFechar={fecharPainel}
           />
         )}
 
-        {abrigoSelecionado && (
+        {abrigoSelecionado && pilhaVisivel.includes("abrigo") && (
           <FichaAbrigo
             key={abrigoSelecionado.id}
             abrigo={abrigoSelecionado}
@@ -503,7 +546,8 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             posicaoUsuario={posicaoUsuario}
             obterOrigemRota={obterOrigemRota}
             onNavegar={navegarAbrigoVizinho}
-            onFechar={fecharFicha}
+            navegacao={navegacaoDa("abrigo")}
+            onFechar={fecharPainel}
           />
         )}
       </main>

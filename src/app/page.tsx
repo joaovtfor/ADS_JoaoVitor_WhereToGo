@@ -10,7 +10,7 @@ type ParametrosDaBusca = Promise<{ [chave: string]: string | string[] | undefine
 function EsqueletoMapa() {
   return (
     <div className="flex h-dvh w-screen flex-col bg-fundo text-texto-2">
-      <div className="h-[6.5rem] shrink-0 border-b border-borda bg-superficie" />
+      <div className="h-14 shrink-0 border-b border-borda bg-superficie" />
       <p role="status" className="flex flex-1 items-center justify-center bg-superficie text-corpo">
         Carregando abrigos...
       </p>

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, HeartHandshake, MapPin, Phone, Route, Share2, TriangleExclamationPoint, Users, Zap } from "lucide-react";
 import { BotaoIcone, classesBotao, classesBotaoIcone } from "@/components/ui/botao";
 import { juntarClasses } from "@/components/ui/classes";
-import { Folha } from "@/components/ui/folha";
+import { Folha, type NavegacaoFolha } from "@/components/ui/folha";
 import { Icone } from "@/components/ui/icone";
 import { SeloStatus } from "@/components/ui/selo-status";
 import { useToast } from "@/components/ui/toast";
@@ -30,6 +30,7 @@ interface PropriedadesFichaAbrigo {
   /** Lê a localização na hora, quando ainda não há uma. `null` se não for possível. */
   obterOrigemRota: () => Promise<Posicao | null>;
   onNavegar: (direcao: -1 | 1) => void;
+  navegacao?: NavegacaoFolha;
   onFechar: () => void;
 }
 
@@ -109,6 +110,7 @@ export function FichaAbrigo({
   posicaoUsuario,
   obterOrigemRota,
   onNavegar,
+  navegacao,
   onFechar,
 }: PropriedadesFichaAbrigo) {
   const { detalhe, carregando } = useDetalheAbrigo(abrigo.id);
@@ -168,10 +170,9 @@ export function FichaAbrigo({
   return (
     <Folha
       rotulo={`Detalhes do abrigo ${abrigo.nome}`}
-      rotuloFechar="Fechar detalhes do abrigo"
+      rotuloFechar="Fechar painel"
       onFechar={onFechar}
-      lado="direita"
-      className="z-[500]"
+      {...navegacao}
       titulo={
         <>
           <h2 className="line-clamp-2 text-titulo font-semibold text-texto">{abrigo.nome}</h2>
