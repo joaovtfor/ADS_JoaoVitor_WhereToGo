@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 910" width="100%" role="img" aria-label="Diagrama de Casos de Uso - WhereToGo">
+  <defs>
+    <marker id="arrow-include" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#6CB4B8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    </marker>
+    <style>
+      .ator-linha { fill: none; stroke: #8FA88E; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+      .ator-texto { font-family: Arial, Helvetica, sans-serif; font-size: 11.5px; fill: #FFFFFF; text-anchor: middle; }
+      .uc-oval { fill: #000000; stroke: #111111; stroke-width: 1; }
+      .uc-texto { font-family: Arial, Helvetica, sans-serif; font-size: 11px; fill: #FFFFFF; text-anchor: middle; }
+      .assoc { fill: none; stroke: #7AB8BC; stroke-width: 1.15; opacity: 0.9; }
+      .include-linha { fill: none; stroke: #6CB4B8; stroke-width: 1.15; stroke-dasharray: 4 3; marker-end: url(#arrow-include); }
+      .include-texto { font-family: Arial, Helvetica, sans-serif; font-size: 9.5px; fill: #4E9398; text-anchor: middle; stroke: #FFFFFF; stroke-width: 3px; paint-order: stroke; }
+    </style>
+  </defs>
+
+  <!-- Moldura externa e fundo preto fiel ao DVP original -->
+  <rect x="1" y="1" width="818" height="908" fill="#FFFFFF" stroke="#222222" stroke-width="1" />
+  <rect x="12" y="12" width="796" height="886" fill="#000000" />
+
+  <!-- Fronteira do Sistema WhereToGo -->
+  <rect x="208" y="32" width="584" height="850" fill="#FFFFFF" stroke="#6CB4B8" stroke-width="1.2" />
+  <text x="500" y="54" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" font-style="italic" fill="#6CB4B8">WhereToGo</text>
+
+  <!-- Divisória sutil entre Frente Pública e Painel Interno -->
+  <line x1="224" y1="370" x2="520" y2="370" stroke="#CFE3E4" stroke-width="1" stroke-dasharray="4 3" />
+  <text x="226" y="383" font-family="Arial, Helvetica, sans-serif" font-size="9" font-style="italic" fill="#6CB4B8">Painel Administrativo Interno (requer autenticação)</text>
+
+  <!-- ================= ATORES (6 papéis reais) ================= -->
+  <!-- 1. Cidadão Afetado -->
+  <g transform="translate(102, 66)">
+    <circle cx="0" cy="10" r="10" class="ator-linha" />
+    <line x1="0" y1="20" x2="0" y2="40" class="ator-linha" />
+    <line x1="-15" y1="28" x2="15" y2="28" class="ator-linha" />
+    <line x1="0" y1="40" x2="-11" y2="56" class="ator-linha" />
+    <line x1="0" y1="40" x2="11" y2="56" class="ator-linha" />
+    <text x="0" y="72" class="ator-texto">Cidadão Afetado</text>
+  </g>
+
+  <!-- 2. Doador -->
+  <g transform="translate(102, 186)">
+    <circle cx="0" cy="10" r="10" class="ator-linha" />
+    <line x1="0" y1="20" x2="0" y2="40" class="ator-linha" />
+    <line x1="-15" y1="28" x2="15" y2="28" class="ator-linha" />
+    <line x1="0" y1="40" x2="-11" y2="56" class="ator-linha" />
+    <line x1="0" y1="40" x2="11" y2="56" class="ator-linha" />
+    <text x="0" y="72" class="ator-texto">Doador</text>
+  </g>
+
+  <!-- 3. Voluntário Local -->
+  <g transform="translate(102, 376)">
+    <circle cx="0" cy="10" r="10" class="ator-linha" />
+    <line x1="0" y1="20" x2="0" y2="40" class="ator-linha" />
+    <line x1="-15" y1="28" x2="15" y2="28" class="ator-linha" />
+    <line x1="0" y1="40" x2="-11" y2="56" class="ator-linha" />
+    <line x1="0" y1="40" x2="11" y2="56" class="ator-linha" />
+    <text x="0" y="72" class="ator-texto">Voluntário Local</text>
+  </g>
+
+  <!-- 4. Coordenador de Abrigo -->
+  <g transform="translate(102, 512)">
+    <circle cx="0" cy="10" r="10" class="ator-linha" />
+    <line x1="0" y1="20" x2="0" y2="40" class="ator-linha" />
+    <line x1="-15" y1="28" x2="15" y2="28" class="ator-linha" />
+    <line x1="0" y1="40" x2="-11" y2="56" class="ator-linha" />
+    <line x1="0" y1="40" x2="11" y2="56" class="ator-linha" />
+    <text x="0" y="72" class="ator-texto">Coordenador</text>
+    <text x="0" y="85" class="ator-texto">de Abrigo</text>
+  </g>
+
+  <!-- 5. Defesa Civil Municipal -->
+  <g transform="translate(102, 650)">
+    <circle cx="0" cy="10" r="10" class="ator-linha" />
+    <line x1="0" y1="20" x2="0" y2="40" class="ator-linha" />
+    <line x1="-15" y1="28" x2="15" y2="28" class="ator-linha" />
+    <line x1="0" y1="40" x2="-11" y2="56" class="ator-linha" />
+    <line x1="0" y1="40" x2="11" y2="56" class="ator-linha" />
+    <text x="0" y="72" class="ator-texto">Defesa Civil</text>
+    <text x="0" y="85" class="ator-texto">Municipal</text>
+  </g>
+
+  <!-- 6. Administrador Geral -->
+  <g transform="translate(102, 782)">
+    <circle cx="0" cy="10" r="10" class="ator-linha" />
+    <line x1="0" y1="20" x2="0" y2="40" class="ator-linha" />
+    <line x1="-15" y1="28" x2="15" y2="28" class="ator-linha" />
+    <line x1="0" y1="40" x2="-11" y2="56" class="ator-linha" />
+    <line x1="0" y1="40" x2="11" y2="56" class="ator-linha" />
+    <text x="0" y="72" class="ator-texto">Administrador</text>
+    <text x="0" y="85" class="ator-texto">Geral</text>
+  </g>
+
+  <!-- ================= ASSOCIAÇÕES ATOR -> CASO DE USO ================= -->
+  <!-- Cidadão Afetado (port: 124, 96) -->
+  <path d="M 124 94 C 170 94, 185 94, 233 94" class="assoc" />
+  <path d="M 124 98 C 175 110, 185 148, 233 154" class="assoc" />
+  <path d="M 124 102 C 170 150, 182 260, 233 274" class="assoc" />
+  <path d="M 124 106 C 166 175, 180 315, 233 334" class="assoc" />
+
+  <!-- Doador (port: 124, 214) -->
+  <path d="M 124 206 C 172 175, 186 105, 233 98" class="assoc" />
+  <path d="M 124 210 C 172 192, 186 164, 233 158" class="assoc" />
+  <path d="M 124 216 C 172 216, 188 214, 233 214" class="assoc" />
+
+  <!-- Voluntário Local (port: 124, 404) -->
+  <path d="M 124 404 C 170 408, 186 412, 233 414" class="assoc" />
+  <path d="M 124 410 C 172 470, 184 575, 233 590" class="assoc" />
+
+  <!-- Coordenador de Abrigo (port: 124, 540) -->
+  <path d="M 124 530 C 172 480, 186 426, 233 418" class="assoc" />
+  <path d="M 124 534 C 172 505, 188 478, 233 474" class="assoc" />
+  <path d="M 124 538 C 174 536, 188 534, 233 534" class="assoc" />
+  <path d="M 124 542 C 174 562, 188 588, 233 594" class="assoc" />
+  <path d="M 124 546 C 172 592, 186 644, 233 652" class="assoc" />
+  <path d="M 124 550 C 170 622, 184 700, 233 712" class="assoc" />
+  <path d="M 124 554 C 168 650, 182 758, 233 772" class="assoc" />
+  <path d="M 124 558 C 166 680, 180 816, 233 830" class="assoc" />
+
+  <!-- Defesa Civil Municipal (port: 124, 678) -->
+  <path d="M 124 670 C 176 610, 188 552, 233 538" class="assoc" />
+  <path d="M 124 674 C 176 636, 188 606, 233 598" class="assoc" />
+  <path d="M 124 678 C 176 668, 190 658, 233 656" class="assoc" />
+  <path d="M 124 682 C 176 698, 190 712, 233 716" class="assoc" />
+  <path d="M 124 686 C 176 726, 188 764, 233 776" class="assoc" />
+
+  <!-- Administrador Geral (port: 124, 810) -->
+  <path d="M 124 800 C 170 630, 182 440, 233 422" class="assoc" />
+  <path d="M 124 803 C 172 655, 184 495, 233 480" class="assoc" />
+  <path d="M 124 806 C 174 685, 186 555, 233 542" class="assoc" />
+  <path d="M 124 809 C 174 715, 186 615, 233 602" class="assoc" />
+  <path d="M 124 812 C 176 742, 188 672, 233 660" class="assoc" />
+  <path d="M 124 815 C 176 768, 188 728, 233 720" class="assoc" />
+  <path d="M 124 818 C 176 794, 190 780, 233 778" class="assoc" />
+  <path d="M 124 822 C 176 830, 190 834, 233 836" class="assoc" />
+
+  <!-- ================= RELACIONAMENTOS «include» -> GERENCIAR LOGIN ================= -->
+  <path d="M 497 414 L 614 598" class="include-linha" />
+  <text x="554" y="498" class="include-texto">«include»</text>
+
+  <path d="M 497 474 L 604 602" class="include-linha" />
+  <text x="550" y="534" class="include-texto">«include»</text>
+
+  <path d="M 497 534 L 594 608" class="include-linha" />
+  <text x="546" y="568" class="include-texto">«include»</text>
+
+  <path d="M 497 594 L 588 616" class="include-linha" />
+  <text x="544" y="602" class="include-texto">«include»</text>
+
+  <path d="M 497 654 L 588 632" class="include-linha" />
+  <text x="544" y="646" class="include-texto">«include»</text>
+
+  <path d="M 497 714 L 594 640" class="include-linha" />
+  <text x="546" y="680" class="include-texto">«include»</text>
+
+  <path d="M 497 774 L 604 646" class="include-linha" />
+  <text x="550" y="714" class="include-texto">«include»</text>
+
+  <path d="M 497 834 L 614 650" class="include-linha" />
+  <text x="554" y="750" class="include-texto">«include»</text>
+
+  <!-- ================= CASOS DE USO (OVAIS PRETOS) ================= -->
+  <!-- Públicos -->
+  <ellipse cx="365" cy="94" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="91" class="uc-texto">Visualizar Mapa Interativo</text>
+  <text x="365" y="104" class="uc-texto">(Tempo Real SSE / PWA 3G)</text>
+
+  <ellipse cx="365" cy="154" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="151" class="uc-texto">Visualizar Detalhes do Abrigo</text>
+  <text x="365" y="164" class="uc-texto">(Vagas, Rotas e PIX EMVCo)</text>
+
+  <ellipse cx="365" cy="214" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="211" class="uc-texto">Filtrar Abrigos por Necessidade</text>
+  <text x="365" y="224" class="uc-texto">(Roteamento PostGIS)</text>
+
+  <ellipse cx="365" cy="274" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="271" class="uc-texto">Buscar Familiar Acolhido</text>
+  <text x="365" y="284" class="uc-texto">(LGPD)</text>
+
+  <ellipse cx="365" cy="334" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="338" class="uc-texto">Reportar Ocorrência Cidadã</text>
+
+  <!-- Internos (RBAC) -->
+  <ellipse cx="365" cy="414" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="411" class="uc-texto">Gerenciar Inventário</text>
+  <text x="365" y="424" class="uc-texto">(Fast-CRUD / Estorno / Fila 3G)</text>
+
+  <ellipse cx="365" cy="474" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="471" class="uc-texto">Gerenciar Necessidades</text>
+  <text x="365" y="484" class="uc-texto">(Urgente / Bloqueado / Mínimo)</text>
+
+  <ellipse cx="365" cy="534" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="531" class="uc-texto">Visualizar Dashboard de Triagem</text>
+  <text x="365" y="544" class="uc-texto">(Sugestões de Troca)</text>
+
+  <ellipse cx="365" cy="594" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="591" class="uc-texto">Gerenciar Abrigados e</text>
+  <text x="365" y="604" class="uc-texto">Transferências (Individual / Lote)</text>
+
+  <ellipse cx="365" cy="654" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="651" class="uc-texto">Gerenciar Infraestrutura,</text>
+  <text x="365" y="664" class="uc-texto">Áreas de Risco e Moderação</text>
+
+  <ellipse cx="365" cy="714" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="711" class="uc-texto">Gerenciar Eventos (COBRADE)</text>
+  <text x="365" y="724" class="uc-texto">e Relatórios (FIDE / CSV)</text>
+
+  <ellipse cx="365" cy="774" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="771" class="uc-texto">Consultar Auditoria Imutável</text>
+  <text x="365" y="784" class="uc-texto">e Histórico de Estoque</text>
+
+  <ellipse cx="365" cy="834" rx="132" ry="23" class="uc-oval" />
+  <text x="365" y="831" class="uc-texto">Gerenciar Abrigos, Catálogo</text>
+  <text x="365" y="844" class="uc-texto">e Usuários da Equipe</text>
+
+  <!-- Gerenciar Login (Alvo dos includes) -->
+  <ellipse cx="682" cy="624" rx="94" ry="27" class="uc-oval" />
+  <text x="682" y="621" class="uc-texto">Gerenciar Login</text>
+  <text x="682" y="634" class="uc-texto">(RBAC / Google One Tap)</text>
+</svg>

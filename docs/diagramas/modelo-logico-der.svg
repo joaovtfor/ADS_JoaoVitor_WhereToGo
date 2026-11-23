@@ -1,0 +1,881 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1015" width="100%" role="img" aria-label="Modelo Lógico do Banco de Dados WhereToGo (DER v2)">
+
+  <defs>
+    <marker id="m-one" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <line x1="6" y1="2" x2="6" y2="10" stroke="#A8A8A8" stroke-width="1.2"/>
+      <line x1="9" y1="2" x2="9" y2="10" stroke="#A8A8A8" stroke-width="1.2"/>
+    </marker>
+    <marker id="m-zeroone" viewBox="0 0 16 12" refX="14" refY="6" markerWidth="13" markerHeight="10" orient="auto-start-reverse">
+      <circle cx="5" cy="6" r="2.8" fill="#1E1E1E" stroke="#A8A8A8" stroke-width="1.2"/>
+      <line x1="11" y1="2" x2="11" y2="10" stroke="#A8A8A8" stroke-width="1.2"/>
+    </marker>
+    <marker id="m-many" viewBox="0 0 16 12" refX="14" refY="6" markerWidth="13" markerHeight="10" orient="auto-start-reverse">
+      <circle cx="4" cy="6" r="2.5" fill="#1E1E1E" stroke="#A8A8A8" stroke-width="1.1"/>
+      <path d="M 14 2 L 8 6 L 14 10 M 8 6 L 14 6" fill="none" stroke="#A8A8A8" stroke-width="1.2"/>
+    </marker>
+  </defs>
+  <style>
+    .tbl-title { font-family: Consolas, 'Courier New', monospace; font-size: 9.8px; font-weight: bold; fill: #FFFFFF; text-anchor: middle; }
+    .col-key { font-family: Consolas, 'Courier New', monospace; font-size: 7.4px; fill: #D0D0D0; }
+    .col-type { font-family: Consolas, 'Courier New', monospace; font-size: 7.5px; fill: #C0C0C0; }
+    .col-name { font-family: Consolas, 'Courier New', monospace; font-size: 7.6px; fill: #ECECEC; }
+    .rel-line { fill: none; stroke: #9E9E9E; stroke-width: 1; }
+    .rel-lbl { font-family: Arial, Helvetica, sans-serif; font-size: 7.6px; fill: #D4D4D4; text-anchor: middle; stroke: #1E1E1E; stroke-width: 1.8px; paint-order: stroke; }
+    .nota-tit { font-family: Arial, Helvetica, sans-serif; font-size: 9.2px; font-weight: bold; fill: #FFFFFF; }
+    .nota-txt { font-family: Arial, Helvetica, sans-serif; font-size: 7.9px; fill: #CCCCCC; }
+  </style>
+  <rect x="0" y="0" width="960" height="1015" fill="#1E1E1E" />
+  <path d="M 234 52 L 254 52" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 470 67 L 490 67" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 726 60 L 706 60" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 470 198 C 478 198, 478 170, 560 170 L 560 147" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 254 220 L 234 220" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 254 246 L 234 246" class="rel-line" marker-start="url(#m-zeroone)" marker-end="url(#m-many)" />
+  <path d="M 320 117 L 320 156 L 126 156 L 126 182" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 470 218 L 490 218" class="rel-line" marker-start="url(#m-zeroone)" marker-end="url(#m-many)" />
+  <path d="M 254 425 L 234 425" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 126 567 L 126 604" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 254 446 C 240 446, 240 645, 234 645" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 362 459 L 362 506" class="rel-line" marker-start="url(#m-zeroone)" marker-end="url(#m-many)" />
+  <path d="M 726 215 C 714 215, 714 510, 706 510" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 470 390 C 480 390, 480 538, 490 538" class="rel-line" marker-start="url(#m-zeroone)" marker-end="url(#m-many)" />
+  <path d="M 598 486 L 598 429" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 490 562 L 470 562" class="rel-line" marker-start="url(#m-zeroone)" marker-end="url(#m-many)" />
+  <path d="M 706 530 L 726 530" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 834 586 L 834 543" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 540 688 L 540 744 L 126 744 L 126 731" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 490 660 L 480 660 L 480 756 L 10 756 L 10 270 L 18 270" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <path d="M 254 835 L 234 835" class="rel-line" marker-start="url(#m-one)" marker-end="url(#m-many)" />
+  <g transform="translate(18, 20)">
+    <rect x="0" y="0" width="216" height="67" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">CATEGORIA_ITEM</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">nome_macro</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">slug</text>
+    <line x1="33" y1="22" x2="33" y2="67" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="67" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(254, 20)">
+    <rect x="0" y="0" width="216" height="97" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">ITEM</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_categoria</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">nome_micro</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">varchar</text>
+    <text x="87" y="77.5" class="col-name">unidade_medida</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">boolean</text>
+    <text x="87" y="92.5" class="col-name">ativo</text>
+    <line x1="33" y1="22" x2="33" y2="97" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="97" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(490, 20)">
+    <rect x="0" y="0" width="216" height="127" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">ESTOQUE_ABRIGO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK,FK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id_abrigo</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">PK,FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_item</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">int</text>
+    <text x="87" y="62.5" class="col-name">id_status_necessidade</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">int</text>
+    <text x="87" y="77.5" class="col-name">quantidade</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">int</text>
+    <text x="87" y="92.5" class="col-name">quantidade_minima</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">boolean</text>
+    <text x="87" y="107.5" class="col-name">urgente_automatico</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">tz</text>
+    <text x="87" y="122.5" class="col-name">atualizado_em</text>
+    <line x1="33" y1="22" x2="33" y2="127" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="127" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(726, 20)">
+    <rect x="0" y="0" width="216" height="82" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">STATUS_NECESSIDADE</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">codigo</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">descricao</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">smallint</text>
+    <text x="87" y="77.5" class="col-name">nivel_prioridade</text>
+    <line x1="33" y1="22" x2="33" y2="82" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="82" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(18, 182)">
+    <rect x="0" y="0" width="216" height="187" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">MOVIMENTACAO_ESTOQUE</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">bigint</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_abrigo</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">int</text>
+    <text x="87" y="62.5" class="col-name">id_item</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key">FK</text>
+    <text x="37" y="77.5" class="col-type">int</text>
+    <text x="87" y="77.5" class="col-name">id_usuario</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key">FK</text>
+    <text x="37" y="92.5" class="col-type">int</text>
+    <text x="87" y="92.5" class="col-name">id_abrigo_contraparte</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key">FK</text>
+    <text x="37" y="107.5" class="col-type">bigint</text>
+    <text x="87" y="107.5" class="col-name">id_mov_estornada</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">varchar</text>
+    <text x="87" y="122.5" class="col-name">tipo_movimentacao</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">int</text>
+    <text x="87" y="137.5" class="col-name">quantidade</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">int</text>
+    <text x="87" y="152.5" class="col-name">quantidade_resultante</text>
+    <rect x="0.5" y="157" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="157" x2="216" y2="157" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="167.5" class="col-key"></text>
+    <text x="37" y="167.5" class="col-type">tz</text>
+    <text x="87" y="167.5" class="col-name">data_hora</text>
+    <rect x="0.5" y="172" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="172" x2="216" y2="172" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="182.5" class="col-key"></text>
+    <text x="37" y="182.5" class="col-type">varchar</text>
+    <text x="87" y="182.5" class="col-name">observacao</text>
+    <line x1="33" y1="22" x2="33" y2="187" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="187" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(254, 182)">
+    <rect x="0" y="0" width="216" height="277" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">ABRIGO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">nome</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">endereco</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">varchar</text>
+    <text x="87" y="77.5" class="col-name">telefone</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">varchar</text>
+    <text x="87" y="92.5" class="col-name">chave_pix</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">varchar</text>
+    <text x="87" y="107.5" class="col-name">titular_pix</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">float8</text>
+    <text x="87" y="122.5" class="col-name">latitude</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">float8</text>
+    <text x="87" y="137.5" class="col-name">longitude</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">geog</text>
+    <text x="87" y="152.5" class="col-name">localizacao (POINT)</text>
+    <rect x="0.5" y="157" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="157" x2="216" y2="157" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="167.5" class="col-key"></text>
+    <text x="37" y="167.5" class="col-type">int</text>
+    <text x="87" y="167.5" class="col-name">capacidade_maxima</text>
+    <rect x="0.5" y="172" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="172" x2="216" y2="172" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="182.5" class="col-key"></text>
+    <text x="37" y="182.5" class="col-type">int</text>
+    <text x="87" y="182.5" class="col-name">acolhidos_nao_triados</text>
+    <rect x="0.5" y="187" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="187" x2="216" y2="187" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="197.5" class="col-key"></text>
+    <text x="37" y="197.5" class="col-type">int</text>
+    <text x="87" y="197.5" class="col-name">lotacao_atual</text>
+    <rect x="0.5" y="202" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="202" x2="216" y2="202" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="212.5" class="col-key"></text>
+    <text x="37" y="212.5" class="col-type">varchar</text>
+    <text x="87" y="212.5" class="col-name">status_infraestrutura</text>
+    <rect x="0.5" y="217" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="217" x2="216" y2="217" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="227.5" class="col-key"></text>
+    <text x="37" y="227.5" class="col-type">boolean</text>
+    <text x="87" y="227.5" class="col-name">aceita_pets</text>
+    <rect x="0.5" y="232" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="232" x2="216" y2="232" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="242.5" class="col-key"></text>
+    <text x="37" y="242.5" class="col-type">boolean</text>
+    <text x="87" y="242.5" class="col-name">acessivel_pcd</text>
+    <rect x="0.5" y="247" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="247" x2="216" y2="247" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="257.5" class="col-key"></text>
+    <text x="37" y="257.5" class="col-type">boolean</text>
+    <text x="87" y="257.5" class="col-name">ativo</text>
+    <rect x="0.5" y="262" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="262" x2="216" y2="262" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="272.5" class="col-key"></text>
+    <text x="37" y="272.5" class="col-type">tz</text>
+    <text x="87" y="272.5" class="col-name">criado_em / atualizado_em</text>
+    <line x1="33" y1="22" x2="33" y2="277" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="277" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(490, 182)">
+    <rect x="0" y="0" width="216" height="247" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">OCORRENCIA_INFRAESTRUTURA</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_abrigo (null)</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">int</text>
+    <text x="87" y="62.5" class="col-name">id_usuario_registro</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key">FK</text>
+    <text x="37" y="77.5" class="col-type">int</text>
+    <text x="87" y="77.5" class="col-name">id_usuario_resolucao</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">varchar</text>
+    <text x="87" y="92.5" class="col-name">tipo</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">varchar</text>
+    <text x="87" y="107.5" class="col-name">gravidade</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">varchar</text>
+    <text x="87" y="122.5" class="col-name">status_validacao</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">varchar</text>
+    <text x="87" y="137.5" class="col-name">descricao</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">float8</text>
+    <text x="87" y="152.5" class="col-name">latitude</text>
+    <rect x="0.5" y="157" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="157" x2="216" y2="157" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="167.5" class="col-key"></text>
+    <text x="37" y="167.5" class="col-type">float8</text>
+    <text x="87" y="167.5" class="col-name">longitude</text>
+    <rect x="0.5" y="172" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="172" x2="216" y2="172" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="182.5" class="col-key"></text>
+    <text x="37" y="182.5" class="col-type">geog</text>
+    <text x="87" y="182.5" class="col-name">area_risco (POLYGON)</text>
+    <rect x="0.5" y="187" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="187" x2="216" y2="187" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="197.5" class="col-key"></text>
+    <text x="37" y="197.5" class="col-type">varchar</text>
+    <text x="87" y="197.5" class="col-name">relator_nome</text>
+    <rect x="0.5" y="202" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="202" x2="216" y2="202" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="212.5" class="col-key"></text>
+    <text x="37" y="212.5" class="col-type">varchar</text>
+    <text x="87" y="212.5" class="col-name">relator_contato</text>
+    <rect x="0.5" y="217" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="217" x2="216" y2="217" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="227.5" class="col-key"></text>
+    <text x="37" y="227.5" class="col-type">tz</text>
+    <text x="87" y="227.5" class="col-name">data_registro</text>
+    <rect x="0.5" y="232" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="232" x2="216" y2="232" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="242.5" class="col-key"></text>
+    <text x="37" y="242.5" class="col-type">tz</text>
+    <text x="87" y="242.5" class="col-name">data_resolucao</text>
+    <line x1="33" y1="22" x2="33" y2="247" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="247" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(726, 182)">
+    <rect x="0" y="0" width="216" height="67" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">PAPEL_USUARIO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">nome</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">descricao</text>
+    <line x1="33" y1="22" x2="33" y2="67" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="67" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(726, 292)">
+    <rect x="0" y="0" width="216" height="52" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">TOKEN_REVOGADO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">varchar</text>
+    <text x="87" y="32.5" class="col-name">jti</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">tz</text>
+    <text x="87" y="47.5" class="col-name">expira_em</text>
+    <line x1="33" y1="22" x2="33" y2="52" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="52" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(18, 410)">
+    <rect x="0" y="0" width="216" height="157" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">ABRIGADO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_abrigo_atual</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">nome_completo</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">varchar</text>
+    <text x="87" y="77.5" class="col-name">cpf (unique PRESENTE)</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">date</text>
+    <text x="87" y="92.5" class="col-name">data_nascimento</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">tz</text>
+    <text x="87" y="107.5" class="col-name">data_entrada</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">tz</text>
+    <text x="87" y="122.5" class="col-name">data_saida</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">varchar</text>
+    <text x="87" y="137.5" class="col-name">status_acolhimento</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">tz</text>
+    <text x="87" y="152.5" class="col-name">criado_em / atualizado_em</text>
+    <line x1="33" y1="22" x2="33" y2="157" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="157" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(18, 604)">
+    <rect x="0" y="0" width="216" height="127" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">TRANSFERENCIA_ABRIGADO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_abrigado</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">int</text>
+    <text x="87" y="62.5" class="col-name">id_abrigo_origem</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key">FK</text>
+    <text x="37" y="77.5" class="col-type">int</text>
+    <text x="87" y="77.5" class="col-name">id_abrigo_destino</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key">FK</text>
+    <text x="37" y="92.5" class="col-type">int</text>
+    <text x="87" y="92.5" class="col-name">id_usuario</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">tz</text>
+    <text x="87" y="107.5" class="col-name">data_transferencia</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">varchar</text>
+    <text x="87" y="122.5" class="col-name">motivo</text>
+    <line x1="33" y1="22" x2="33" y2="127" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="127" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(254, 506)">
+    <rect x="0" y="0" width="216" height="142" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">LOG_AUDITORIA</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">bigint</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_usuario (null)</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">int</text>
+    <text x="87" y="62.5" class="col-name">id_abrigo (null)</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">varchar</text>
+    <text x="87" y="77.5" class="col-name">acao</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">varchar</text>
+    <text x="87" y="92.5" class="col-name">descricao</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">jsonb</text>
+    <text x="87" y="107.5" class="col-name">detalhes</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">tz</text>
+    <text x="87" y="122.5" class="col-name">data_hora</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">varchar</text>
+    <text x="87" y="137.5" class="col-name">endereco_ip</text>
+    <line x1="33" y1="22" x2="33" y2="142" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="142" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(490, 486)">
+    <rect x="0" y="0" width="216" height="202" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">USUARIO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key">FK</text>
+    <text x="37" y="47.5" class="col-type">int</text>
+    <text x="87" y="47.5" class="col-name">id_papel</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">int</text>
+    <text x="87" y="62.5" class="col-name">id_abrigo (null)</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">varchar</text>
+    <text x="87" y="77.5" class="col-name">nome</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">varchar</text>
+    <text x="87" y="92.5" class="col-name">email</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">varchar</text>
+    <text x="87" y="107.5" class="col-name">senha_hash</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">varchar</text>
+    <text x="87" y="122.5" class="col-name">google_sub</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">boolean</text>
+    <text x="87" y="137.5" class="col-name">ativo</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">int</text>
+    <text x="87" y="152.5" class="col-name">versao_sessao</text>
+    <rect x="0.5" y="157" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="157" x2="216" y2="157" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="167.5" class="col-key"></text>
+    <text x="37" y="167.5" class="col-type">tz</text>
+    <text x="87" y="167.5" class="col-name">aprovado_em</text>
+    <rect x="0.5" y="172" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="172" x2="216" y2="172" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="182.5" class="col-key"></text>
+    <text x="37" y="182.5" class="col-type">tz</text>
+    <text x="87" y="182.5" class="col-name">criado_em</text>
+    <rect x="0.5" y="187" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="187" x2="216" y2="187" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="197.5" class="col-key"></text>
+    <text x="37" y="197.5" class="col-type">tz</text>
+    <text x="87" y="197.5" class="col-name">atualizado_em</text>
+    <line x1="33" y1="22" x2="33" y2="202" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="202" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(726, 386)">
+    <rect x="0" y="0" width="216" height="157" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">EVENTO_DESASTRE</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">nome</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key">FK</text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">cobrade</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">date</text>
+    <text x="87" y="77.5" class="col-name">inicio</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">date</text>
+    <text x="87" y="92.5" class="col-name">fim</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">varchar</text>
+    <text x="87" y="107.5" class="col-name">decreto</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key">FK</text>
+    <text x="37" y="122.5" class="col-type">int</text>
+    <text x="87" y="122.5" class="col-name">id_usuario_registro</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">tz</text>
+    <text x="87" y="137.5" class="col-name">criado_em</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">tz</text>
+    <text x="87" y="152.5" class="col-name">atualizado_em</text>
+    <line x1="33" y1="22" x2="33" y2="157" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="157" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(726, 586)">
+    <rect x="0" y="0" width="216" height="67" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">COBRADE</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">varchar</text>
+    <text x="87" y="32.5" class="col-name">codigo</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">grupo</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">descricao</text>
+    <line x1="33" y1="22" x2="33" y2="67" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="67" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(18, 774)">
+    <rect x="0" y="0" width="216" height="217" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">AVISO_OFICIAL</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">int</text>
+    <text x="87" y="32.5" class="col-name">id</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">varchar</text>
+    <text x="87" y="47.5" class="col-name">fonte</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">varchar</text>
+    <text x="87" y="62.5" class="col-name">id_externo</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">int</text>
+    <text x="87" y="77.5" class="col-name">sequencia</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">varchar</text>
+    <text x="87" y="92.5" class="col-name">identificador_cap</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">varchar</text>
+    <text x="87" y="107.5" class="col-name">evento</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">varchar</text>
+    <text x="87" y="122.5" class="col-name">severidade</text>
+    <rect x="0.5" y="127" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="127" x2="216" y2="127" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="137.5" class="col-key"></text>
+    <text x="37" y="137.5" class="col-type">varchar</text>
+    <text x="87" y="137.5" class="col-name">rotulo_severidade</text>
+    <rect x="0.5" y="142" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="142" x2="216" y2="142" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="152.5" class="col-key"></text>
+    <text x="37" y="152.5" class="col-type">varchar</text>
+    <text x="87" y="152.5" class="col-name">cor</text>
+    <rect x="0.5" y="157" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="157" x2="216" y2="157" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="167.5" class="col-key"></text>
+    <text x="37" y="167.5" class="col-type">tz</text>
+    <text x="87" y="167.5" class="col-name">inicio / fim</text>
+    <rect x="0.5" y="172" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="172" x2="216" y2="172" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="182.5" class="col-key"></text>
+    <text x="37" y="182.5" class="col-type">text[]</text>
+    <text x="87" y="182.5" class="col-name">riscos / instrucoes</text>
+    <rect x="0.5" y="187" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="187" x2="216" y2="187" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="197.5" class="col-key"></text>
+    <text x="37" y="197.5" class="col-type">varchar</text>
+    <text x="87" y="197.5" class="col-name">link</text>
+    <rect x="0.5" y="202" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="202" x2="216" y2="202" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="212.5" class="col-key"></text>
+    <text x="37" y="212.5" class="col-type">tz</text>
+    <text x="87" y="212.5" class="col-name">recebido_em / encerrado_em</text>
+    <line x1="33" y1="22" x2="33" y2="217" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="217" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <g transform="translate(254, 774)">
+    <rect x="0" y="0" width="216" height="127" fill="#232323" stroke="#9A9A9A" stroke-width="0.9" />
+    <rect x="0" y="0" width="216" height="22" fill="#2F2F2F" stroke="#9A9A9A" stroke-width="0.9" />
+    <text x="108" y="14.5" class="tbl-title">INTEGRACAO_ESTADO</text>
+    <rect x="0.5" y="22" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="22" x2="216" y2="22" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="32.5" class="col-key">PK</text>
+    <text x="37" y="32.5" class="col-type">varchar</text>
+    <text x="87" y="32.5" class="col-name">fonte</text>
+    <rect x="0.5" y="37" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="37" x2="216" y2="37" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="47.5" class="col-key"></text>
+    <text x="37" y="47.5" class="col-type">tz</text>
+    <text x="87" y="47.5" class="col-name">ultima_tentativa</text>
+    <rect x="0.5" y="52" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="52" x2="216" y2="52" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="62.5" class="col-key"></text>
+    <text x="37" y="62.5" class="col-type">tz</text>
+    <text x="87" y="62.5" class="col-name">ultimo_sucesso</text>
+    <rect x="0.5" y="67" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="67" x2="216" y2="67" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="77.5" class="col-key"></text>
+    <text x="37" y="77.5" class="col-type">int</text>
+    <text x="87" y="77.5" class="col-name">falhas_consecutivas</text>
+    <rect x="0.5" y="82" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="82" x2="216" y2="82" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="92.5" class="col-key"></text>
+    <text x="37" y="92.5" class="col-type">tz</text>
+    <text x="87" y="92.5" class="col-name">pausada_ate</text>
+    <rect x="0.5" y="97" width="215" height="15" fill="#282828" />
+    <line x1="0" y1="97" x2="216" y2="97" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="107.5" class="col-key"></text>
+    <text x="37" y="107.5" class="col-type">tz</text>
+    <text x="87" y="107.5" class="col-name">em_andamento_ate</text>
+    <rect x="0.5" y="112" width="215" height="15" fill="#202020" />
+    <line x1="0" y1="112" x2="216" y2="112" stroke="#444444" stroke-width="0.6" />
+    <text x="5" y="122.5" class="col-key"></text>
+    <text x="37" y="122.5" class="col-type">varchar</text>
+    <text x="87" y="122.5" class="col-name">ultimo_erro</text>
+    <line x1="33" y1="22" x2="33" y2="127" stroke="#444444" stroke-width="0.6" />
+    <line x1="83" y1="22" x2="83" y2="127" stroke="#444444" stroke-width="0.6" />
+  </g>
+  <text x="244" y="39" class="rel-lbl">subdivide</text>
+  <text x="480" y="54" class="rel-lbl">controlado</text>
+  <text x="716" y="47" class="rel-lbl">classifica</text>
+  <text x="525" y="162" class="rel-lbl">mantém</text>
+  <text x="244" y="209" class="rel-lbl">origina</text>
+  <text x="244" y="260" class="rel-lbl">contraparte</text>
+  <text x="210" y="147" class="rel-lbl">movimenta</text>
+  <text x="480" y="207" class="rel-lbl">reporta</text>
+  <text x="244" y="414" class="rel-lbl">abriga</text>
+  <text x="126" y="586" class="rel-lbl">histórico</text>
+  <text x="244" y="550" class="rel-lbl">orig./dest.</text>
+  <text x="362" y="484" class="rel-lbl">audita</text>
+  <text x="716" y="356" class="rel-lbl">papel</text>
+  <text x="480" y="468" class="rel-lbl">aloca</text>
+  <text x="598" y="458" class="rel-lbl">reg./res.</text>
+  <text x="480" y="551" class="rel-lbl">gera</text>
+  <text x="716" y="519" class="rel-lbl">registra</text>
+  <text x="834" y="566" class="rel-lbl">classifica</text>
+  <text x="330" y="735" class="rel-lbl">autoriza</text>
+  <text x="250" y="752" class="rel-lbl">executa</text>
+  <text x="244" y="823" class="rel-lbl">monitora fonte</text>
+  <g transform="translate(490, 774)">
+    <rect x="0" y="0" width="452" height="215" fill="#232323" stroke="#888888" stroke-width="0.9" />
+    <rect x="0" y="0" width="452" height="24" fill="#2F2F2F" stroke="#888888" stroke-width="0.9" />
+    <text x="226" y="15.5" class="tbl-title">INVARIANTES, TRIGGERS ACID E EXTENSÕES (PostgreSQL 16 + PostGIS 3.4)</text>
+    <text x="12" y="42" class="nota-tit">1. Geoprocessamento Espacial (PostGIS 3.4 · índices GiST)</text>
+    <text x="12" y="56" class="nota-txt">• ABRIGO.localizacao: GEOGRAPHY(POINT, 4326) STORED (ST_Distance / ST_DWithin / KNN &lt;-&gt;).</text>
+    <text x="12" y="69" class="nota-txt">• OCORRENCIA_INFRAESTRUTURA.area_risco: GEOGRAPHY(POLYGON, 4326) ≥ 100 m² (ST_Covers).</text>
+    <text x="12" y="90" class="nota-tit">2. Imutabilidade Append-Only (Trigger fn_bloquear_alteracao_imutavel → Erro WTG01)</text>
+    <text x="12" y="104" class="nota-txt">• Bloqueia UPDATE, DELETE e TRUNCATE em LOG_AUDITORIA, MOVIMENTACAO_ESTOQUE</text>
+    <text x="19" y="116" class="nota-txt">e TRANSFERENCIA_ABRIGADO.</text>
+    <text x="12" y="136" class="nota-tit">3. Consistência Transacional por Triggers no Banco</text>
+    <text x="12" y="150" class="nota-txt">• Estoque: saldo = Σ movimentações; promoção/reversão URGENTE ↔ NORMAL; estorno (WTG04).</text>
+    <text x="12" y="163" class="nota-txt">• Lotação e Infra: lotacao_atual = PRESENTES + nao_triados; status ignora regionais.</text>
+    <text x="12" y="176" class="nota-txt">• Segurança: vínculo RBAC (WTG02), transferência (WTG03), token_revogado (0014) e revogação</text>
+    <text x="19" y="188" class="nota-txt">dos papéis anon/authenticated da Data API (0015).</text>
+    <text x="12" y="205" class="nota-txt">Total: 17 tabelas operacionais/domínio · 15 migrations (0001_schema_inicial a 0015_supabase).</text>
+  </g>
+</svg>
