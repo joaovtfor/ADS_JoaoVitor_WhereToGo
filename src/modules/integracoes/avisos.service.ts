@@ -5,11 +5,16 @@ import { baixarAvisosInmet, FONTE_INMET, lerAvisosInmet, type AvisoNormalizado, 
 
 // Avisos oficiais (INMET): sincronização sob demanda e leitura para o mapa e o painel.
 // Não há worker em segundo plano: no plano gratuito do Render o serviço dorme
-// após 15 min sem tráfego. Quem dispara a consulta é a própria leitura do mapa
-// (ver `avisos.agendamento.ts`), no máximo a cada INTERVALO_AVISOS_MIN.
+// após 15 min sem tráfego, e na Vercel não existe processo rodando entre as
+// requisições. Quem dispara a consulta é a própria leitura do mapa (ver
+// `avisos.agendamento.ts`), no máximo a cada INTERVALO_AVISOS_MIN.
 
-/** Chave do advisory lock: uma sincronização por vez, mesmo com várias instâncias. */
-const CHAVE_LOCK = 4_314_100_011;
+/**
+ * Por quanto tempo a sincronização fica reservada para a instância que a
+ * iniciou: cobre o download (timeout de 8 s) e a gravação com folga. Se a
+ * instância cair no meio, a reserva vence sozinha e a próxima leitura tenta de novo.
+ */
+const RESERVA_SEGUNDOS = 120;
 /** Circuit breaker: falhas seguidas até pausar a fonte, e por quanto tempo. */
 export const FALHAS_PARA_PAUSAR = 3;
 const PAUSA_MINUTOS = 15;
@@ -165,19 +170,25 @@ export async function sincronizarAvisosInmet(opcoes: OpcoesSincronizacao = {}): 
 
   const client = await pool().connect();
   try {
-    const { rows } = await client.query<{ obtido: boolean }>("SELECT pg_try_advisory_lock($1) AS obtido", [CHAVE_LOCK]);
-    if (!rows[0]?.obtido) return { situacao: "em-andamento" };
+    // Reserva a sincronização na própria linha de estado: o UPDATE é atômico,
+    // então só uma instância passa por vez. Um advisory lock de sessão não
+    // serve aqui: atrás do pooler do Supabase em modo transação, cada comando
+    // pode ir para uma conexão diferente, e o lock ficaria preso em uma delas.
+    const { rows: reservas } = await client.query<{ recente: boolean | null; pausada: boolean | null }>(
+      `UPDATE integracao_estado
+          SET em_andamento_ate = now() + make_interval(secs => $3)
+        WHERE fonte = $1 AND (em_andamento_ate IS NULL OR em_andamento_ate <= now())
+        RETURNING ultima_tentativa > now() - make_interval(mins => $2) AS recente,
+                  pausada_ate > now() AS pausada`,
+      [FONTE_INMET, config.INTERVALO_AVISOS_MIN, RESERVA_SEGUNDOS],
+    );
+    const estado = reservas[0];
+    if (!estado) return { situacao: "em-andamento" };
 
     try {
-      const { rows: estados } = await client.query<{ recente: boolean; pausada: boolean }>(
-        `SELECT ultima_tentativa > now() - make_interval(mins => $2) AS recente,
-                pausada_ate > now() AS pausada
-           FROM integracao_estado WHERE fonte = $1`,
-        [FONTE_INMET, config.INTERVALO_AVISOS_MIN],
-      );
       if (!opcoes.forcar) {
-        if (estados[0]?.pausada) return { situacao: "pausada" };
-        if (estados[0]?.recente) return { situacao: "recente" };
+        if (estado.pausada) return { situacao: "pausada" };
+        if (estado.recente) return { situacao: "recente" };
       }
       await client.query("UPDATE integracao_estado SET ultima_tentativa = now() WHERE fonte = $1", [FONTE_INMET]);
 
@@ -204,7 +215,10 @@ export async function sincronizarAvisosInmet(opcoes: OpcoesSincronizacao = {}): 
         alterados,
       };
     } finally {
-      await client.query("SELECT pg_advisory_unlock($1)", [CHAVE_LOCK]).catch(() => undefined);
+      // Se falhar, a reserva vence sozinha em RESERVA_SEGUNDOS.
+      await client
+        .query("UPDATE integracao_estado SET em_andamento_ate = NULL WHERE fonte = $1", [FONTE_INMET])
+        .catch(() => undefined);
     }
   } finally {
     client.release();

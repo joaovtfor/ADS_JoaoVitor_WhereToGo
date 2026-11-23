@@ -1,31 +1,30 @@
+import { consultar, consultarUm } from "../db";
+
 /**
- * Tokens encerrados por logout (`jti` -> expiração em ms). Em memória, como o
- * limitador de tentativas: suficiente para uma instância única (Docker/MVP);
- * com várias réplicas, o estado iria para um armazenamento compartilhado.
+ * Tokens encerrados por logout, na tabela `token_revogado` (migration 0014).
+ * Ficam no banco, e não na memória do processo, porque na Vercel cada
+ * requisição pode cair numa instância diferente: um logout guardado na memória
+ * de uma delas não valeria nas outras.
  *
  * Revogações que precisam valer para todas as sessões do usuário (troca de
- * senha) usam `usuario.versao_sessao` no banco.
+ * senha) usam `usuario.versao_sessao`.
  */
 
-// Mantém o mesmo mapa entre recarregamentos do `next dev` (HMR).
-const globalComRevogados = globalThis as typeof globalThis & { __wheretogoTokensRevogados?: Map<string, number> };
-
-function revogados(): Map<string, number> {
-  globalComRevogados.__wheretogoTokensRevogados ??= new Map();
-  return globalComRevogados.__wheretogoTokensRevogados;
+/** Registra o logout e, no mesmo comando, apaga as revogações de tokens já expirados. */
+export async function revogarToken(jti: string, expiraEm: Date): Promise<void> {
+  await consultar(
+    `WITH expirados AS (DELETE FROM token_revogado WHERE expira_em <= now())
+     INSERT INTO token_revogado (jti, expira_em) VALUES ($1, $2)
+     ON CONFLICT (jti) DO NOTHING`,
+    [jti, expiraEm],
+  );
 }
 
-export function revogarToken(jti: string, expiraEm: Date, agora = Date.now()): void {
-  const mapa = revogados();
-  if (mapa.size >= 5000) {
-    for (const [id, expira] of mapa) {
-      if (expira <= agora) mapa.delete(id);
-    }
-  }
-  mapa.set(jti, expiraEm.getTime());
-}
-
-export function tokenRevogado(jti: string, agora = Date.now()): boolean {
-  const expira = revogados().get(jti);
-  return expira !== undefined && expira > agora;
+/** O token foi encerrado por logout e ainda não expirou? */
+export async function tokenRevogado(jti: string): Promise<boolean> {
+  const linha = await consultarUm<{ revogado: boolean }>(
+    "SELECT EXISTS (SELECT 1 FROM token_revogado WHERE jti = $1 AND expira_em > now()) AS revogado",
+    [jti],
+  );
+  return linha?.revogado ?? false;
 }

@@ -1,0 +1,26 @@
+# Mantém o projeto do Supabase (plano Free) ativo: projetos sem uso por 7 dias
+# são pausados. A cada 3 dias chama o /api/health da Vercel, que faz uma consulta
+# real ao banco (inclusive ao PostGIS). Uma execução com erro (e-mail do GitHub)
+# também avisa que a produção está fora do ar.
+#
+# Só roda com a variável de repositório URL_PRODUCAO_VERCEL definida
+# (ex.: https://wheretogo-upf.vercel.app, sem barra no fim).
+# Obs.: o GitHub desativa workflows agendados depois de 60 dias sem atividade
+# no repositório; nesse caso, reative em Actions > Manter o Supabase ativo.
+name: Manter o Supabase ativo
+
+on:
+  schedule:
+    - cron: "17 12 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Consultar /api/health na Vercel
+    if: vars.URL_PRODUCAO_VERCEL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar /api/health
+        env:
+          URL_PRODUCAO: ${{ vars.URL_PRODUCAO_VERCEL }}
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 --retry-all-errors --max-time 60 "$URL_PRODUCAO/api/health"

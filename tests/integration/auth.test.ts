@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 import { verificarToken } from "@/lib/auth/jwt";
-import { COOKIE_SESSAO, obterUsuario } from "@/lib/auth/sessao";
+import { COOKIE_SESSAO, obterUsuario, revogarSessao } from "@/lib/auth/sessao";
 import { consultar } from "@/lib/db";
 import { alterarSenha, autenticarComGoogle, login } from "@/modules/auth/auth.service";
 import { atualizarUsuario, criarUsuario as criarUsuarioService } from "@/modules/usuarios/usuarios.service";
@@ -77,6 +77,29 @@ describe("RF01 - Autenticação e RBAC", () => {
 
     await consultar("UPDATE usuario SET ativo = FALSE WHERE id = $1", [usuario.id]);
     expect(await obterUsuario(requisicaoCom(token))).toBeNull();
+  });
+
+  it("logout revoga só o token encerrado, com o registro no banco (vale para qualquer instância)", async () => {
+    const usuario = await criarUsuario("ADMIN", null);
+    const { token: encerrado } = await login({ email: usuario.email, senha: SENHA_TESTE }, null);
+    const { token: outraSessao } = await login({ email: usuario.email, senha: SENHA_TESTE }, null);
+
+    await revogarSessao(requisicaoCom(encerrado, "cookie"));
+
+    expect(await obterUsuario(requisicaoCom(encerrado))).toBeNull();
+    expect(await obterUsuario(requisicaoCom(outraSessao))).toMatchObject({ id: usuario.id });
+    const { jti } = (await verificarToken(encerrado))!;
+    expect(await consultar("SELECT 1 FROM token_revogado WHERE jti = $1", [jti])).toHaveLength(1);
+  });
+
+  it("apaga as revogações de tokens já expirados a cada novo logout", async () => {
+    await consultar("INSERT INTO token_revogado (jti, expira_em) VALUES ('token-expirado', now() - interval '1 minute')");
+    const usuario = await criarUsuario("ADMIN", null);
+    const { token } = await login({ email: usuario.email, senha: SENHA_TESTE }, null);
+
+    await revogarSessao(requisicaoCom(token));
+
+    expect(await consultar("SELECT 1 FROM token_revogado WHERE jti = 'token-expirado'")).toHaveLength(0);
   });
 
   it("rejeita token adulterado", async () => {

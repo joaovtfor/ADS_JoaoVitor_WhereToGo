@@ -1,3 +1,4 @@
+import { attachDatabasePool } from "@vercel/functions";
 import { Pool, types, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import { env } from "./env";
 
@@ -32,12 +33,18 @@ export function pool(): Pool {
     const novoPool = new Pool({
       connectionString: cfg.DATABASE_URL,
       max: cfg.DB_POOL_MAX,
-      idleTimeoutMillis: 30_000,
+      // Na Vercel a função fica viva até as conexões ociosas fecharem (ver abaixo),
+      // e esse tempo conta no uso do plano: lá elas fecham depois de 5 s.
+      idleTimeoutMillis: process.env.VERCEL ? 5_000 : 30_000,
       connectionTimeoutMillis: 5_000,
       application_name: "wheretogo-app",
       ...(ssl ? { ssl } : {}),
     });
     novoPool.on("error", (erro) => console.error("[db] erro em conexão ociosa do pool", erro));
+    // Na Vercel (Fluid compute), adia a suspensão da função até as conexões
+    // ociosas fecharem, para não deixá-las abertas no pooler do Supabase.
+    // Fora da Vercel não faz nada.
+    attachDatabasePool(novoPool);
     globalComPool.__wheretogoPool = novoPool;
   }
   return globalComPool.__wheretogoPool;

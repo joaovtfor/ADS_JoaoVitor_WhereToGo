@@ -1,6 +1,9 @@
-# Integração contínua: valida cada push e PR. O deploy não acontece aqui: o Render
-# publica a branch main por conta própria, mas só depois que este workflow passa
-# (`autoDeployTrigger: checksPass` no render.yaml).
+# Integração contínua e deploy. Cada push e PR passa pelo job de qualidade.
+# Deploy (durante a transição, os dois ambientes recebem a main):
+# - Render: publica a branch main por conta própria, só depois que este workflow
+#   passa (`autoDeployTrigger: checksPass` no render.yaml).
+# - Vercel + Supabase: job `deploy-vercel` abaixo, ligado pela variável de
+#   repositório DEPLOY_VERCEL. Plano: .specs/plano-migracao-vercel-supabase.md
 name: CI — Lint, Testes PostGIS e Build de Produção (WhereToGo)
 
 on:
@@ -8,18 +11,20 @@ on:
     branches: ["main", "master"]
   pull_request:
     branches: ["main", "master"]
-
-env:
-  NODE_ENV: test
-  DATABASE_URL: postgresql://postgres:postgres123@localhost:5432/wheretogo_db
-  DATABASE_URL_TEST: postgresql://postgres:postgres123@localhost:5432/wheretogo_test
-  JWT_SECRET: chave-secreta-ci-wheretogo-com-mais-de-32-caracteres-2026
-  JWT_EXPIRES_IN: 8h
+  # "Run workflow" na aba Actions: refaz CI + deploy na Vercel sem um push novo.
+  workflow_dispatch:
 
 jobs:
   qualidade-e-build:
     name: Lint, Typecheck, Testes PostGIS & Build Standalone
     runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres123@localhost:5432/wheretogo_db
+      DATABASE_URL_TEST: postgresql://postgres:postgres123@localhost:5432/wheretogo_test
+      JWT_SECRET: chave-secreta-ci-wheretogo-com-mais-de-32-caracteres-2026
+      JWT_EXPIRES_IN: 8h
 
     services:
       postgres:
@@ -65,3 +70,58 @@ jobs:
         env:
           NODE_ENV: production
         run: npm run build
+
+  # Prepara o banco no Supabase e publica na Vercel, nessa ordem: a migration
+  # entra antes do código que depende dela. Só na main (push ou "Run workflow"),
+  # depois do job de qualidade passar, e só com a variável de repositório
+  # DEPLOY_VERCEL=true (Settings > Secrets and variables > Actions > Variables).
+  # Com ela vazia ou "false", o job aparece como ignorado e nada vai para a Vercel.
+  deploy-vercel:
+    name: Migrations no Supabase & Deploy na Vercel
+    needs: qualidade-e-build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_VERCEL == 'true'
+    runs-on: ubuntu-latest
+    # Um deploy por vez; um push novo espera o anterior terminar.
+    concurrency:
+      group: deploy-vercel-producao
+      cancel-in-progress: false
+
+    env:
+      NODE_ENV: production
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # Pooler do Supabase em modo SESSÃO (porta 5432): as migrations usam
+      # advisory lock de sessão, que o modo transação (6543) não mantém.
+      - name: Aplicar migrations e seed no Supabase
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL_SESSAO }}
+          DATABASE_SSL: "true"
+          SEED_SE_VAZIO: "true"
+          SEED_SENHA_PADRAO: ${{ secrets.SEED_SENHA_PADRAO }}
+        run: npm run db:preparar
+
+      - name: Instalar a CLI da Vercel
+        run: npm install --global vercel@65.12.1
+
+      - name: Baixar configuração e variáveis do projeto na Vercel
+        run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Compilar para a Vercel
+        run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Publicar em produção na Vercel
+        run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"

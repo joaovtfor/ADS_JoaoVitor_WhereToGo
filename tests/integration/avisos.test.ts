@@ -49,7 +49,8 @@ describe("Avisos oficiais do INMET (sincronização e leitura)", () => {
     await consultar("DELETE FROM aviso_oficial");
     await consultar(
       `UPDATE integracao_estado
-          SET ultima_tentativa = NULL, ultimo_sucesso = NULL, falhas_consecutivas = 0, pausada_ate = NULL, ultimo_erro = NULL`,
+          SET ultima_tentativa = NULL, ultimo_sucesso = NULL, falhas_consecutivas = 0, pausada_ate = NULL, ultimo_erro = NULL,
+              em_andamento_ate = NULL`,
     );
   });
 
@@ -154,12 +155,21 @@ describe("Avisos oficiais do INMET (sincronização e leitura)", () => {
       forcar: true,
       baixar: () => new Promise((resolver) => (liberar = () => resolver({ hoje: [], futuro: [] }))),
     });
-    // Espera a primeira pegar o lock e começar o download.
+    // Espera a primeira reservar a sincronização e começar o download.
     await expect.poll(() => typeof liberar, { timeout: 5_000 }).toBe("function");
 
     expect(await sincronizarAvisosInmet({ forcar: true, baixar: feed() })).toEqual({ situacao: "em-andamento" });
     liberar();
     expect(await lenta).toMatchObject({ situacao: "ok" });
+    // Ao terminar, a reserva é liberada: a próxima sincronização roda.
+    expect(await sincronizarAvisosInmet({ forcar: true, baixar: feed() })).toMatchObject({ situacao: "ok" });
+  });
+
+  it("uma reserva vencida (instância que caiu no meio) não trava a fonte", async () => {
+    await consultar("UPDATE integracao_estado SET em_andamento_ate = now() - interval '1 second'");
+
+    expect(await sincronizarAvisosInmet({ baixar: feed(avisoInmet()) })).toMatchObject({ situacao: "ok", alterados: 1 });
+    expect(await consultarUm("SELECT em_andamento_ate FROM integracao_estado")).toEqual({ em_andamento_ate: null });
   });
 
   it("aviso regional não marca abrigo como em área de risco nem muda o status de infraestrutura", async () => {

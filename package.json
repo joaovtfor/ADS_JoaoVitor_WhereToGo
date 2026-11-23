@@ -15,12 +15,14 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "node scripts/seed.mjs",
     "db:reset": "node scripts/migrate.mjs --reset && node scripts/seed.mjs",
+    "db:preparar": "node scripts/preparar-banco.mjs",
     "test": "vitest run --project unit --project integration",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e"
   },
   "dependencies": {
+    "@vercel/functions": "^3.11.0",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.12",
     "leaflet": "^1.9.4",

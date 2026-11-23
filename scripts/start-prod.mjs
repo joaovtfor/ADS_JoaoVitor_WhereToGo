@@ -1,33 +1,19 @@
 // =============================================================================
 // Inicializador de Produção (Render Node / Render Docker / Docker Compose)
-// 1. Aplica migrations SQL pendentes (db/migrations/NNNN_*.sql) com advisory lock
-// 2. Se o banco estiver vazio (0 usuários) e SEED_SE_VAZIO !== 'false',
-//    popula automaticamente os abrigos, estoques e contas de demonstração;
-//    com dados, só cria as contas de demonstração que faltarem
-// 3. Prepara os estáticos do modo standalone (quando rodado via `npm run start`
+// 1. Prepara o banco: migrations pendentes e seed de demonstração quando o
+//    banco está vazio (scripts/preparar-banco.mjs, o mesmo passo que o GitHub
+//    Actions executa antes do deploy na Vercel)
+// 2. Prepara os estáticos do modo standalone (quando rodado via `npm run start`
 //    no ambiente Node nativo do Render) e inicia o servidor Next.js
 // =============================================================================
 import { cpSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { carregarEnvLocal, conectarComRetentativa, executarMigracoes } from './migrate.mjs';
-import { executarSeed, garantirContasDeDemonstracao } from './seed.mjs';
+import { carregarEnvLocal } from './migrate.mjs';
+import { prepararBanco } from './preparar-banco.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(__dirname, '..');
-
-async function bancoEstaVazio(connectionString) {
-  const client = await conectarComRetentativa({
-    connectionString,
-    applicationName: 'wheretogo-check-seed',
-  });
-  try {
-    const { rows } = await client.query('SELECT count(*)::int AS total FROM usuario');
-    return (rows[0]?.total ?? 0) === 0;
-  } finally {
-    await client.end();
-  }
-}
 
 function resolverServerStandalone() {
   // Caso 1: Container Docker (runner), onde server.js já está na raiz (/app/server.js)
@@ -78,28 +64,7 @@ async function iniciar() {
     process.env.KEEP_ALIVE_TIMEOUT = '65000';
   }
 
-  console.log('[start-prod] Verificando e aplicando migrations pendentes...');
-  await executarMigracoes({ connectionString });
-
-  const devePopularSeVazio = process.env.SEED_SE_VAZIO !== 'false' && process.env.SEED_SE_VAZIO !== '0';
-
-  if (devePopularSeVazio) {
-    const vazio = await bancoEstaVazio(connectionString);
-    if (vazio) {
-      console.log('[start-prod] Banco recém-criado detectado (0 usuários). Populando seed inicial...');
-      await executarSeed({
-        connectionString,
-        senha: process.env.SEED_SENHA_PADRAO || 'WhereToGo@2026',
-      });
-    } else {
-      console.log('[start-prod] Banco já possui dados cadastrados; seed inicial ignorado.');
-      // Perfis novos (ex.: DEFESA_CIVIL) ganham a conta de demonstração sem rodar o seed inteiro.
-      await garantirContasDeDemonstracao({
-        connectionString,
-        senha: process.env.SEED_SENHA_PADRAO || 'WhereToGo@2026',
-      });
-    }
-  }
+  await prepararBanco({ connectionString });
 
   const caminhoServer = resolverServerStandalone();
   console.log(`[start-prod] Iniciando servidor Next.js standalone (${caminhoServer})...`);

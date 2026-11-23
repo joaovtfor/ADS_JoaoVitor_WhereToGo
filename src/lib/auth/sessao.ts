@@ -55,10 +55,14 @@ export async function obterUsuarioPorToken(token: string | null | undefined): Pr
   if (!token) return null;
 
   const claims = await verificarToken(token);
-  if (!claims || (claims.jti && tokenRevogado(claims.jti))) return null;
+  if (!claims) return null;
 
-  const usuario = await buscarUsuarioAcessoPorId(claims.id);
-  if (!usuario || motivoBloqueio(usuario) || usuario.versaoSessao !== claims.versaoSessao) return null;
+  // Consultas independentes: em paralelo, a checagem de logout não soma latência.
+  const [revogado, usuario] = await Promise.all([
+    claims.jti ? tokenRevogado(claims.jti) : false,
+    buscarUsuarioAcessoPorId(claims.id),
+  ]);
+  if (revogado || !usuario || motivoBloqueio(usuario) || usuario.versaoSessao !== claims.versaoSessao) return null;
 
   return paraSessao(usuario);
 }
@@ -67,7 +71,7 @@ export async function obterUsuarioPorToken(token: string | null | undefined): Pr
 export async function revogarSessao(req: NextRequest): Promise<void> {
   const token = extrairToken(req);
   const claims = token ? await verificarToken(token) : null;
-  if (claims?.jti) revogarToken(claims.jti, claims.expiraEm);
+  if (claims?.jti) await revogarToken(claims.jti, claims.expiraEm);
 }
 
 /** Exige usuário autenticado (401) e, opcionalmente, um dos papéis (403). */

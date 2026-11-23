@@ -118,11 +118,31 @@ export async function conectarComRetentativa({
 }
 
 /**
+ * No pooler do Supabase em modo transação, cada comando pode ir para uma conexão
+ * diferente do banco: o `pg_advisory_lock` seria pego numa e liberado em outra.
+ */
+function usaPoolerSupabaseModoTransacao(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    return url.hostname.endsWith('.pooler.supabase.com') && url.port === '6543';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Aplica as migrations pendentes no banco indicado.
  * @param {{ connectionString: string, reset?: boolean, log?: (msg: string) => void }} opcoes
  * @returns {Promise<string[]>} nomes das migrations aplicadas nesta execução
  */
 export async function executarMigracoes({ connectionString, reset = false, log = console.log }) {
+  if (usaPoolerSupabaseModoTransacao(connectionString)) {
+    throw new Error(
+      'As migrations usam advisory lock de sessão, que o pooler do Supabase em modo transação (porta 6543) não mantém. ' +
+        'Use a URL do pooler em modo sessão (porta 5432).',
+    );
+  }
+
   const client = await conectarComRetentativa({
     connectionString,
     applicationName: 'wheretogo-migrate',

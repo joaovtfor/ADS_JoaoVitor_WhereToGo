@@ -12,7 +12,6 @@ import {
   type UsuarioSessao,
 } from "@/lib/auth/rbac";
 import { motivoBloqueio } from "@/lib/auth/acesso";
-import { revogarToken, tokenRevogado } from "@/lib/auth/revogacao";
 import { COOKIE_SESSAO } from "@/lib/auth/sessao";
 import { cpfValido, normalizarCpf } from "@/lib/cpf";
 import { ErroApi, lerCorpo, limitarPorIp, obterIp, traduzirErroBanco, validar } from "@/lib/http";
@@ -195,16 +194,11 @@ describe("JWT", () => {
     expect(await verificarToken(`${token}x`)).toBeNull();
   });
 
-  it("gera um jti diferente a cada login e revoga só o token encerrado", async () => {
+  // A revogação no logout usa o banco: ver "logout revoga só o token encerrado" nos testes de integração.
+  it("gera um jti diferente a cada login", async () => {
     const a = await verificarToken((await assinarToken(usuario("ADMIN"), 0)).token);
     const b = await verificarToken((await assinarToken(usuario("ADMIN"), 0)).token);
     expect(a!.jti).not.toBe(b!.jti);
-
-    revogarToken(a!.jti!, a!.expiraEm);
-    expect(tokenRevogado(a!.jti!)).toBe(true);
-    expect(tokenRevogado(b!.jti!)).toBe(false);
-    // Depois de expirar, o token já seria recusado pelo JWT: a revogação deixa de importar.
-    expect(tokenRevogado(a!.jti!, a!.expiraEm.getTime() + 1)).toBe(false);
   });
 });
 

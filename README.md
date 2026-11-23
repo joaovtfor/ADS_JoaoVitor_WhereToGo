@@ -11,7 +11,7 @@ Plataforma integrada de gestão humanitária para desastres naturais (UPF — An
 - **Banco de Dados & Geoprocessamento:** PostgreSQL 16 + PostGIS 3.4 (`GEOGRAPHY`, índices GiST, `ST_Distance`, `ST_DWithin`, `ST_Covers`, `ST_Intersects`, `ST_PointOnSurface`, triggers ACID)
 - **Segurança & Validação:** JWT HS256 (`jose`) + Cookie `httpOnly` · `bcryptjs` (custo 12) · Google One Tap OAuth · RBAC em duas camadas (Edge Proxy + Services) · Zod 4
 - **Mapas & Pagamentos:** Leaflet.js + OpenStreetMap HOT · Gerador nativo de payload PIX BR Code (EMVCo BACEN CRC16-CCITT) + QR Code
-- **Qualidade & Infraestrutura:** Vitest 5 (Unitários, Integração PostGIS real e E2E) · Docker Multi-Stage · GitHub Actions CI/CD · Render Blueprint (`render.yaml`)
+- **Qualidade & Infraestrutura:** Vitest 5 (Unitários, Integração PostGIS real e E2E) · Docker Multi-Stage · GitHub Actions CI/CD · Render Blueprint (`render.yaml`) · Vercel + Supabase (em transição)
 
 ---
 
@@ -66,11 +66,17 @@ Senha padrão para todos os perfis: `WhereToGo@2026` (ou o valor de `SEED_SENHA_
 4. A imagem final usa o build `standalone` do Next.js, sem o `node_modules` completo: só o servidor, os arquivos estáticos, as migrations e os scripts de partida.
 5. O deploy só começa depois que o CI do commit passa (`autoDeployTrigger: checksPass`). Em um serviço criado fora do Blueprint, a mesma opção fica em **Settings > Build & Deploy > Auto-Deploy > After CI Checks Pass**.
 
-### Opção 2: VPS Linux + Docker Compose
+### Opção 2: Vercel + Supabase (PostgreSQL/PostGIS) — em transição
+Substitui o Render, cujo banco gratuito expira 30 dias após a criação. Passo a passo, decisões e checklist em [`.specs/plano-migracao-vercel-supabase.md`](.specs/plano-migracao-vercel-supabase.md).
+1. O job `deploy-vercel` do GitHub Actions roda depois do CI, só na `main` e com a variável de repositório `DEPLOY_VERCEL=true`: aplica migrations e seed no Supabase (`npm run db:preparar`) e só então publica na Vercel pela CLI. O deploy automático da integração Git da Vercel fica desligado no [`vercel.json`](vercel.json), que também fixa as funções em São Paulo (`gru1`).
+2. A aplicação usa o pooler do Supabase em modo transação (porta 6543, `DB_POOL_MAX=5`); as migrations usam o modo sessão (porta 5432).
+3. O workflow `manter-supabase-ativo` consulta `/api/health` a cada 3 dias, para o projeto gratuito do Supabase não ser pausado por inatividade.
+
+### Opção 3: VPS Linux + Docker Compose
 1. Execute `docker compose up -d --build` no servidor.
 2. Aponte um proxy reverso com HTTPS (Nginx, Caddy ou Cloudflare Tunnel) para `127.0.0.1:3000` e ajuste `PROXIES_CONFIAVEIS` para o número de proxies na frente da aplicação.
 
-> **Atenção:** o cache do mapa público, o limitador de requisições e a lista de tokens revogados ficam na memória do processo. Por isso o projeto roda em **um processo Node de longa duração**, e não em plataformas serverless (várias instâncias de vida curta, cada uma com a sua cópia): nelas esses três recursos perdem eficácia.
+> **Várias instâncias (Vercel):** a revogação de tokens no logout e a reserva da sincronização do INMET ficam no banco (migration `0014`), valendo para todas as instâncias. Dois recursos continuam por instância, aceitos no MVP: o limitador de tentativas (o limite efetivo cresce com o número de instâncias) e o cache `"use cache"` do mapa público. Na Vercel, quem segura a carga do mapa é a CDN (`s-maxage=10`), então uma mudança de status pode levar alguns segundos para aparecer no mapa público.
 
 ---
 
@@ -79,7 +85,8 @@ Senha padrão para todos os perfis: `WhereToGo@2026` (ou o valor de `SEED_SENHA_
 |---|---|
 | `npm run dev` / `build` / `start` | Servidor de desenvolvimento, build de produção standalone e inicialização |
 | `npm run lint` / `typecheck` | Verificação estática ESLint e TypeScript (`next typegen && tsc --noEmit`) |
-| `npm run db:migrate` | Aplica migrations SQL pendentes (`db/migrations/0001..0010`) |
+| `npm run db:migrate` | Aplica migrations SQL pendentes (`db/migrations/NNNN_*.sql`) |
+| `npm run db:preparar` | Migrations + seed de demonstração se o banco estiver vazio (usado no boot do Docker/Render e no deploy da Vercel) |
 | `npm run db:seed` | Popula dados fictícios de demonstração (idempotente) |
 | `npm run db:reset` | Recria o schema e roda o seed (bloqueado quando `NODE_ENV=production`) |
 | `npm test` | Executa testes unitários + integração com banco PostGIS real (`wheretogo_test`) |
