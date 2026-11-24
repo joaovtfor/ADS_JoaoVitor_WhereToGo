@@ -27,7 +27,7 @@ Edite o arquivo `.env`: defina um `JWT_SECRET` seguro (mínimo de 32 caracteres)
 ```bash
 docker compose up -d --build
 ```
-O Docker Compose inicializa na ordem: `postgres` (PostGIS 16) → `migrate` (aplica as 10 migrations SQL) → `app` (servidor standalone em `http://localhost:3000`).
+O Docker Compose inicializa na ordem: `postgres` (PostGIS 16) → `migrate` (aplica as migrations SQL de `db/migrations`) → `app` (servidor standalone em `http://localhost:3000`).
 
 Para popular o banco com dados fictícios de demonstração (Passo Fundo/RS):
 ```bash

@@ -18,11 +18,12 @@ const filtroMapa = (query: Record<string, string>) => validar(esquemaFiltroMapa,
 
 describe("RF06/RF07/RF08/RF09 - API pública do mapa", () => {
   it("destaca quem precisa URGENTE do item e nunca destaca BLOQUEADO", async () => {
-    // Região isolada (longe dos outros testes) para controlar o resultado.
-    const perto = await criarAbrigo({ nome: "Precisa de Água", latitude: -10.0, longitude: -40.0 });
-    const longe = await criarAbrigo({ nome: "Também Precisa", latitude: -10.3, longitude: -40.0 });
-    const saturado = await criarAbrigo({ nome: "Saturado de Água", latitude: -10.01, longitude: -40.0 });
-    const inativo = await criarAbrigo({ nome: "Fechado", latitude: -10.02, longitude: -40.0, ativo: false });
+    // Região isolada (Dom Pedrito e Bagé, longe dos outros testes) para controlar o resultado.
+    // Fica no RS: o banco só aceita abrigo dentro de um município cadastrado (migration 0018).
+    const perto = await criarAbrigo({ nome: "Precisa de Água", latitude: -31.0, longitude: -54.0 });
+    const longe = await criarAbrigo({ nome: "Também Precisa", latitude: -31.3, longitude: -54.0 });
+    const saturado = await criarAbrigo({ nome: "Saturado de Água", latitude: -31.01, longitude: -54.0 });
+    const inativo = await criarAbrigo({ nome: "Fechado", latitude: -31.02, longitude: -54.0, ativo: false });
     const admin = contexto(await criarUsuario("ADMIN", null));
     const agua = await idItem("Água Potável 5 L");
 
@@ -30,7 +31,7 @@ describe("RF06/RF07/RF08/RF09 - API pública do mapa", () => {
     await classificarItem(admin, longe.id, agua, { statusNecessidade: "URGENTE" });
     await classificarItem(admin, saturado.id, agua, { statusNecessidade: "BLOQUEADO" });
 
-    const resultado = await listarAbrigosPublicos(filtroMapa({ lat: "-10", lng: "-40", raioKm: "50", necessidade: "agua" }));
+    const resultado = await listarAbrigosPublicos(filtroMapa({ lat: "-31", lng: "-54", raioKm: "50", necessidade: "agua" }));
     expect(resultado.map((a) => [a.nome, a.destaque])).toEqual([
       ["Precisa de Água", true],
       ["Também Precisa", true],
@@ -42,7 +43,7 @@ describe("RF06/RF07/RF08/RF09 - API pública do mapa", () => {
     expect(resultado[2].necessidades.bloqueados[0]).toMatchObject({ id: agua, categoria: "agua" });
 
     const somenteDestaque = await listarAbrigosPublicos(
-      filtroMapa({ lat: "-10", lng: "-40", raioKm: "10", necessidade: "agua", somenteDestaque: "true" }),
+      filtroMapa({ lat: "-31", lng: "-54", raioKm: "10", necessidade: "agua", somenteDestaque: "true" }),
     );
     expect(somenteDestaque.map((a) => a.nome)).toEqual(["Precisa de Água"]);
   });

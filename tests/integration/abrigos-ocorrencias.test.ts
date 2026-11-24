@@ -293,15 +293,15 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
   });
 
   it("detecta via PostGIS ST_Intersects quando o trajeto em linha reta cruza um polígono de área de risco", async () => {
-    // Coordenada exclusiva: usuário ao norte (-27.20, -50.40), abrigo ao sul (-27.30, -50.40) e polígono de risco no meio (-27.25)
-    const abrigo = await criarAbrigo({ latitude: -27.30, longitude: -50.40 });
+    // Coordenada exclusiva (São Francisco de Paula): usuário ao norte (-29.20, -50.40), abrigo ao sul (-29.30, -50.40) e polígono de risco no meio (-29.25)
+    const abrigo = await criarAbrigo({ latitude: -29.30, longitude: -50.40 });
     const coordenador = contexto(await criarUsuario("COORDENADOR", abrigo.id));
 
     const poligonoNoCaminho = [
-      { lat: -27.245, lng: -50.41 },
-      { lat: -27.245, lng: -50.39 },
-      { lat: -27.255, lng: -50.39 },
-      { lat: -27.255, lng: -50.41 },
+      { lat: -29.245, lng: -50.41 },
+      { lat: -29.245, lng: -50.39 },
+      { lat: -29.255, lng: -50.39 },
+      { lat: -29.255, lng: -50.41 },
     ];
     const ocorrencia = await registrarOcorrencia(coordenador, abrigo.id, {
       tipo: "AREA_RISCO",
@@ -310,7 +310,7 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
 
     const comCruzamento = await listarAbrigosPublicos({
       formato: "json",
-      lat: -27.20,
+      lat: -29.20,
       lng: -50.40,
     });
     const alvo = comCruzamento.find((a) => a.id === abrigo.id);
@@ -320,7 +320,7 @@ describe("Semana 7 - Melhorias Comparativas (Pets/PCD, Busca Familiar LGPD, ST_I
     await resolverOcorrencia(coordenador, abrigo.id, ocorrencia.ocorrencia.id, {});
     const aposResolver = await listarAbrigosPublicos({
       formato: "json",
-      lat: -27.20,
+      lat: -29.20,
       lng: -50.40,
     });
     expect(aposResolver.find((a) => a.id === abrigo.id)?.rotaCruzaAreaRisco).toBe(false);

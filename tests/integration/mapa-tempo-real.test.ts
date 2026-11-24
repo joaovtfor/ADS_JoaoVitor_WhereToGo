@@ -131,8 +131,8 @@ describe("Mapa público em tempo real (SSE)", () => {
   });
 
   it("com localização, calcula a distância de cada conexão", async () => {
-    const abrigo = await criarAbrigo({ nome: "Abrigo Distante", latitude: -12.0, longitude: -45.0 });
-    const eventos = leitorDeEventos(await abrir({ query: { lat: "-12", lng: "-45", raioKm: "5" } }));
+    const abrigo = await criarAbrigo({ nome: "Abrigo Distante", latitude: -29.75, longitude: -57.08 }); // Uruguaiana: longe dos outros testes
+    const eventos = leitorDeEventos(await abrir({ query: { lat: "-29.75", lng: "-57.08", raioKm: "5" } }));
     const mapa = await eventos.esperar("mapa", 5_000);
     const abrigos = mapa!.dados.abrigos as { id: number; distanciaKm: number | null }[];
     expect(abrigos.map((a) => a.id)).toEqual([abrigo.id]);

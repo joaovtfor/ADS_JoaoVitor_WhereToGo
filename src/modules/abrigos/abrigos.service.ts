@@ -6,6 +6,7 @@ import { MENSAGEM_CHAVE_PIX_INVALIDA, normalizarChavePix } from "@/lib/pix";
 import { escaparIlike, montarAtualizacao } from "@/lib/sql";
 import { booleanoQuery, textoObrigatorio, textoOpcional, z } from "@/lib/validacao";
 import type { StatusInfraestrutura } from "../dominio";
+import { exigirMunicipioAtendido } from "../municipios/municipios.service";
 import { resumirOcupacao } from "./ocupacao";
 
 // -----------------------------------------------------------------------------
@@ -100,7 +101,10 @@ const COLUNAS_EDITAVEIS: Record<string, string> = {
 // Consulta e apresentação
 // -----------------------------------------------------------------------------
 
-/** Colunas do abrigo com aliases camelCase (`prefixo` = alias da tabela na consulta). */
+/**
+ * Colunas do abrigo com aliases camelCase (`prefixo` = alias da tabela na consulta).
+ * A cidade vem por subconsulta, e não por JOIN, para valer também no `RETURNING`.
+ */
 function colunasAbrigo(prefixo = "a.") {
   const p = prefixo;
   return `
@@ -108,7 +112,9 @@ function colunasAbrigo(prefixo = "a.") {
   ${p}latitude, ${p}longitude, ${p}capacidade_maxima AS "capacidadeMaxima", ${p}lotacao_atual AS "lotacaoAtual",
   ${p}acolhidos_nao_triados AS "acolhidosNaoTriados", ${p}status_infraestrutura AS "statusInfraestrutura",
   ${p}aceita_pets AS "aceitaPets", ${p}acessivel_pcd AS "acessivelPcd",
-  ${p}ativo, ${p}criado_em AS "criadoEm", ${p}atualizado_em AS "atualizadoEm"`;
+  ${p}ativo, ${p}criado_em AS "criadoEm", ${p}atualizado_em AS "atualizadoEm",
+  (SELECT json_build_object('codigoIbge', mun.codigo_ibge, 'nome', mun.nome, 'uf', mun.uf)
+     FROM municipio mun WHERE mun.codigo_ibge = ${p}municipio_ibge) AS municipio`;
 }
 
 const COLUNAS_ABRIGO = colunasAbrigo();
@@ -132,6 +138,8 @@ interface LinhaAbrigo {
   ativo: boolean;
   criadoEm: Date;
   atualizadoEm: Date;
+  /** Cidade onde o abrigo fica, calculada do ponto pelo banco (migration 0018). */
+  municipio: { codigoIbge: string; nome: string; uf: string };
 }
 
 function apresentar(linha: LinhaAbrigo) {
@@ -182,6 +190,7 @@ export async function criarAbrigo(ctx: Contexto, dados: z.infer<typeof esquemaCr
       `O número de acolhidos não triados (${naoTriados}) não pode exceder a capacidade máxima (${dados.capacidadeMaxima}).`,
     );
   }
+  await exigirMunicipioAtendido(dados.latitude, dados.longitude);
 
   const linha = await consultarUm<LinhaAbrigo>(
     `INSERT INTO abrigo (
@@ -230,6 +239,9 @@ export async function atualizarAbrigo(ctx: Contexto, id: number, dados: z.infer<
 
     const final = { ...atual, ...Object.fromEntries(Object.entries(dados).filter(([, v]) => v !== undefined)) };
     if (!pixCompleto(final)) throw erros.requisicaoInvalida(MENSAGEM_PIX);
+    if (dados.latitude !== undefined || dados.longitude !== undefined) {
+      await exigirMunicipioAtendido(final.latitude, final.longitude, client);
+    }
 
     const lotacaoNominal = atual.lotacaoAtual - atual.acolhidosNaoTriados;
     const lotacaoResultante = lotacaoNominal + final.acolhidosNaoTriados;
@@ -261,9 +273,13 @@ export async function atualizarAbrigo(ctx: Contexto, id: number, dados: z.infer<
     descricao: `Abrigo "${atualizado.depois.nome}" atualizado (${campos.join(", ")})`,
     idAbrigo: id,
     detalhes: {
-      alteracoes: Object.fromEntries(
-        campos.map((c) => [c, { de: atualizado.antes[c as keyof LinhaAbrigo], para: atualizado.depois[c as keyof LinhaAbrigo] }]),
-      ),
+      alteracoes: Object.fromEntries([
+        ...campos.map((c) => [c, { de: atualizado.antes[c as keyof LinhaAbrigo], para: atualizado.depois[c as keyof LinhaAbrigo] }]),
+        // Ponto novo em outra cidade: a troca de cidade fica registrada junto.
+        ...(atualizado.antes.municipio.codigoIbge !== atualizado.depois.municipio.codigoIbge
+          ? [["municipio", { de: atualizado.antes.municipio, para: atualizado.depois.municipio }]]
+          : []),
+      ]),
     },
   });
   return apresentar(atualizado.depois);

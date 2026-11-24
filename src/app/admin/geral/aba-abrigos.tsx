@@ -2,11 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
-import { Archive, ArchiveRestore, Ellipsis, Pencil } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Archive, ArchiveRestore, Ellipsis, MapPin, Pencil } from "lucide-react";
 import { Botao } from "@/components/ui/botao";
 import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { Chip } from "@/components/ui/chip";
+import { Icone } from "@/components/ui/icone";
 import { ItemMenu, Menu } from "@/components/ui/menu";
 import { ModalConfirmacao } from "@/components/ui/modal";
 import { Secao } from "@/components/ui/pagina";
@@ -49,6 +50,72 @@ function formularioDe(abrigo: AbrigoAdmin | null): FormularioAbrigo {
   };
 }
 
+interface MunicipioDoPonto {
+  codigoIbge: string;
+  nome: string;
+  uf: string;
+  ativo: boolean;
+}
+
+/** Coordenadas do formulário em números, ou `null` enquanto estão incompletas ou fora da faixa. */
+function lerPonto(latitude: string, longitude: string): { lat: number; lng: number } | null {
+  if (latitude.trim() === "" || longitude.trim() === "") return null;
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+
+/**
+ * Cidade do ponto escolhido, consultada no servidor (contorno do IBGE) a cada
+ * mudança, com 300 ms de espera para não consultar a cada tecla.
+ * `undefined` = ainda não se sabe (consultando, sem rede ou ponto incompleto);
+ * `null` = fora dos municípios cadastrados. O servidor confere de novo ao salvar.
+ */
+function useMunicipioDoPonto(latitude: string, longitude: string): MunicipioDoPonto | null | undefined {
+  const [resultado, setResultado] = useState<{ chave: string; municipio: MunicipioDoPonto | null } | null>(null);
+  const ponto = lerPonto(latitude, longitude);
+  const chave = ponto ? `${ponto.lat},${ponto.lng}` : null;
+
+  useEffect(() => {
+    if (!chave) return;
+    const controlador = new AbortController();
+    const [lat, lng] = chave.split(",");
+    const espera = window.setTimeout(() => {
+      api<MunicipioDoPonto | null>(`/api/municipios/localizar?lat=${lat}&lng=${lng}`, { signal: controlador.signal })
+        .then((municipio) => setResultado({ chave, municipio }))
+        .catch(() => undefined);
+    }, 300);
+    return () => {
+      window.clearTimeout(espera);
+      controlador.abort();
+    };
+  }, [chave]);
+
+  return chave && resultado?.chave === chave ? resultado.municipio : undefined;
+}
+
+/** "Fica em: Passo Fundo/RS", ou o aviso de que o ponto não pode receber abrigo. */
+function CidadeDoPonto({ municipio }: { municipio: MunicipioDoPonto | null | undefined }) {
+  if (municipio === undefined) return null;
+  if (municipio === null) {
+    return <p className="text-meta text-critico-claro">Este ponto fica fora dos municípios cadastrados. Confira a latitude e a longitude.</p>;
+  }
+  if (!municipio.ativo) {
+    return (
+      <p className="text-meta text-critico-claro">
+        Este ponto fica em {municipio.nome}/{municipio.uf}, onde o WhereToGo ainda não opera.
+      </p>
+    );
+  }
+  return (
+    <p className="flex items-center gap-1.5 text-meta text-texto-2">
+      <Icone de={MapPin} tamanho={16} className="text-texto-3" />
+      Fica em: {municipio.nome}/{municipio.uf}
+    </p>
+  );
+}
+
 /** Cadastro e manutenção dos abrigos da rede (só a administração geral). */
 export function AbaAbrigos({ acao }: { acao: Acao }) {
   const router = useRouter();
@@ -56,8 +123,9 @@ export function AbaAbrigos({ acao }: { acao: Acao }) {
   const [editando, setEditando] = useState<AbrigoAdmin | null>(null);
   const [form, setForm] = useState<FormularioAbrigo>(() => formularioDe(null));
   const [arquivando, setArquivando] = useState<AbrigoAdmin | null>(null);
+  const municipioDoPonto = useMunicipioDoPonto(form.latitude, form.longitude);
 
-  const alterar = (campos: Partial<FormularioAbrigo>) => setForm((atual) => ({ ...atual, ...campos }));
+  const alterar =(campos: Partial<FormularioAbrigo>) => setForm((atual) => ({ ...atual, ...campos }));
 
   function abrirFormulario(abrigo: AbrigoAdmin | null) {
     setEditando(abrigo);
@@ -163,6 +231,10 @@ export function AbaAbrigos({ acao }: { acao: Acao }) {
                   className={`${CLASSES_CAMPO} tabular-nums`}
                 />
               </Campo>
+            </div>
+            {/* A cidade não se digita: o servidor a tira do ponto (e confere de novo ao salvar). */}
+            <div aria-live="polite">
+              <CidadeDoPonto municipio={municipioDoPonto} />
             </div>
           </div>
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { filtrarAbrigos, precisaDoQueDoador, type CriteriosMapa } from "@/components/mapa/filtrar-abrigos";
 import type { AbrigoMapa } from "@/components/mapa/tipos";
 import { mascararCpf } from "@/lib/cpf";
-import { extrairCidade, gerarPayloadPixBrCode, normalizarChavePix } from "@/lib/pix";
+import { cidadeDoBrCode, gerarPayloadPixBrCode, normalizarChavePix } from "@/lib/pix";
 
 /** CRC16-CCITT (0x1021, inicial 0xFFFF) escrito à parte, para conferir o do BR Code. */
 function crcReferencia(texto: string): string {
@@ -27,10 +27,11 @@ describe("PIX", () => {
     expect(normalizarChavePix("54999990000")).toBeNull(); // telefone sem +55 é ambíguo
   });
 
-  it("extrai a cidade do endereço para o BR Code", () => {
-    expect(extrairCidade("Rua Fictícia, 100 - Centro, Passo Fundo/RS")).toBe("PASSO FUNDO");
-    expect(extrairCidade("Av. Ipiranga, 6681, Porto Alegre - RS")).toBe("PORTO ALEGRE");
-    expect(extrairCidade("Rua Teste, 1")).toBe("BRASIL");
+  it("usa a cidade do cadastro do abrigo no BR Code (sem acento, maiúsculas, até 15 caracteres)", () => {
+    expect(cidadeDoBrCode("Passo Fundo")).toBe("PASSO FUNDO");
+    expect(cidadeDoBrCode("Não-Me-Toque")).toBe("NAO ME TOQUE");
+    expect(cidadeDoBrCode("Sant'Ana do Livramento")).toBe("SANTANA DO LIVR");
+    expect(cidadeDoBrCode("   ")).toBe("BRASIL");
   });
 
   it("gera BR Code com cidade do abrigo e CRC válido", () => {

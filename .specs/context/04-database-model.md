@@ -221,6 +221,23 @@ erDiagram
 | status_infraestrutura | VARCHAR(10) | NORMAL / ALERTA / CRITICO; **trigger** (ocorrências ativas) |
 | ativo | BOOLEAN | default TRUE; inativo some do mapa e bloqueia login da equipe do abrigo |
 | criado_em / atualizado_em | TIMESTAMPTZ | `atualizado_em` por trigger |
+| municipio_ibge | CHAR(7) | FK `municipio`, NOT NULL, sem DEFAULT (migration `0018`). **Trigger** `trg_abrigo_municipio`: sempre a cidade de onde o ponto fica (`fn_municipio_do_ponto`), em todo INSERT e a cada mudança de latitude, longitude ou da própria coluna. Ponto fora de qualquer município cadastrado: erro `WTG05` (API: 422 `FORA_DOS_MUNICIPIOS`). Índice `abrigo_municipio_ix` (só ativos) |
+
+### 3.1.1. `municipio` (migrations `0016` a `0018`)
+Municípios das UFs atendidas, com contorno do IBGE (Tarefa 5 de `.specs/plano-tarefas-pendentes.md`). Hoje: os 497 do RS, só Passo Fundo ativo.
+
+| Coluna | Tipo | Regras |
+|---|---|---|
+| codigo_ibge | CHAR(7) | PK, 7 dígitos |
+| nome / uf | VARCHAR(120) / CHAR(2) | nome oficial do IBGE (com acento); UF em sigla |
+| slug | VARCHAR(80) | `UNIQUE (uf, slug)`; endereço público futuro (`/rs/passo-fundo`) |
+| regional | VARCHAR(60) | opcional (regional da Defesa Civil, para a visão estadual) |
+| contorno | GEOGRAPHY(MULTIPOLYGON,4326) | malha municipal do IBGE, qualidade intermediária (~11 m); índice GiST `municipio_contorno_gix`. RS: 620 KB, sem sobreposição nem fresta entre vizinhos |
+| latitude / longitude / zoom_inicial | DOUBLE PRECISION / SMALLINT | ponto para enquadrar a cidade: centro urbano nas ativas (Passo Fundo: -28.2628, -52.4067), ponto dentro do contorno nas demais |
+| ativo | BOOLEAN | opera no WhereToGo: só aqui a API aceita abrigo (`MUNICIPIO_NAO_ATENDIDO` nas demais) |
+
+- **`fn_municipio_do_ponto(lat, lng)`**: o contorno que cobre o ponto (`ST_Covers`); senão, o mais próximo a até 2 km (frestas da simplificação, curvas de rio na divisa); senão, NULL. No empate, ganha o município ativo.
+- **Dados:** `0017_municipios_rs.sql` é gerado por `scripts/gerar-municipios.mjs 43 <arquivo>` a partir da API do IBGE (fonte: IBGE). Para outra UF ou contorno novo, gere outra migration.
 
 ### 3.2. `papel_usuario` / `usuario`
 | Coluna | Tipo | Regras |

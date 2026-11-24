@@ -63,7 +63,14 @@ describe("Avisos oficiais do INMET (sincronização e leitura)", () => {
 
     const avisos = await listarAvisosVigentes();
     expect(avisos).toHaveLength(1);
-    expect(avisos[0]).toMatchObject({ fonte: "INMET", evento: "Tempestade", severidade: "SEVERA", rotuloSeveridade: "Perigo" });
+    expect(avisos[0]).toMatchObject({
+      fonte: "INMET",
+      evento: "Tempestade",
+      severidade: "SEVERA",
+      rotuloSeveridade: "Perigo",
+      // O selo do mapa diz "INMET · Passo Fundo".
+      municipio: { codigoIbge: "4314100", nome: "Passo Fundo" },
+    });
     expect(avisos[0]!.link).toBe(`https://avisos.inmet.gov.br/${tempestade.id}`);
 
     // Dentro do intervalo mínimo, nem consulta a fonte.
@@ -94,9 +101,10 @@ describe("Avisos oficiais do INMET (sincronização e leitura)", () => {
   });
 
   it("encerra o aviso que a fonte deixou de listar ou marcou como encerrado", async () => {
+    // Eventos diferentes: do mesmo evento, nível e período, a tela unificaria os três em um.
     const continua = avisoInmet({ id_aviso: 520 });
-    const cancelado = avisoInmet({ id_aviso: 521 });
-    await sincronizarAvisosInmet({ baixar: feed(continua, cancelado, avisoInmet({ id_aviso: 522 })) });
+    const cancelado = avisoInmet({ id_aviso: 521, descricao: "Vendaval" });
+    await sincronizarAvisosInmet({ baixar: feed(continua, cancelado, avisoInmet({ id_aviso: 522, descricao: "Granizo" })) });
     expect(await listarAvisosVigentes()).toHaveLength(3);
 
     // 520 igual, 521 marcado como encerrado, 522 sumiu do retorno.
@@ -121,6 +129,25 @@ describe("Avisos oficiais do INMET (sincronização e leitura)", () => {
       ),
     });
     expect((await listarAvisosVigentes()).map((a) => a.evento)).toEqual(["Vendaval", "Chuvas Intensas", "Granizo"]);
+  });
+
+  it("unifica os níveis do mesmo evento e período no mais grave, e o menor volta se o mais grave for cancelado", async () => {
+    // Período calculado uma vez: se o minuto virar entre duas chamadas, os períodos não seriam iguais.
+    const periodo = { inicio: horaInmet(-60), fim: horaInmet(180) };
+    const grandePerigo = avisoInmet({ id_aviso: 560, severidade: "Grande Perigo", ...periodo });
+    const perigo = avisoInmet({ id_aviso: 561, severidade: "Perigo", ...periodo });
+    const potencial = avisoInmet({ id_aviso: 562, severidade: "Perigo Potencial", ...periodo });
+    // Vale além do Grande Perigo: depois que ele vencer, ainda há o que avisar.
+    const potencialAteAmanha = avisoInmet({ id_aviso: 563, severidade: "Perigo Potencial", inicio: periodo.inicio, fim: horaInmet(24 * 60) });
+
+    const resultado = await sincronizarAvisosInmet({ baixar: feed(potencial, perigo, grandePerigo, potencialAteAmanha) });
+    // Os quatro ficam gravados; a unificação é só na leitura.
+    expect(resultado).toMatchObject({ situacao: "ok", doMunicipio: 4, alterados: 4 });
+    expect((await listarAvisosVigentes()).map((a) => a.rotuloSeveridade)).toEqual(["Grande Perigo", "Perigo Potencial"]);
+
+    // O INMET cancela o Grande Perigo: o Perigo passa a ser o mais grave.
+    await sincronizarAvisosInmet({ forcar: true, baixar: feed(potencial, perigo, { ...grandePerigo, encerrado: true }, potencialAteAmanha) });
+    expect((await listarAvisosVigentes()).map((a) => a.rotuloSeveridade)).toEqual(["Perigo", "Perigo Potencial"]);
   });
 
   it("registra falhas e pausa a fonte depois de falhas seguidas (circuit breaker)", async () => {

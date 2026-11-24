@@ -47,14 +47,14 @@ function limparTextoEmv(texto: string, limite: number): string {
 }
 
 /**
- * Cidade do recebedor (campo 60 do BR Code) a partir do endereço cadastrado:
- * "Rua X, 100 - Centro, Passo Fundo/RS" -> "PASSO FUNDO".
+ * Cidade do recebedor (campo 60 do BR Code, até 15 caracteres) a partir da
+ * cidade do abrigo no cadastro: "Passo Fundo" -> "PASSO FUNDO". Antes ela era
+ * tirada do texto do endereço e virava "BRASIL" quando o endereço não trazia
+ * a cidade ("Rua Teste, 1").
  */
-export function extrairCidade(endereco: string): string {
-  const ultimoTrecho = endereco.split(",").at(-1) ?? "";
-  const semUf = limparTextoEmv(ultimoTrecho.replace(/\s*[/-]\s*[A-Za-z]{2}\s*$/, ""), 15);
-  // Endereço sem cidade (ex.: "Rua Teste, 1"): o último trecho é número/complemento.
-  return /[A-Z]{3}/.test(semUf) ? semUf : "BRASIL";
+export function cidadeDoBrCode(nomeMunicipio: string): string {
+  // Hífen vira espaço ("Não-Me-Toque" -> "NAO ME TOQUE"); o apóstrofo some ("Sant'Ana" -> "SANTANA").
+  return limparTextoEmv(nomeMunicipio.replace(/-/g, " "), 15) || "BRASIL";
 }
 
 function campoEmv(id: string, valor: string): string {

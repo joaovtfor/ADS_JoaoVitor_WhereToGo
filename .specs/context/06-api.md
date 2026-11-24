@@ -68,7 +68,7 @@ Listagens paginadas (`?pagina=1&tamanho=50`, máx. 200):
 | GET | `/api/public/alertas` | RF09 - ocorrências ativas com coordenadas (`formato=json\|geojson`) |
 | GET | `/api/public/mapa` | Abrigos, alertas e `avisos` (INMET) numa resposta só, com ETag (304 sem corpo quando nada mudou). Query: `lat`, `lng`, `raioKm` |
 | GET | `/api/public/mapa/eventos` | Tempo real (Server-Sent Events, `text/event-stream`). Evento `mapa` (`{ versao, abrigos, alertas, avisos }`, o mesmo conteúdo e a mesma versão de `/mapa`) e evento `categorias` (`{ versao, categorias }`), cada um só quando muda. Query: `lat`, `lng`, `raioKm`, `versao` e `versaoCategorias` (o que o navegador já tem); na reconexão, o cabeçalho `Last-Event-ID` traz as duas versões. Cada conexão dura 4 min e o navegador reconecta sozinho. Erros saem como JSON antes de abrir o fluxo: `503 TEMPO_REAL_DESLIGADO` (`MAPA_TEMPO_REAL=false`), `503 MAPA_INDISPONIVEL`, `429` (mais de 10 conexões do mesmo IP) |
-| GET | `/api/public/avisos` | Avisos meteorológicos oficiais do INMET vigentes ou previstos para o município: `evento`, `severidade` (`MODERADA\|SEVERA\|EXTREMA`), `rotuloSeveridade`, `inicio`, `fim`, `riscos`, `instrucoes`, `link` |
+| GET | `/api/public/avisos` | Avisos meteorológicos oficiais do INMET vigentes ou previstos para o município: `evento`, `severidade` (`MODERADA\|SEVERA\|EXTREMA`), `rotuloSeveridade`, `inicio`, `fim`, `riscos`, `instrucoes`, `link` e `municipio` (`{ codigoIbge, nome }`, para o selo dizer "INMET · Passo Fundo"; `nome` é nulo se o código foi trocado sem `MUNICIPIO_NOME`). Unificados, como em `/mapa` e no painel: o nível menor de um evento não aparece quando um nível igual ou maior do mesmo evento vale durante todo o período dele |
 
 As leituras de `/api/public/mapa`, `/api/public/mapa/eventos` (ao fechar a conexão), `/api/public/avisos` e `/api/integracoes/avisos` também disparam, depois da resposta, a consulta ao INMET quando a última tem mais de `INTERVALO_AVISOS_MIN` (ver `.specs/plano-integracao-defesa-civil.md` §3).
 
@@ -103,8 +103,9 @@ Redirecionamento por perfil: `VOLUNTARIO → /admin/inventario`, `COORDENADOR �
 |---|---|---|
 | GET | `/api/abrigos` | Lista (ADMIN: todos; demais: o próprio). Query: `ativo`, `busca` |
 | POST | `/api/abrigos` | Cadastra: `{ nome, endereco, latitude, longitude, capacidadeMaxima, telefone?, chavePix?, titularPix? }` |
-| GET | `/api/abrigos/{id}` | Detalhe com `ocupacao` |
-| PATCH | `/api/abrigos/{id}` | Atualização parcial (campos conforme papel). `ativo: false` exige abrigo vazio |
+| GET | `/api/abrigos/{id}` | Detalhe com `ocupacao` e `municipio` (`{ codigoIbge, nome, uf }`, a cidade onde o abrigo fica, calculada do ponto) |
+| PATCH | `/api/abrigos/{id}` | Atualização parcial (campos conforme papel). `ativo: false` exige abrigo vazio. Ponto novo (latitude ou longitude) só em cidade atendida: `422 MUNICIPIO_NAO_ATENDIDO` ("fica em Marau/RS, onde o WhereToGo ainda não opera") ou `422 FORA_DOS_MUNICIPIOS`; o mesmo vale no POST |
+| GET | `/api/municipios/localizar` | Qualquer usuário logado. Query: `lat`, `lng`. Município do ponto (`{ codigoIbge, nome, uf, ativo }`) ou `null` fora dos cadastrados. Usado no cadastro de abrigo para mostrar "Fica em: Passo Fundo/RS" |
 | GET | `/api/abrigos/{id}/dashboard` | RF04 - ocupação, acolhidos (24h), itens críticos, ocorrências ativas, últimas movimentações e `sugestoesTransferencia` (cada uma com `rotaBloqueada`: o trajeto direto até o parceiro cruza área de risco ativa; essas vêm por último) |
 
 ### 3.4. Estoque (RF02, RF03)

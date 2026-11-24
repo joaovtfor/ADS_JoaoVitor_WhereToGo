@@ -80,6 +80,8 @@ export interface AbrigoAdmin {
   acessivelPcd: boolean;
   ativo: boolean;
   ocupacao: ResumoOcupacao;
+  /** Cidade onde o abrigo fica (calculada do ponto pelo servidor). */
+  municipio: { codigoIbge: string; nome: string; uf: string };
 }
 
 interface ContextoAdminValor {

@@ -135,6 +135,9 @@ export function traduzirErroBanco(erro: unknown): ErroApi | null {
       return erros.conflito("TRANSFERENCIA_INVALIDA", erro.message);
     case "WTG04":
       return erros.conflito("ESTORNO_INVALIDO", erro.message);
+    case "WTG05":
+      // Gatilho da cidade do abrigo (migration 0018): o ponto não fica em nenhum município cadastrado.
+      return erros.regraDeNegocio("FORA_DOS_MUNICIPIOS", erro.message);
     default:
       return null;
   }

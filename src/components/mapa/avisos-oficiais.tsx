@@ -7,22 +7,30 @@ import { Icone } from "@/components/ui/icone";
 import { SeloStatus } from "@/components/ui/selo-status";
 import { avisoEmVigor, descreverPeriodoAviso, obterNivelAviso, type AvisoOficialMapa } from "./tipos";
 
+/** Cidade dos avisos, quando o servidor a informa (dados salvos antigos não têm). */
+function cidadeDosAvisos(avisos: AvisoOficialMapa[]): string | null {
+  return avisos[0]?.municipio?.nome ?? null;
+}
+
 /**
  * Selo no topo do mapa com o aviso oficial mais importante (em vigor e mais
  * grave primeiro). Não é desenhado como área: cada aviso do INMET cobre
  * centenas de municípios e pintaria o mapa inteiro. Toque abre o painel.
+ * Diz a cidade ("INMET · Passo Fundo"): quem abre o link de longe sabe que o
+ * aviso é do município do mapa, e não de onde a pessoa está.
  */
 export function SeloAvisoOficial({ avisos, onVer }: { avisos: AvisoOficialMapa[]; onVer: () => void }) {
   const principal = avisos[0];
   if (!principal) return null;
   const outros = avisos.length - 1;
   const resumo = `${principal.rotuloSeveridade} · ${descreverPeriodoAviso(principal)}${outros > 0 ? ` · +${outros}` : ""}`;
+  const cidade = cidadeDosAvisos(avisos);
 
   return (
     <button
       type="button"
       onClick={onVer}
-      aria-label={`Aviso do INMET: ${principal.evento}, ${resumo}. Ver detalhes`}
+      aria-label={`Aviso do INMET${cidade ? ` para ${cidade}` : ""}: ${principal.evento}, ${resumo}. Ver detalhes`}
       className={juntarClasses(
         "pointer-events-auto flex w-fit max-w-full items-center gap-2 rounded-controle border border-borda bg-superficie px-3 py-1 text-left transition-colors hover:bg-superficie-2",
         FOCO,
@@ -31,7 +39,10 @@ export function SeloAvisoOficial({ avisos, onVer }: { avisos: AvisoOficialMapa[]
       <SeloStatus nivel={obterNivelAviso(principal.severidade)} className="min-w-0 py-1.5">
         {/* Quebra em vez de cortar: no celular, o horário de fim é a parte que mais importa. */}
         <span className="min-w-0">
-          <span className="font-medium text-texto">INMET: {principal.evento}</span> · {resumo}
+          <span className="font-medium text-texto">
+            INMET{cidade && ` · ${cidade}`}: {principal.evento}
+          </span>{" "}
+          · {resumo}
         </span>
       </SeloStatus>
       <Icone de={ChevronRight} tamanho={16} className="text-texto-3" />
@@ -42,11 +53,12 @@ export function SeloAvisoOficial({ avisos, onVer }: { avisos: AvisoOficialMapa[]
 /** Avisos oficiais no painel de alertas: evento, nível oficial, período, risco, o que fazer e link para o original. */
 export function ListaAvisosOficiais({ avisos }: { avisos: AvisoOficialMapa[] }) {
   if (avisos.length === 0) return null;
+  const cidade = cidadeDosAvisos(avisos);
 
   return (
     <section aria-labelledby="titulo-avisos-oficiais" className="border-t border-borda pt-4 first:border-t-0">
       <h3 id="titulo-avisos-oficiais" className="text-meta font-medium text-texto-3">
-        Avisos meteorológicos oficiais · INMET
+        {cidade ? `Avisos meteorológicos do INMET para ${cidade}` : "Avisos meteorológicos oficiais · INMET"}
       </h3>
       {avisos.map((aviso) => (
         <article key={aviso.id} className="border-b border-borda py-4 last:border-b-0">

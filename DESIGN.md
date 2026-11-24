@@ -153,8 +153,10 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 - **Alertas no mapa:** área de risco e via interditada em contorno `critico` com preenchimento a 12%. Rótulo só ao tocar.
 - **Avisos oficiais do INMET** (`avisos-oficiais.tsx`):
   - **Nunca viram área no mapa:** cada aviso cobre centenas de municípios e pintaria a tela inteira.
-  - **No topo do mapa:** um único selo clicável, junto aos avisos de conexão, com o mais importante (em vigor e mais grave primeiro). Mostra o rótulo oficial e o período ("INMET: Tempestade · Perigo · até 23:59 · +1") e abre o painel.
-  - **No painel "Alertas e avisos":** os avisos vêm antes dos alertas locais, com risco, "O que fazer" recolhido e link para o original.
+  - **Um aviso por evento e período:** o INMET publica um aviso por nível (Perigo Potencial, Perigo, Grande Perigo), com áreas encaixadas. Um nível menor coberto por um maior do mesmo evento não aparece em nenhuma tela. Regra em `.specs/plano-integracao-defesa-civil.md` §4.1, "Exibição".
+  - **No topo do mapa:** um único selo clicável, junto aos avisos de conexão, com o mais importante (em vigor e mais grave primeiro). Mostra a cidade, o rótulo oficial e o período ("INMET · Passo Fundo: Tempestade · Perigo · até 23:59 · +1", onde "+1" é outro evento ou outro período) e abre o painel.
+  - **A cidade sempre aparece**, porque o aviso é do município do mapa, e não de onde a pessoa está. Quem abre o link de longe precisa saber disso. O nome vem do servidor (`MUNICIPIO_NOME`, Passo Fundo por padrão). Com dados salvos de antes, o selo volta a "INMET: ...".
+  - **No painel "Alertas e avisos":** os avisos vêm antes dos alertas locais, sob o título "Avisos meteorológicos do INMET para Passo Fundo", com risco, "O que fazer" recolhido e link para o original.
   - **Cores:** amarelo do INMET ("Perigo Potencial") é `atencao`; laranja e vermelho são `critico`. A cor oficial do INMET não entra na paleta: o nível vem do `SeloStatus` e o rótulo oficial vai em texto.
   - **Horários:** só renderizados no navegador, porque o servidor está em UTC.
 - **Mapa base:** escuro e neutro, para que a única cor sobre o mapa seja a dos pinos. São os tiles Humanitarian (HOT) de sempre, convertidos para cinza e invertidos por um filtro CSS no painel de tiles (`.leaflet-tile-pane` em `globals.css`). Assim não há provedor novo nem chave de API, e o cache offline de tiles continua valendo.
@@ -187,6 +189,11 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
   - o botão "Transferir em grupo" (ligado em azul enquanto ativo) põe uma caixa de marcação em cada pessoa presente e esconde o menu "..." da linha;
   - uma `Faixa` `ok` mostra quantos foram marcados, com "Marcar todos da lista", "Transferir" (primária) e "Cancelar";
   - o modal só lista destinos com vaga para todos.
+- **Cidade do abrigo** (Gestão → aba `Abrigos`, `geral/aba-abrigos.tsx`): não há campo de cidade, porque o servidor a tira do ponto. Abaixo da latitude e da longitude:
+  - em cidade atendida, uma linha `texto-2` com ícone de pino: "Fica em: Passo Fundo/RS";
+  - em cidade não atendida ou fora do cadastro, a mesma linha em `critico-claro` ("Este ponto fica em Marau/RS, onde o WhereToGo ainda não opera").
+
+  A consulta espera 300 ms depois da última mudança e é anunciada ao leitor de tela (`aria-live`). O servidor confere a cidade de novo ao salvar.
 - **Relatórios** (Gestão → aba `Relatórios`, `geral/aba-relatorios.tsx`): três seções sem caixa, na ordem eventos, subsídios FIDE e prestação de contas.
   - Eventos: uma linha por evento com `SeloStatus` (`atencao` em curso, `neutro` encerrado), COBRADE e período; o registro fica num bloco `bg-superficie` abaixo da lista.
   - A única ação primária da aba é "Baixar planilha" dos subsídios. O resumo na tela usa os mesmos indicadores da visão geral e tabelas densas.

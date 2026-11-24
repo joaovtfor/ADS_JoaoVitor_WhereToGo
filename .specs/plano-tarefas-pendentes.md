@@ -218,40 +218,45 @@ sequenceDiagram
 ### Tarefa 5 — Arquitetura Multi-Município / Multi-Tenant (Consórcios e Defesa Civil Estadual)
 
 - **Status:** Pendente *(habilita contratos estaduais e consórcios intermunicipais com uma única instância gerenciada)*
-- **Objetivo:** Eliminar a premissa atual de município único global (`MUNICIPIO_CODIGO_IBGE` em `src/lib/env.ts`), permitindo que uma mesma instância opere múltiplos municípios isolados por código IBGE e ofereça visão consolidada para **Consórcios Regionais** ou **Defesa Civil Estadual (Sala de Situação / CREPDEC)**.
+- **Objetivo:** Eliminar a premissa atual de município único global (`MUNICIPIO_CODIGO_IBGE` em `src/lib/env.ts`), permitindo que uma mesma instância opere múltiplos municípios isolados por código IBGE e ofereça visão consolidada para **Consórcios Regionais** ou **Defesa Civil Estadual (Sala de Situação / CREPDEC)**. No mapa público, a pessoa vê os abrigos e avisos **de onde está** (GPS) ou **de uma ou mais cidades que escolher** (seção 5.3).
+- **Revisão de 24/11/2026:** cada abrigo ganha a cidade no banco, preenchida a partir do ponto no mapa e conferida com o contorno do IBGE (5.1 e 5.2). A tabela N:N de avisos foi trocada por uma lista de códigos no próprio aviso (5.1), e o mapa público ganhou o seletor de locais (5.3).
 
-#### 5.1 Banco de Dados (`db/migrations/0016_multi_municipio.sql`)
+#### 5.1 Banco de Dados (desenho de referência; a fase 1 virou `0016` a `0018`, ver 5.4)
 
 ```sql
+-- Todos os municípios das UFs atendidas (RS: 497), cada um com o contorno.
+-- `ativo` marca os que operam no WhereToGo. Os outros servem para responder
+-- "você está em X" pelo GPS e mostrar os avisos de X, mesmo sem abrigos lá.
 CREATE TABLE municipio (
-    codigo_ibge   CHAR(7)          PRIMARY KEY,
-    nome          VARCHAR(120)     NOT NULL,
-    uf            CHAR(2)          NOT NULL DEFAULT 'RS',
-    regional      VARCHAR(60),     -- ex.: "CREPDEC 7 - Planalto"
-    latitude      DOUBLE PRECISION NOT NULL,
-    longitude     DOUBLE PRECISION NOT NULL,
-    zoom_inicial  SMALLINT         NOT NULL DEFAULT 13,
-    ativo         BOOLEAN          NOT NULL DEFAULT TRUE,
+    codigo_ibge   CHAR(7)                       PRIMARY KEY,
+    nome          VARCHAR(120)                  NOT NULL,
+    uf            CHAR(2)                       NOT NULL,
+    -- Endereço público /rs/passo-fundo. Único só dentro da UF: há "Bom Jesus" em cinco estados.
+    slug          VARCHAR(80)                   NOT NULL,
+    regional      VARCHAR(60),                  -- ex.: "CREPDEC 7 - Planalto"
+    -- Malha municipal do IBGE, simplificada (RS inteiro: poucos MB). Serve para:
+    -- GPS -> cidade, conferir o ponto do abrigo e desenhar as bolhas do mapa.
+    contorno      GEOGRAPHY(MULTIPOLYGON, 4326) NOT NULL,
+    latitude      DOUBLE PRECISION              NOT NULL,  -- centro, para enquadrar a cidade
+    longitude     DOUBLE PRECISION              NOT NULL,
+    zoom_inicial  SMALLINT                      NOT NULL DEFAULT 13,
+    ativo         BOOLEAN                       NOT NULL DEFAULT FALSE,
     CONSTRAINT municipio_ibge_ck CHECK (codigo_ibge ~ '^[0-9]{7}$'),
-    CONSTRAINT municipio_uf_ck   CHECK (uf ~ '^[A-Z]{2}$')
+    CONSTRAINT municipio_uf_ck   CHECK (uf ~ '^[A-Z]{2}$'),
+    CONSTRAINT municipio_slug_uk UNIQUE (uf, slug)
 );
+CREATE INDEX municipio_contorno_gix ON municipio USING GIST (contorno);
+-- Carga por script (não pela migration): malha e nomes da API de dados do IBGE
+-- (servicodados.ibge.gov.br) para as UFs atendidas. Passo Fundo (4314100) entra com ativo = TRUE.
 
--- Seed retrocompatível com a operação atual
-INSERT INTO municipio (codigo_ibge, nome, uf, latitude, longitude)
-VALUES ('4314100', 'Passo Fundo', 'RS', -28.2628, -52.4067)
-ON CONFLICT (codigo_ibge) DO NOTHING;
+-- Cidade do abrigo = onde ele fica. Sem DEFAULT: um abrigo novo nunca cai em
+-- Passo Fundo por engano. O servidor preenche a partir do ponto (ver 5.2).
+ALTER TABLE abrigo ADD COLUMN municipio_ibge CHAR(7) REFERENCES municipio (codigo_ibge);
+UPDATE abrigo SET municipio_ibge = '4314100';
+ALTER TABLE abrigo ALTER COLUMN municipio_ibge SET NOT NULL;
 
-ALTER TABLE abrigo
-    ADD COLUMN municipio_ibge CHAR(7) NOT NULL DEFAULT '4314100'
-    REFERENCES municipio (codigo_ibge);
-
-ALTER TABLE ocorrencia_infraestrutura
-    ADD COLUMN municipio_ibge CHAR(7) NOT NULL DEFAULT '4314100'
-    REFERENCES municipio (codigo_ibge);
-
-ALTER TABLE evento_desastre
-    ADD COLUMN municipio_ibge CHAR(7) NOT NULL DEFAULT '4314100'
-    REFERENCES municipio (codigo_ibge);
+-- Mesmo padrão (coluna, preenchimento com 4314100, NOT NULL, sem DEFAULT) em:
+--   ocorrencia_infraestrutura (a regional, sem abrigo, também precisa da cidade) e evento_desastre.
 
 -- Nulo apenas para gestores estaduais / admin global da plataforma
 ALTER TABLE usuario
@@ -259,12 +264,12 @@ ALTER TABLE usuario
     ADD COLUMN escopo_territorial VARCHAR(15) NOT NULL DEFAULT 'MUNICIPAL',
     ADD CONSTRAINT usuario_escopo_ck CHECK (escopo_territorial IN ('MUNICIPAL', 'REGIONAL', 'ESTADUAL'));
 
--- Relação N:N entre aviso do INMET e municípios atendidos pela plataforma
-CREATE TABLE aviso_oficial_municipio (
-    id_aviso_oficial  INTEGER NOT NULL REFERENCES aviso_oficial (id) ON DELETE CASCADE,
-    municipio_ibge    CHAR(7) NOT NULL REFERENCES municipio (codigo_ibge),
-    PRIMARY KEY (id_aviso_oficial, municipio_ibge)
-);
+-- Municípios de cada aviso, só os das UFs atendidas (RS: até 497 códigos, ~6 KB por aviso).
+-- Substitui a tabela N:N `aviso_oficial_municipio` da versão anterior deste plano: ela só
+-- teria os municípios ativos, e a pessoa com GPS numa cidade sem operação ficaria sem aviso.
+ALTER TABLE aviso_oficial ADD COLUMN municipios TEXT[] NOT NULL DEFAULT '{}';
+-- O GIN atende `municipios @> ARRAY['4314100']` (não atende `= ANY(municipios)`).
+CREATE INDEX aviso_oficial_municipios_gix ON aviso_oficial USING GIN (municipios);
 
 CREATE INDEX abrigo_municipio_ix ON abrigo (municipio_ibge) WHERE ativo = TRUE;
 CREATE INDEX ocorrencia_municipio_ix ON ocorrencia_infraestrutura (municipio_ibge);
@@ -276,14 +281,86 @@ CREATE INDEX evento_desastre_municipio_ix ON evento_desastre (municipio_ibge);
 - **RBAC (`src/lib/auth/permissoes.ts` e `rbac.ts`):**
   - Introduzir escopo territorial no `Contexto`: `ADMIN` e `DEFESA_CIVIL` com `escopo_territorial = 'MUNICIPAL'` só acessam dados do próprio `municipio_ibge`.
   - Novo papel (ou atributo de papel) `DEFESA_CIVIL_ESTADUAL` (`escopo_territorial = 'ESTADUAL' | 'REGIONAL'`) com visão consolidada multi-município para Sala de Situação e emissão de relatórios estaduais.
+- **Cadastro de abrigo (cidade no banco):**
+  - Quem cadastra não escolhe a cidade numa lista. Ao salvar, o servidor encontra o município pelo ponto (`ST_Covers(municipio.contorno, ponto)`), e o formulário mostra "Fica em: Passo Fundo/RS" ao lado do mapa. Assim a cidade e o pino nunca discordam.
+  - Ponto fora do escopo do usuário (um coordenador de Passo Fundo marcando um ponto em Marau) é recusado com essa mensagem.
+  - A cidade é **onde o abrigo fica**. Se outra cidade o opera (consórcio), quem dá o acesso é o escopo do usuário, e a cidade do abrigo não muda.
+  - O mesmo vale para a ocorrência regional (sem abrigo): a cidade vem do local marcado.
+- **PIX:** a cidade do BR Code (campo 60) passa a vir de `municipio.nome`. Hoje ela sai do texto do endereço (`extrairCidade` em `src/lib/pix.ts`), que vira "BRASIL" quando o endereço não traz a cidade.
 - **Rotas Públicas e Cache (`src/modules/publico/`):**
-  - `GET /api/public/municipios`: lista municípios ativos para seletor do cidadão quando houver mais de 1 cadastrado.
-  - `GET /api/public/mapa?municipio=4314100` (quando omitido, usa `env().MUNICIPIO_CODIGO_IBGE` como padrão).
+  - `GET /api/public/municipios`: municípios ativos com slug, nome, UF, centro, nº de abrigos ativos, vagas livres e o nível do aviso mais grave. Resposta pequena e em cache de CDN. Alimenta o seletor, a busca de cidade e as bolhas do mapa (5.3).
+  - `GET /api/public/mapa`:
+    - `?municipios=4314100,4311809` (até 5): abrigos, alertas e avisos dessas cidades, com os avisos agrupados por município;
+    - `?lat&lng&raioKm` ("Perto de mim"): abrigos do raio, **de qualquer cidade**, e o `municipioDaPosicao` (achado pelo contorno, na mesma consulta) com os avisos dele;
+    - sem parâmetro e com um só município ativo: igual a hoje.
+  - `GET /api/public/mapa/eventos` (SSE) aceita os mesmos parâmetros. A central de cada instância guarda o instantâneo por município, e cada conexão só recebe as cidades que pediu.
   - Tag de cache por município (`dados-publicos:${codigoIbge}`) para que a movimentação de estoque em uma cidade não invalide o cache das outras 496 cidades de um contrato estadual.
 - **Sincronização INMET (`src/modules/integracoes/avisos.service.ts`):**
-  - Uma única descarga do JSON nacional (`apiprevmet3.inmet.gov.br/avisos/ativos`) passa a filtrar todos os `codigo_ibge` ativos da tabela `municipio`, gravando em `aviso_oficial` + `aviso_oficial_municipio`.
+  - Continua uma única descarga do JSON nacional (`apiprevmet3.inmet.gov.br/avisos/ativos`) a cada `INTERVALO_AVISOS_MIN`. Ficam os avisos que tocam alguma UF atendida, com os códigos dessas UFs em `aviso_oficial.municipios` (os dois primeiros dígitos do código IBGE são a UF).
+  - Aviso que saiu do feed é encerrado. Aviso que continua no feed com outra lista de municípios (nova sequência) tem a lista trocada no mesmo upsert.
+  - `listarAvisosVigentes(codigoIbge)` filtra por `municipios @> ARRAY[codigoIbge]` e unifica **por município** (`unificarAvisos`, `src/modules/integracoes/avisos.unificacao.ts`). O Grande Perigo de uma cidade não cobre a vizinha que só está no Perigo.
 - **Relatórios FIDE (`src/modules/relatorios/fide.service.ts`):**
   - O relatório usa o `municipio_ibge` do `evento_desastre` selecionado (não mais apenas a variável de ambiente global).
+
+#### 5.3 Mapa público: seletor de locais
+
+**Princípios:**
+- **O aviso segue o território, não o aparelho.** Os avisos mostrados são os do município que a pessoa está vendo ou do município onde ela está. Muita gente usa o mapa de longe, por exemplo quem está em Porto Alegre procurando o abrigo da família em Passo Fundo.
+- **O GPS nunca é pedido ao abrir a página**, só no toque em "Perto de mim", como hoje.
+- **Com um município ativo só, nada muda na tela.** O seletor aparece a partir do segundo.
+
+**Dois modos, um de cada vez:**
+
+| Modo | Quando | Abrigos no mapa | Avisos | Barra de resumo |
+|---|---|---|---|---|
+| **Perto de mim** | Toque no botão de localização (o de hoje) | Os do raio, **de qualquer cidade**, pela distância | Do município onde a pessoa está, mesmo sem abrigos lá | "Perto de você · Passo Fundo/RS" |
+| **Cidades** | Sem GPS: 1 a 5 cidades escolhidas | Os das cidades escolhidas. As outras cidades ativas aparecem como bolhas | De cada cidade escolhida, unificados por cidade | "Passo Fundo ▾ · 293 vagas em 4 abrigos" ou "3 cidades ▾ · ..." |
+
+Ligar o GPS passa para "Perto de mim". Desligar volta para as cidades escolhidas antes.
+
+**Onde fica e como se usa:**
+- **Seletor na barra de resumo:** o nome do local ("Passo Fundo ▾") fica na linha de cima da barra, ao lado do botão de localização e ao alcance do polegar. Tudo sobre "onde" fica num lugar só, junto dos números que ele explica. O toque abre a tela **Locais** no painel único:
+  1. "Perto de mim", com "Você está em Passo Fundo/RS" quando ativo;
+  2. busca "Buscar cidade", por nome e sem diferenciar acento;
+  3. as cidades escolhidas, cada uma com caixa de seleção, vagas livres e o selo do aviso mais grave;
+  4. "Cidades próximas", para adicionar com um toque.
+
+  A escolha vale na hora, sem botão de confirmar.
+- **Bolhas no mapa:** as cidades ativas que não foram escolhidas aparecem, a partir do zoom regional, como uma bolha com o nome e o nº de abrigos ("Marau · 3"). Os dados vêm de `/api/public/municipios`, sem carregar os abrigos delas. O toque oferece "Ver Marau" ou "Adicionar Marau". Assim o abrigo a 2 km da divisa, na cidade vizinha, não some sem aviso.
+- **Busca do cabeçalho:** também encontra cidades ("Marau/RS · 3 abrigos").
+- **Endereço:** `/rs/passo-fundo` abre a cidade. É o link que a Defesa Civil divulga, e funciona sem GPS. Várias cidades: `/?cidades=4314100,4311809`. O `?abrigo=ID` continua valendo.
+- **O que abre primeiro:**
+  1. a cidade do endereço;
+  2. senão, a última escolha salva;
+  3. senão, a única cidade ativa;
+  4. senão, a visão do estado com as bolhas e a pergunta "Onde você quer ver abrigos?", com [Perto de mim] e [Buscar cidade].
+- **Avisos:**
+  - O selo diz a cidade ("INMET · Marau: Tempestade · Grande Perigo · +1"). Com várias cidades, mostra o mais grave entre elas.
+  - O painel agrupa por aviso: o mesmo aviso em duas cidades vira um cartão só, "Passo Fundo e Marau".
+- **Privacidade (LGPD):**
+  - A posição vai só para o nosso servidor, dentro da consulta, como hoje para a distância. Ela não é registrada em log nem gravada.
+  - A cidade é encontrada no PostGIS, sem geocodificação de terceiros.
+  - O `localStorage` (`wtg:mapa:locais`) guarda só os códigos das cidades, nunca coordenadas.
+- **Offline:** os dados da última escolha ficam salvos, e a faixa de dados salvos diz de quais cidades e de quando são.
+- **Limite:** 5 cidades ao mesmo tempo, por causa do tamanho da resposta em 3G e do filtro do SSE.
+
+#### 5.4 Ordem de entrega
+
+| Fase | Entrega | Muda a tela? |
+|---|---|---|
+| 0 ✅ | Selo do INMET com o nome da cidade ("INMET · Passo Fundo: ..."), lido de `MUNICIPIO_NOME` e enviado em cada aviso (`municipio: { codigoIbge, nome }`). **Feita em 24/11/2026.** Na fase 2, o nome passa a vir da tabela `municipio` | Sim, o texto do selo e o título do painel |
+| 1 ✅ | **Feita em 24/11/2026**, em três migrations:<br>• `0016`: tabela `municipio` e `fn_municipio_do_ponto`;<br>• `0017`: os 497 municípios do RS, gerados do IBGE por `scripts/gerar-municipios.mjs`;<br>• `0018`: Passo Fundo ativo, `abrigo.municipio_ibge` com gatilho que tira a cidade do ponto, e erro `WTG05` fora do cadastro.<br>Também: cadastro só em cidade ativa (`MUNICIPIO_NAO_ATENDIDO`), "Fica em" no formulário (`GET /api/municipios/localizar`) e cidade do PIX vinda do cadastro. Testes em `tests/integration/municipios.test.ts` | Só "Fica em: ..." no cadastro do abrigo |
+| 2 | `/api/public/municipios`, `?municipios=` e GPS por cidade, avisos por município, SSE e cache por cidade. Migration própria com `aviso_oficial.municipios` e `ocorrencia_infraestrutura.municipio_ibge`: a fase 1 deixou de fora o que só esta fase usa, para não criar coluna sem uso | Não |
+| 3 | Seletor de locais, bolhas, endereço `/rs/passo-fundo` e "Você está em" | Sim, a partir do 2º município ativo |
+| 4 | Escopo territorial no RBAC e relatórios por município. Migration própria com `usuario.municipio_ibge`, `escopo_territorial` e `evento_desastre.municipio_ibge` | Painel interno |
+
+#### 5.5 Testes (`multi-municipio.test.ts`)
+- O abrigo recebe a cidade pelo ponto, e um ponto fora do escopo do usuário é recusado.
+- Os avisos são unificados por cidade: o Grande Perigo da cidade A não esconde o Perigo da cidade B.
+- Com GPS numa cidade sem operação, a pessoa recebe os avisos dela e os abrigos do raio.
+- `?municipios=` traz só essas cidades, e o SSE de uma cidade não entrega dados de outra.
+- O slug é resolvido por UF (`/rs/bom-jesus` e `/sc/bom-jesus` são cidades diferentes).
+- Com um município ativo só, a resposta pública é igual à de hoje.
 
 ---
 

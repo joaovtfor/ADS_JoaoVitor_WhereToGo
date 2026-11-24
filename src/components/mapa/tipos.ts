@@ -77,6 +77,8 @@ export interface AvisoOficialMapa {
   instrucoes: string[];
   link: string | null;
   atualizadoEm: string;
+  /** Município do aviso ("INMET · Passo Fundo"). Ausente em dados salvos antes desse campo. */
+  municipio?: { codigoIbge: string; nome: string | null };
 }
 
 export interface CategoriaPublica {

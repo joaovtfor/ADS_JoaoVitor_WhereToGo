@@ -41,6 +41,7 @@ Não existe uma "API única da Defesa Civil". Cada órgão expõe (ou não) seus
 - Idempotência: o aviso tem `id_aviso` (estável) e `id_sequencia` (cresce a cada atualização, com `referencia` ao anterior). A chave é `id_aviso`.
 - Severidades do INMET → CAP: "Perigo Potencial" (amarelo) = *Moderate*, "Perigo" (laranja) = *Severe*, "Grande Perigo" (vermelho) = *Extreme*.
 - Os avisos são **macrorregionais**: cada polígono cobria de 387 a 4.216 municípios. **Não podem virar `AREA_RISCO`**. Isso marcaria todos os abrigos e todas as rotas da cidade como "em risco" em qualquer dia de tempestade, além de pintar o mapa inteiro.
+- **Um aviso por nível, com áreas encaixadas** (conferido em 24/11/2026): a Tempestade do dia tinha "Perigo Potencial" (3.476 municípios), "Perigo" (1.468) e "Grande Perigo" (642), mesmo período, cada lista contida na anterior e polígonos de um anel só, um dentro do outro. Um município no vermelho recebe os três. A tela unifica (ver §4.1, "Exibição").
 
 ---
 
@@ -95,7 +96,8 @@ flowchart LR
 | Arquivo | Papel |
 |---|---|
 | `src/modules/integracoes/inmet.ts` | Leitura e normalização do JSON do INMET (Zod por item, fuso `-03:00`, severidade, filtro por IBGE, link `avisos.inmet.gov.br/{id}`). Funções puras, testadas sem rede. |
-| `src/modules/integracoes/avisos.service.ts` | `sincronizarAvisosInmet()` (lock, *breaker*, upsert, encerramento), `listarAvisosVigentes()`, `obterEstadoIntegracao()`. |
+| `src/modules/integracoes/avisos.service.ts` | `sincronizarAvisosInmet()` (lock, *breaker*, upsert, encerramento), `listarAvisosVigentes()` (já unificada), `obterEstadoIntegracao()`. |
+| `src/modules/integracoes/avisos.unificacao.ts` | `unificarAvisos()`: tira da lista o nível menor que outro aviso do mesmo evento cobre. Função pura. |
 | `src/modules/integracoes/avisos.agendamento.ts` | `agendarSincronizacaoAvisos()`: verificação em memória + `after()` + `revalidateTag`. |
 | `src/modules/publico/publico.cache.ts` / `publico.mapa.ts` | Avisos em cache e campo `avisos` no `/api/public/mapa` (entra no ETag). |
 | `src/app/api/public/avisos/route.ts` | Lista pública de avisos vigentes (JSON). |
@@ -108,9 +110,21 @@ flowchart LR
 ```ini
 INTEGRACAO_AVISOS_INMET=true          # false desliga a consulta (avisos já salvos continuam até vencer)
 MUNICIPIO_CODIGO_IBGE=4314100         # Passo Fundo/RS
+MUNICIPIO_NOME=Passo Fundo            # nome no selo ("INMET · Passo Fundo"); opcional para 4314100
 INTERVALO_AVISOS_MIN=10               # intervalo mínimo entre consultas ao INMET
 INMET_AVISOS_URL=https://apiprevmet3.inmet.gov.br/avisos/ativos
 ```
+
+**Exibição (o que define quais avisos aparecem):**
+- **Critério: o município do servidor, não a posição da pessoa.** Fica o aviso cujo campo `geocodes` inclui `MUNICIPIO_CODIGO_IBGE`, vigente ou previsto, não vencido e não retirado pela fonte. O polígono não entra: o INMET já transforma o polígono na lista de municípios, incluindo inteiro o município que a borda corta. Em 24/11/2026, a borda mais próxima do centro de Passo Fundo estava a 37 km.
+- **Unificação** (`unificarAvisos`, aplicada em `listarAvisosVigentes`, de onde leem o mapa, o SSE, o painel de alertas e a faixa da coordenação). Um aviso some da tela quando outro aviso:
+  - é do **mesmo evento** (mesma fonte e mesmo `evento`, sem diferenciar maiúsculas, acentos e espaços);
+  - tem **nível igual ou maior**;
+  - vale durante **todo o período** dele.
+
+  No empate de nível e período, fica o mais recente.
+- **Garantia:** em qualquer instante, o nível mais alto de cada evento está na tela. Por isso, períodos que só se cruzam ficam os dois, e eventos diferentes nunca se juntam. Os avisos escondidos continuam gravados; se a fonte retirar o mais grave, o menor volta na leitura seguinte.
+- **Vários municípios** (Tarefa 5 de `plano-tarefas-pendentes.md`): a unificação vale para a lista de **um** município. O Grande Perigo de uma cidade não cobre a vizinha que só está no Perigo.
 
 **Pronto quando:**
 - um aviso real do INMET para Passo Fundo aparece no mapa e no painel após a primeira visita e some quando vence ou é retirado;
@@ -332,11 +346,13 @@ A Portaria MIDR 2.458/2026 diz que os alertas ficam em CAP "públicos para consu
 
 **Testes da Etapa 1:**
 - `tests/unit/inmet.test.ts`: leitura do JSON (fixture reduzida de um retorno real), fuso, severidade, filtro por IBGE, item inválido descartado, formato geral inválido rejeitado.
+- `tests/unit/avisos-unificacao.test.ts`: os três níveis no mesmo período, nível menor dentro do maior, períodos que só se cruzam, eventos e fontes diferentes, empates e o caso real da fixture (Perigo Potencial de 18/11 dentro do Perigo).
 - `tests/integration/avisos.test.ts` (PostGIS real, `fetch` simulado):
   - inserção e idempotência;
   - atualização por nova sequência;
   - encerramento do aviso que sumiu do feed;
   - vencido fora da lista;
+  - níveis do mesmo evento e período unificados no mais grave, e o menor de volta quando o mais grave é retirado;
   - *breaker* após 3 falhas;
   - abrigo **não** fica `emAreaDeRisco` por causa de aviso.
 

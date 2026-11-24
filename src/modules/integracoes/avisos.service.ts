@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { consultar, consultarUm, pool } from "@/lib/db";
-import { env } from "@/lib/env";
+import { env, resolverNomeMunicipio } from "@/lib/env";
+import { unificarAvisos } from "./avisos.unificacao";
 import { baixarAvisosInmet, FONTE_INMET, lerAvisosInmet, type AvisoNormalizado, type SeveridadeAviso } from "./inmet";
 
 // Avisos oficiais (INMET): sincronização sob demanda e leitura para o mapa e o painel.
@@ -55,6 +56,12 @@ export interface AvisoOficial {
   instrucoes: string[];
   link: string | null;
   atualizadoEm: Date;
+  /**
+   * Município para o qual o aviso foi listado. O selo diz "INMET · Passo Fundo"
+   * em vez de só "INMET": quem abre o link de longe sabe de onde é o aviso.
+   * `nome` nulo: código trocado sem `MUNICIPIO_NOME` (ver `resolverNomeMunicipio`).
+   */
+  municipio: { codigoIbge: string; nome: string | null };
 }
 
 function mensagemDe(erro: unknown): string {
@@ -225,9 +232,16 @@ export async function sincronizarAvisosInmet(opcoes: OpcoesSincronizacao = {}): 
   }
 }
 
-/** Avisos vigentes e previstos (ainda não vencidos), os em vigor e mais graves primeiro. */
-export function listarAvisosVigentes(): Promise<AvisoOficial[]> {
-  return consultar<AvisoOficial>(
+/**
+ * Avisos vigentes e previstos (ainda não vencidos), os em vigor e mais graves
+ * primeiro. Unificados (`unificarAvisos`): um nível menor do mesmo evento e
+ * período fica dentro do mais grave. Todas as telas leem daqui: mapa, SSE,
+ * painel de alertas e faixa da coordenação.
+ */
+export async function listarAvisosVigentes(): Promise<AvisoOficial[]> {
+  const config = env();
+  const municipio = { codigoIbge: config.MUNICIPIO_CODIGO_IBGE, nome: resolverNomeMunicipio(config.MUNICIPIO_CODIGO_IBGE, config.MUNICIPIO_NOME) };
+  const avisos = await consultar<Omit<AvisoOficial, "municipio">>(
     `SELECT id, fonte, evento, severidade, rotulo_severidade AS "rotuloSeveridade",
             inicio, fim, riscos, instrucoes, link, atualizado_em AS "atualizadoEm"
        FROM aviso_oficial
@@ -236,6 +250,7 @@ export function listarAvisosVigentes(): Promise<AvisoOficial[]> {
                CASE severidade WHEN 'EXTREMA' THEN 3 WHEN 'SEVERA' THEN 2 ELSE 1 END DESC,
                inicio, id`,
   );
+  return unificarAvisos(avisos).map((aviso) => ({ ...aviso, municipio }));
 }
 
 /** Situação da consulta ao INMET, para o painel. */

@@ -1,6 +1,6 @@
 import { consultar, consultarUm } from "@/lib/db";
 import { erros } from "@/lib/http";
-import { extrairCidade, gerarPayloadPixBrCode } from "@/lib/pix";
+import { cidadeDoBrCode, gerarPayloadPixBrCode } from "@/lib/pix";
 import { escaparIlike } from "@/lib/sql";
 import { booleanoQuery, esquemaId, textoObrigatorio, textoOpcional, z } from "@/lib/validacao";
 import { linksNavegacao, resumirOcupacao } from "../abrigos/ocupacao";
@@ -97,6 +97,8 @@ export interface LinhaAbrigoPublico {
   ocorrencias: { tipo: TipoOcorrencia; gravidade: Gravidade }[];
   emAreaDeRisco: boolean;
   rotaCruzaAreaRisco: boolean;
+  /** Cidade do abrigo (cadastro), usada no BR Code do PIX. Não vai para a lista do mapa. */
+  municipioNome: string;
 }
 
 const SQL_ABRIGOS_PUBLICOS = `
@@ -106,6 +108,7 @@ const SQL_ABRIGOS_PUBLICOS = `
          a.aceita_pets AS "aceitaPets", a.acessivel_pcd AS "acessivelPcd",
          a.atualizado_em AS "atualizadoEm",
          a.chave_pix AS "chavePix", a.titular_pix AS "titularPix",
+         mun.nome AS "municipioNome",
          CASE WHEN $1::float8 IS NULL THEN NULL
               ELSE round((ST_Distance(a.localizacao, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography) / 1000)::numeric, 2)
          END AS "distanciaKm",
@@ -134,6 +137,7 @@ const SQL_ABRIGOS_PUBLICOS = `
               )
          END AS "rotaCruzaAreaRisco"
     FROM abrigo a
+    JOIN municipio mun ON mun.codigo_ibge = a.municipio_ibge
     LEFT JOIN LATERAL (
       SELECT json_agg(json_build_object('id', i.id, 'nome', i.nome_micro, 'categoria', c.slug) ORDER BY i.nome_micro)
                FILTER (WHERE s.codigo = 'URGENTE') AS urgentes,
@@ -274,12 +278,12 @@ export async function buscarAbrigoPublico(id: number) {
     emAreaDeRisco: resumo.emAreaDeRisco,
     atualizadoEm: resumo.atualizadoEm,
     // BR Code ("copia e cola") montado no servidor a partir da chave oficial e
-    // da cidade do endereço; o QR é desenhado no navegador a partir dele.
+    // da cidade do abrigo (cadastro); o QR é desenhado no navegador a partir dele.
     pix: linha.chavePix
       ? {
           chave: linha.chavePix,
           titular: linha.titularPix,
-          brCode: gerarPayloadPixBrCode(linha.chavePix, linha.titularPix, extrairCidade(linha.endereco)),
+          brCode: gerarPayloadPixBrCode(linha.chavePix, linha.titularPix, cidadeDoBrCode(linha.municipioNome)),
         }
       : null,
     rotas: linksNavegacao(linha.latitude, linha.longitude),

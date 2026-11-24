@@ -21,6 +21,17 @@ const esquemaEnv = z.object({
     .transform((valor) => valor === "true" || valor === "1"),
   /** Município dos avisos (código IBGE de 7 dígitos). 4314100 = Passo Fundo/RS. */
   MUNICIPIO_CODIGO_IBGE: z.string().regex(/^\d{7}$/, "MUNICIPIO_CODIGO_IBGE deve ter 7 dígitos").default("4314100"),
+  /**
+   * Nome do município, exibido com os avisos ("INMET · Passo Fundo: ..."). Sem
+   * ele, vale "Passo Fundo" só se o código for o de Passo Fundo (ver
+   * `resolverNomeMunicipio`). Vazio conta como ausente.
+   */
+  MUNICIPIO_NOME: z
+    .string()
+    .trim()
+    .max(80, "MUNICIPIO_NOME deve ter até 80 caracteres")
+    .optional()
+    .transform((valor) => valor || undefined),
   /** Intervalo mínimo entre consultas ao INMET, em minutos. */
   INTERVALO_AVISOS_MIN: z.coerce.number().int().min(5).max(180).default(10),
   INMET_AVISOS_URL: z.url().default("https://apiprevmet3.inmet.gov.br/avisos/ativos"),
@@ -35,6 +46,18 @@ const esquemaEnv = z.object({
 });
 
 export type Env = z.infer<typeof esquemaEnv>;
+
+const CODIGO_PASSO_FUNDO = "4314100";
+
+/**
+ * Nome a exibir para o município configurado. Sem `MUNICIPIO_NOME`, só o
+ * código padrão (Passo Fundo) tem nome: quem trocar o código e esquecer o nome
+ * vê os avisos sem cidade, e não com a cidade errada.
+ */
+export function resolverNomeMunicipio(codigoIbge: string, nomeConfigurado: string | undefined): string | null {
+  if (nomeConfigurado) return nomeConfigurado;
+  return codigoIbge === CODIGO_PASSO_FUNDO ? "Passo Fundo" : null;
+}
 
 let envValidado: Env | null = null;
 
