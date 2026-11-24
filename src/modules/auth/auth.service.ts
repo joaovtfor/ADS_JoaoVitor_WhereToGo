@@ -176,6 +176,8 @@ export type ResultadoAutenticacaoGoogle =
 export async function autenticarComGoogle(
   dados: z.infer<typeof esquemaLoginGoogle>,
   ip: string | null,
+  /** Nonce do cookie deste navegador; o ID Token real precisa trazer o mesmo. */
+  nonceGoogle: string | null = null,
 ): Promise<ResultadoAutenticacaoGoogle> {
   const espera = ip ? limitadorGoogle.segundosBloqueado(ip) : 0;
   if (espera > 0) {
@@ -184,7 +186,7 @@ export async function autenticarComGoogle(
 
   let perfil: Awaited<ReturnType<typeof obterPerfilGoogle>>;
   try {
-    perfil = await obterPerfilGoogle(dados);
+    perfil = await obterPerfilGoogle(dados, nonceGoogle);
   } catch (erro) {
     if (ip) limitadorGoogle.registrarFalha(ip);
     throw erro;

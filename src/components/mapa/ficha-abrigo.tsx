@@ -27,6 +27,8 @@ interface PropriedadesFichaAbrigo {
   posicaoNaLista: { indice: number; total: number };
   /** Localização já obtida (GPS), usada como ponto de partida da rota. */
   posicaoUsuario: Posicao | null;
+  /** Versão dos dados do mapa: quando muda, a ficha recarrega os detalhes. */
+  versaoDados: string | null;
   /** Lê a localização na hora, quando ainda não há uma. `null` se não for possível. */
   obterOrigemRota: () => Promise<Posicao | null>;
   onNavegar: (direcao: -1 | 1) => void;
@@ -48,21 +50,32 @@ function urlRotaGoogle(base: string, origem: Posicao | null): string {
   return url.toString();
 }
 
-/** Detalhes do card (rotas, PIX, ocorrências): carregados ao abrir, com cancelamento ao trocar de abrigo. */
-function useDetalheAbrigo(id: number) {
+/**
+ * Detalhes do card (rotas, PIX, ocorrências): carregados ao abrir e de novo a
+ * cada versão nova do mapa (tempo real), com cancelamento ao trocar de abrigo.
+ * A versão vai na URL: cada versão é uma entrada nova na CDN, que de outro
+ * modo poderia devolver a ficha de antes da mudança.
+ */
+function useDetalheAbrigo(id: number, versaoDados: string | null) {
   const [resultado, setResultado] = useState<{ id: number; dados: DetalheAbrigoPublico | null } | null>(null);
 
   useEffect(() => {
     const controlador = new AbortController();
-    fetch(`/api/public/abrigos/${id}`, { signal: controlador.signal })
-      .then(async (resposta) => (resposta.ok ? ((await resposta.json()) as { dados: DetalheAbrigoPublico }).dados : null))
-      .then((dados) => setResultado({ id, dados }))
+    const url = `/api/public/abrigos/${id}${versaoDados ? `?v=${encodeURIComponent(versaoDados)}` : ""}`;
+    // Falhou ao atualizar: continua com os detalhes que já estavam na tela.
+    const manterOuVazio = (atual: typeof resultado) => (atual?.id === id && atual.dados ? atual : { id, dados: null });
+    fetch(url, { signal: controlador.signal })
+      .then(async (resposta) => {
+        if (!resposta.ok) return setResultado(manterOuVazio);
+        const { dados } = (await resposta.json()) as { dados: DetalheAbrigoPublico };
+        setResultado({ id, dados });
+      })
       .catch(() => {
         // Sem rede: a ficha segue com os dados da listagem (rotas montadas abaixo).
-        if (!controlador.signal.aborted) setResultado({ id, dados: null });
+        if (!controlador.signal.aborted) setResultado(manterOuVazio);
       });
     return () => controlador.abort();
-  }, [id]);
+  }, [id, versaoDados]);
 
   const doAbrigoAtual = resultado?.id === id ? resultado : null;
   return { detalhe: doAbrigoAtual?.dados ?? null, carregando: doAbrigoAtual === null };
@@ -108,12 +121,13 @@ export function FichaAbrigo({
   itemFiltroId,
   posicaoNaLista,
   posicaoUsuario,
+  versaoDados,
   obterOrigemRota,
   onNavegar,
   navegacao,
   onFechar,
 }: PropriedadesFichaAbrigo) {
-  const { detalhe, carregando } = useDetalheAbrigo(abrigo.id);
+  const { detalhe, carregando } = useDetalheAbrigo(abrigo.id, versaoDados);
   const { mostrar: mostrarToast } = useToast();
   const [resumoCopiado, setResumoCopiado] = useState(false);
   const [obtendoOrigem, setObtendoOrigem] = useState(false);

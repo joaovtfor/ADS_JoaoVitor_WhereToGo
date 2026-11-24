@@ -224,7 +224,7 @@ O mapa é o conteúdo. Tudo que flutua sobre ele precisa justificar o espaço qu
 1. **Dados iniciais no HTML.** A página `/` (`src/app/page.tsx`) lê abrigos, alertas e categorias no servidor e entrega a tela pronta. O navegador não faz nenhuma requisição de dados para a primeira visão do mapa.
 2. **Sem bloqueio de autenticação no cliente.** O layout do painel (`src/app/admin/layout.tsx`) confere a sessão e busca perfil e abrigos no servidor; cabeçalho e navegação chegam prontos no HTML.
 3. **Pinos estáveis.** O mapa mantém um marcador por abrigo e atualiza só o que mudou; estilos por classe CSS, não por HTML com `style` embutido.
-4. **Atualização barata.** Um único endpoint (`/api/public/mapa`) com `ETag`: quando nada mudou, a resposta é um `304` sem corpo e nada é redesenhado nem gravado no navegador.
+4. **Atualização barata.** Enquanto a aba está visível e em uso, o mapa recebe cada mudança em tempo real (SSE, `/api/public/mapa/eventos`), só quando algo muda. Com a aba parada há 15 min ou oculta, a conexão fecha e vale o polling de um único endpoint (`/api/public/mapa`) com `ETag`: quando nada mudou, a resposta é um `304` sem corpo e nada é redesenhado nem gravado no navegador. Os dois caminhos usam a mesma versão.
 5. **Movimento só com `transform` e `opacity`.** Arraste de folha por `transform`, sem re-renderizar o conteúdo a cada quadro.
 6. **Busca com debounce** de 250 a 300 ms e cancelamento da requisição anterior (`AbortController`).
 7. **Atualização otimista** nos botões de quantidade: o número muda no toque e volta atrás só se a API recusar.

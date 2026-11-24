@@ -13,7 +13,7 @@ function extrairToken(req: NextRequest): string | null {
   return req.cookies.get(COOKIE_SESSAO)?.value ?? null;
 }
 
-function requisicaoEhHttps(req?: Request): boolean {
+export function requisicaoEhHttps(req?: Request): boolean {
   if (!req) return process.env.NODE_ENV === "production";
   const proto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   if (proto === "https") return true;

@@ -67,9 +67,10 @@ Listagens paginadas (`?pagina=1&tamanho=50`, máx. 200):
 | GET | `/api/public/categorias` | RF08 - categorias e itens ativos para o menu de filtros |
 | GET | `/api/public/alertas` | RF09 - ocorrências ativas com coordenadas (`formato=json\|geojson`) |
 | GET | `/api/public/mapa` | Abrigos, alertas e `avisos` (INMET) numa resposta só, com ETag (304 sem corpo quando nada mudou). Query: `lat`, `lng`, `raioKm` |
+| GET | `/api/public/mapa/eventos` | Tempo real (Server-Sent Events, `text/event-stream`). Evento `mapa` (`{ versao, abrigos, alertas, avisos }`, o mesmo conteúdo e a mesma versão de `/mapa`) e evento `categorias` (`{ versao, categorias }`), cada um só quando muda. Query: `lat`, `lng`, `raioKm`, `versao` e `versaoCategorias` (o que o navegador já tem); na reconexão, o cabeçalho `Last-Event-ID` traz as duas versões. Cada conexão dura 4 min e o navegador reconecta sozinho. Erros saem como JSON antes de abrir o fluxo: `503 TEMPO_REAL_DESLIGADO` (`MAPA_TEMPO_REAL=false`), `503 MAPA_INDISPONIVEL`, `429` (mais de 10 conexões do mesmo IP) |
 | GET | `/api/public/avisos` | Avisos meteorológicos oficiais do INMET vigentes ou previstos para o município: `evento`, `severidade` (`MODERADA\|SEVERA\|EXTREMA`), `rotuloSeveridade`, `inicio`, `fim`, `riscos`, `instrucoes`, `link` |
 
-As leituras de `/api/public/mapa`, `/api/public/avisos` e `/api/integracoes/avisos` também disparam, depois da resposta, a consulta ao INMET quando a última tem mais de `INTERVALO_AVISOS_MIN` (ver `.specs/plano-integracao-defesa-civil.md` §3).
+As leituras de `/api/public/mapa`, `/api/public/mapa/eventos` (ao fechar a conexão), `/api/public/avisos` e `/api/integracoes/avisos` também disparam, depois da resposta, a consulta ao INMET quando a última tem mais de `INTERVALO_AVISOS_MIN` (ver `.specs/plano-integracao-defesa-civil.md` §3).
 
 Regras do filtro (RF08): `destaque: true` quando o abrigo tem item **URGENTE** na categoria/item escolhido; itens **BLOQUEADOS** nunca geram destaque. Ordenação: destacados primeiro, depois menor distância (PostGIS). Dados pessoais e quantidades de estoque **não** são expostos.
 

@@ -24,6 +24,14 @@ const esquemaEnv = z.object({
   /** Intervalo mínimo entre consultas ao INMET, em minutos. */
   INTERVALO_AVISOS_MIN: z.coerce.number().int().min(5).max(180).default(10),
   INMET_AVISOS_URL: z.url().default("https://apiprevmet3.inmet.gov.br/avisos/ativos"),
+
+  // Mapa público em tempo real (SSE, /api/public/mapa/eventos). "false" desliga:
+  // o mapa volta a consultar /api/public/mapa a cada 30 s a 2 min, com a CDN na
+  // frente. Chave de segurança para a cota da Vercel (vale no próximo deploy).
+  MAPA_TEMPO_REAL: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((valor) => valor === "true" || valor === "1"),
 });
 
 export type Env = z.infer<typeof esquemaEnv>;

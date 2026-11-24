@@ -1,6 +1,5 @@
-import { revalidateTag } from "next/cache";
 import { after } from "next/server";
-import { TAG_DADOS_PUBLICOS } from "@/lib/cache";
+import { invalidarDadosPublicos } from "@/lib/cache";
 import { env } from "@/lib/env";
 import { sincronizarAvisosInmet } from "./avisos.service";
 
@@ -16,8 +15,9 @@ let proximaVerificacao = 0;
  * Chamado pelas rotas que leem avisos (mapa público, lista de avisos, painel).
  * Se for hora, consulta o INMET DEPOIS de enviar a resposta (`after`): o
  * visitante nunca espera a fonte externa. Havendo mudança, invalida o cache
- * público. O `revalidateTag` dentro do `after()` de um Route Handler é
- * executado pelo Next ao fim da tarefa.
+ * público e avisa o mapa em tempo real. O `revalidateTag` dentro do `after()`
+ * de um Route Handler é executado pelo Next ao fim da tarefa. Na conexão de
+ * tempo real (SSE), o `after()` só roda quando a conexão fecha (até 4 min).
  */
 export function agendarSincronizacaoAvisos(): void {
   const agora = Date.now();
@@ -29,7 +29,7 @@ export function agendarSincronizacaoAvisos(): void {
     try {
       const resultado = await sincronizarAvisosInmet();
       if (resultado.situacao === "ok" && resultado.alterados > 0) {
-        revalidateTag(TAG_DADOS_PUBLICOS, { expire: 0 });
+        invalidarDadosPublicos();
       }
     } catch (erro) {
       // Banco indisponível, por exemplo: a próxima verificação tenta de novo.

@@ -1,11 +1,23 @@
 import { calcularEtag } from "@/lib/etag";
+import type { AvisoOficial } from "../integracoes/avisos.service";
 import {
   listarAbrigosPublicosEmCache,
   listarAlertasPublicosEmCache,
   listarAvisosVigentesEmCache,
   listarCategoriasPublicasEmCache,
 } from "./publico.cache";
-import { esquemaFiltroMapa, type FiltroMapa } from "./publico.service";
+import { esquemaFiltroMapa, type AbrigoPublico, type AlertaPublico, type FiltroMapa } from "./publico.service";
+
+/**
+ * Resposta do mapa (abrigos, alertas e avisos) com o ETag do conteúdo. A mesma
+ * função monta a resposta de `/api/public/mapa` e os eventos do tempo real:
+ * os mesmos dados geram a mesma versão nos dois caminhos, e o navegador pode
+ * trocar de um para o outro sem baixar o mapa de novo.
+ */
+export function montarRespostaMapa(abrigos: AbrigoPublico[], alertas: AlertaPublico[], avisos: AvisoOficial[]) {
+  const dados = { abrigos, alertas, avisos };
+  return { dados, etag: calcularEtag(dados) };
+}
 
 /**
  * Tudo o que o mapa público redesenha a cada atualização, em uma resposta só:
@@ -18,8 +30,7 @@ export async function obterMapaPublico(filtros: FiltroMapa) {
     listarAlertasPublicosEmCache(),
     listarAvisosVigentesEmCache(),
   ]);
-  const dados = { abrigos, alertas, avisos };
-  return { dados, etag: calcularEtag(dados) };
+  return montarRespostaMapa(abrigos, alertas, avisos);
 }
 
 /**

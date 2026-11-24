@@ -140,7 +140,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   const [focoCoordenada, setFocoCoordenada] = useState<{ lat: number; lng: number; tick: number } | null>(null);
   const [autoSelecao, setAutoSelecao] = useState<MotivoAutoSelecao | null>(null);
 
-  const { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, recarregar } = useDadosMapa(
+  const { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, versao, recarregar } = useDadosMapa(
     posicaoUsuario,
     raioKm,
     inicial,
@@ -544,6 +544,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             itemFiltroId={itemFiltroId}
             posicaoNaLista={{ indice: Math.max(0, indiceSelecionado), total: abrigosFiltrados.length }}
             posicaoUsuario={posicaoUsuario}
+            versaoDados={versao}
             obterOrigemRota={obterOrigemRota}
             onNavegar={navegarAbrigoVizinho}
             navegacao={navegacaoDa("abrigo")}

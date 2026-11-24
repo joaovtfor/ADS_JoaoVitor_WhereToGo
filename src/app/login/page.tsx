@@ -9,8 +9,9 @@ import { Campo, CLASSES_CAMPO } from "@/components/ui/campo";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
 import { Logo } from "@/components/ui/logo";
+import { useTema } from "@/components/ui/tema";
 import type { Papel } from "@/lib/auth/permissoes";
-import { api, mensagemErro } from "@/lib/cliente-api";
+import { api, ErroClienteApi, mensagemErro } from "@/lib/cliente-api";
 
 interface RespostaLogin {
   token: string;
@@ -49,6 +50,8 @@ type RespostaGoogle =
 interface ConfigGoogle {
   clientId: string | null;
   modoSimulado: boolean;
+  /** Valor aleatório deste navegador que volta dentro do token do Google (ver `src/lib/auth/google.ts`). */
+  nonce: string | null;
 }
 
 interface AbrigoPublicoResumo {
@@ -57,6 +60,10 @@ interface AbrigoPublicoResumo {
   endereco: string;
 }
 
+/**
+ * Google Identity Services (https://accounts.google.com/gsi/client): só o que
+ * esta tela usa. Referência: developers.google.com/identity/gsi/web/reference/js-reference
+ */
 declare global {
   interface Window {
     google?: {
@@ -64,18 +71,26 @@ declare global {
         id: {
           initialize: (config: {
             client_id: string;
-            callback: (response: { credential: string }) => void;
+            callback: (response: { credential: string; select_by?: string }) => void;
+            nonce?: string;
+            context?: "signin" | "signup" | "use";
+            ux_mode?: "popup" | "redirect";
+            itp_support?: boolean;
             auto_select?: boolean;
             cancel_on_tap_outside?: boolean;
           }) => void;
           prompt: () => void;
+          cancel: () => void;
           renderButton: (
             parent: HTMLElement,
             options: {
+              type?: "standard" | "icon";
               theme?: "outline" | "filled_blue" | "filled_black";
               size?: "large" | "medium" | "small";
               text?: "signin_with" | "signup_with" | "continue_with";
               shape?: "rectangular" | "pill";
+              logo_alignment?: "left" | "center";
+              locale?: string;
               width?: number;
             },
           ) => void;
@@ -84,6 +99,9 @@ declare global {
     };
   }
 }
+
+/** Largura máxima que o Google aceita para o botão. */
+const LARGURA_MAXIMA_BOTAO_GOOGLE = 400;
 
 const CONTAS_DEMONSTRACAO = [
   {
@@ -149,11 +167,10 @@ export default function PaginaLogin() {
   const [erro, setErro] = useState<string | null>(null);
 
   // Login com Google e auto-cadastro de voluntário
-  const [configGoogle, setConfigGoogle] = useState<ConfigGoogle>({
-    clientId: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? null,
-    modoSimulado: false,
-  });
+  const [configGoogle, setConfigGoogle] = useState<ConfigGoogle>({ clientId: null, modoSimulado: false, nonce: null });
   const [scriptGooglePronto, setScriptGooglePronto] = useState(false);
+  const [falhaScriptGoogle, setFalhaScriptGoogle] = useState(false);
+  const { temaEfetivo } = useTema();
   const [abrigos, setAbrigos] = useState<AbrigoPublicoResumo[]>([]);
   const [idAbrigoCadastro, setIdAbrigoCadastro] = useState<number | "">("");
 
@@ -176,6 +193,16 @@ export default function PaginaLogin() {
 
   const containerBotaoGoogleRef = useRef<HTMLDivElement | null>(null);
 
+  /** Client ID, modo simulado e o nonce deste navegador. Chamado de novo se o nonce vencer. */
+  const carregarConfigGoogle = useCallback(async () => {
+    try {
+      const cfg = await api<ConfigGoogle>("/api/auth/google");
+      setConfigGoogle({ clientId: cfg.clientId, modoSimulado: cfg.modoSimulado, nonce: cfg.nonce });
+    } catch {
+      // Sem a configuração, a tela segue só com e-mail e senha.
+    }
+  }, []);
+
   useEffect(() => {
     let ativo = true;
     if (new URLSearchParams(window.location.search).get("sessao") === "expirada") {
@@ -191,17 +218,7 @@ export default function PaginaLogin() {
         // Não autenticado: permanece na tela de login.
       });
 
-    api<ConfigGoogle>("/api/auth/google")
-      .then((cfg) => {
-        if (!ativo) return;
-        setConfigGoogle({
-          clientId: cfg.clientId ?? process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? null,
-          modoSimulado: cfg.modoSimulado,
-        });
-      })
-      .catch(() => {
-        // Ignora falha silenciosamente
-      });
+    void Promise.resolve().then(carregarConfigGoogle);
 
     api<AbrigoPublicoResumo[]>("/api/public/abrigos")
       .then((lista) => {
@@ -216,7 +233,7 @@ export default function PaginaLogin() {
     return () => {
       ativo = false;
     };
-  }, []);
+  }, [carregarConfigGoogle]);
 
   const autenticarViaGoogle = useCallback(
     async (opcoes: {
@@ -265,37 +282,61 @@ export default function PaginaLogin() {
       } catch (err) {
         setErro(mensagemErro(err));
         setCarregando(false);
+        // Nonce vencido (página aberta há muito tempo): pega um novo e reinicia o
+        // Google, para o próximo toque funcionar sem recarregar a página.
+        if (err instanceof ErroClienteApi && err.codigo === "GOOGLE_NONCE_INVALIDO") {
+          setCredencialPendente(null);
+          void carregarConfigGoogle();
+        }
       }
     },
-    [],
+    [carregarConfigGoogle],
   );
 
-  // Inicializa o Google Identity Services real quando há clientId configurado
+  // Google Identity Services real (há Client ID): One Tap no canto da tela.
+  // Reinicia quando o nonce muda; ao sair da página, fecha o One Tap.
   useEffect(() => {
-    if (!configGoogle.clientId || !scriptGooglePronto || !window.google?.accounts?.id) return;
+    const gsi = window.google?.accounts?.id;
+    if (!configGoogle.clientId || !configGoogle.nonce || !scriptGooglePronto || !gsi) return;
 
-    window.google.accounts.id.initialize({
+    gsi.initialize({
       client_id: configGoogle.clientId,
+      nonce: configGoogle.nonce,
       callback: (response) => {
         void autenticarViaGoogle({ credential: response.credential });
       },
+      context: "signin",
+      ux_mode: "popup",
+      // Safari e Firefox bloqueiam cookies de terceiros: o Google usa outro fluxo de One Tap lá.
+      itp_support: true,
       auto_select: false,
       cancel_on_tap_outside: false,
     });
+    gsi.prompt();
+    return () => gsi.cancel();
+  }, [configGoogle.clientId, configGoogle.nonce, scriptGooglePronto, autenticarViaGoogle]);
 
-    window.google.accounts.id.prompt();
+  // Botão "Continuar com o Google" (para quem fechou o One Tap ou não o viu).
+  // Redesenhado ao trocar de tema e quando a tela volta da escolha de abrigo,
+  // que desmonta o espaço do botão.
+  const mostrandoFormularioPrincipal = credencialPendente === null;
+  useEffect(() => {
+    const gsi = window.google?.accounts?.id;
+    const container = containerBotaoGoogleRef.current;
+    if (!configGoogle.clientId || !configGoogle.nonce || !scriptGooglePronto || !gsi || !container || !mostrandoFormularioPrincipal) return;
 
-    if (containerBotaoGoogleRef.current) {
-      containerBotaoGoogleRef.current.innerHTML = "";
-      window.google.accounts.id.renderButton(containerBotaoGoogleRef.current, {
-        theme: "filled_black",
-        size: "large",
-        text: "continue_with",
-        shape: "rectangular",
-        width: 360,
-      });
-    }
-  }, [configGoogle.clientId, scriptGooglePronto, autenticarViaGoogle]);
+    container.replaceChildren();
+    gsi.renderButton(container, {
+      type: "standard",
+      theme: temaEfetivo === "claro" ? "outline" : "filled_black",
+      size: "large",
+      text: "continue_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      locale: "pt-BR",
+      width: Math.min(LARGURA_MAXIMA_BOTAO_GOOGLE, container.clientWidth || 360),
+    });
+  }, [configGoogle.clientId, configGoogle.nonce, scriptGooglePronto, temaEfetivo, mostrandoFormularioPrincipal]);
 
   async function submeter(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -378,7 +419,13 @@ export default function PaginaLogin() {
   return (
     <div className="flex min-h-dvh flex-col bg-fundo px-4 py-4 text-texto sm:px-6">
       {configGoogle.clientId && (
-        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" onLoad={() => setScriptGooglePronto(true)} />
+        <Script
+          src="https://accounts.google.com/gsi/client"
+          strategy="afterInteractive"
+          // onReady (e não onLoad): também dispara quando o script já estava carregado (voltar para esta tela).
+          onReady={() => setScriptGooglePronto(true)}
+          onError={() => setFalhaScriptGoogle(true)}
+        />
       )}
 
       <header className="mx-auto flex w-full max-w-sm items-center justify-between">
@@ -486,7 +533,13 @@ export default function PaginaLogin() {
             </div>
 
             {configGoogle.clientId ? (
-              <div ref={containerBotaoGoogleRef} className="flex min-h-11 justify-center" />
+              falhaScriptGoogle ? (
+                <p role="status" className="text-center text-meta text-texto-2">
+                  Não foi possível carregar o login com Google. Verifique a conexão ou se um bloqueador de conteúdo está impedindo o acesso a accounts.google.com.
+                </p>
+              ) : (
+                <div ref={containerBotaoGoogleRef} className="flex min-h-11 justify-center" />
+              )
             ) : (
               <Botao aria-expanded={formularioGoogleAberto} onClick={() => setModalNovoGoogleAberto((v) => !v)} className="w-full">
                 <IconeGoogle />

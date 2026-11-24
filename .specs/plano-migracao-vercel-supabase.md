@@ -99,7 +99,7 @@ Fazer nesta ordem. Os nomes de menu podem variar um pouco entre versões dos pai
    | `JWT_SECRET` | nova, com 32+ caracteres: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
    | `JWT_EXPIRES_IN` | `8h` |
    | `PROXIES_CONFIAVEIS` | `1` |
-   | `GOOGLE_CLIENT_ID`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, `PERMITIR_GOOGLE_SIMULADO` | os mesmos do Render, se estiverem definidos lá (aba Environment do serviço) |
+   | `GOOGLE_CLIENT_ID` | o Client ID do Google, se o login com Google estiver configurado (`.specs/guia-google-one-tap.md`). O "Google simulado" não existe em produção, então `PERMITIR_GOOGLE_SIMULADO` não é necessária. |
 
    Não defina `NODE_ENV` (a Vercel já usa `production`). As variáveis do INMET têm padrão e são opcionais.
 8. Clicar em **Deploy**. Esse primeiro deploy vem da importação e pode falhar ou abrir sem dados (o banco ainda está vazio): pode ignorar, a pipeline substitui.
@@ -113,7 +113,7 @@ Fazer nesta ordem. Os nomes de menu podem variar um pouco entre versões dos pai
 13. **Variables:** `DEPLOY_VERCEL` = `true`; `URL_PRODUCAO_VERCEL` = `https://<nome>.vercel.app` (sem barra no fim).
 
 ### 6.4 Google Cloud (só se o login real do Google estiver configurado)
-14. **APIs & Services → Credentials →** cliente OAuth → **Authorized JavaScript origins:** adicionar `https://<nome>.vercel.app`.
+14. **APIs & Services → Credentials →** cliente OAuth → **Authorized JavaScript origins:** adicionar `https://<nome>.vercel.app`. Passo a passo completo: `.specs/guia-google-one-tap.md`.
 
 ### 6.5 Primeiro deploy
 15. Enviar o commit da Fase 1 para a `main` (o Render também recebe e aplica as migrations 0014/0015 no boot, sem efeito visível).
@@ -126,6 +126,7 @@ Fazer nesta ordem. Os nomes de menu podem variar um pouco entre versões dos pai
 - [ ] No Supabase (Table Editor ou SQL): `schema_migrations` tem 15 linhas e `usuario` tem as contas de demonstração.
 - [ ] Login pelas contas de demonstração (coordenador, voluntário, admin, defesa civil) e pelo Google, se configurado.
 - [ ] Mapa público, ficha do abrigo, PIX, filtros, "perto de mim".
+- [ ] Mapa em tempo real: com o mapa aberto num celular, mudar a lotação ou um item no painel (outro aparelho) e ver a mudança chegar em até ~3 s, sem recarregar. Em DevTools → Network, `/api/public/mapa/eventos` aparece como `eventsource`.
 - [ ] Painel: dashboard, inventário (entrada/saída/estorno), abrigados, ocorrências, relatórios CSV e FIDE.
 - [ ] Avisos do INMET: no Supabase, `integracao_estado` com `ultima_tentativa` recente e `em_andamento_ate` vazio.
 - [ ] Logout e, em seguida, o mesmo token recusado (já coberto pelos testes; conferir uma vez na Vercel).
@@ -162,7 +163,8 @@ Sem dados a migrar (decisão 1). Basta:
 ## 10. Limitações aceitas no MVP
 
 - **Limitador de tentativas por instância** (`src/lib/limitador.ts`): o limite efetivo cresce com o número de instâncias. Com o tráfego do MVP, a Vercel usa poucas instâncias. Evolução: guardar as contagens no banco ou usar o firewall da Vercel.
-- **Cache do mapa público por instância** (`src/modules/publico/publico.cache.ts`): em serverless, o `revalidateTag` não chega às outras instâncias. Quem segura a carga é a CDN (`s-maxage=10, stale-while-revalidate=60`), então uma mudança de status pode levar de alguns segundos a ~1 min para aparecer no mapa público. No Render ela aparecia na hora. Evolução: `use cache: remote` (tem custo) ou reduzir o `stale-while-revalidate`.
+- **Cache do mapa público por instância** (`src/modules/publico/publico.cache.ts`): em serverless, o `revalidateTag` não chega às outras instâncias. Quem segura a carga é a CDN (`s-maxage=10, stale-while-revalidate=60`), então, no polling, uma mudança de status pode levar de alguns segundos a ~1 min para aparecer no mapa público. O tempo real (SSE) lê o banco direto e não tem esse atraso (~3 s); o polling só vale com a aba parada há 15 min. Evolução: `use cache: remote` (tem custo) ou reduzir o `stale-while-revalidate`.
+- **Mapa em tempo real e cota da Vercel** (`src/modules/publico/publico.tempo-real.ts`): cada conexão SSE mantém uma função ativa. O plano Hobby inclui 360 GB-h de memória provisionada (com 2 GB por instância, ~180 h/mês com pelo menos uma conexão aberta; conexões simultâneas dividem a mesma instância). Por isso a conexão fecha com a aba oculta ou sem uso por 15 min, e cada IP abre no máximo 10 por instância. Acompanhar em **Usage → Fluid Provisioned Memory**; se chegar perto do limite, `MAPA_TEMPO_REAL=false` nas variáveis da Vercel + novo deploy desliga o tempo real (o mapa volta ao polling).
 - **Versão do Postgres:** o CI usa a imagem `postgis/postgis:16`. Se o projeto Supabase for criado em outra versão principal (ex.: 17), alinhar a imagem do CI.
 
 ## 11. Volta atrás (rollback)

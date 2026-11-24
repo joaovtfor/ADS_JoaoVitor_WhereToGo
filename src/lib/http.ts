@@ -1,6 +1,5 @@
-import { revalidateTag } from "next/cache";
 import { connection, type NextRequest } from "next/server";
-import { TAG_DADOS_PUBLICOS } from "./cache";
+import { invalidarDadosPublicos } from "./cache";
 import type { LimitadorTentativas } from "./limitador";
 import { z } from "./validacao";
 
@@ -170,13 +169,14 @@ function aplicarCachePadrao(resposta: Response): Response {
 
 /**
  * Escrita bem-sucedida (estoque, lotação, ocorrências, abrigos, catálogo...)
- * invalida o cache das rotas públicas: a próxima leitura do mapa busca no
- * banco (RF03 - reflexo imediato). Login/logout não alteram dados públicos.
+ * invalida o cache das rotas públicas e avisa o mapa em tempo real: a próxima
+ * leitura busca no banco (RF03 - reflexo imediato). Login/logout não alteram
+ * dados públicos. Quando o handler devolve a resposta, a transação já terminou.
  */
-function invalidarDadosPublicos(req: NextRequest, resposta: Response): void {
+function invalidarAposEscrita(req: NextRequest, resposta: Response): void {
   if (req.method === "GET" || req.method === "HEAD" || !resposta.ok) return;
   if (req.nextUrl.pathname.startsWith("/api/auth/")) return;
-  revalidateTag(TAG_DADOS_PUBLICOS, { expire: 0 });
+  invalidarDadosPublicos();
 }
 
 /**
@@ -193,7 +193,7 @@ export function rota<P extends Record<string, string> = Record<string, string>>(
     await connection();
     try {
       const resposta = await handler(req, contexto);
-      invalidarDadosPublicos(req, resposta);
+      invalidarAposEscrita(req, resposta);
       return aplicarCachePadrao(resposta);
     } catch (erro) {
       return aplicarCachePadrao(responderErro(normalizarErro(erro)));

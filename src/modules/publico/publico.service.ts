@@ -341,6 +341,8 @@ export async function listarAlertasPublicos() {
   }));
 }
 
+export type AlertaPublico = Awaited<ReturnType<typeof listarAlertasPublicos>>[number];
+
 // -----------------------------------------------------------------------------
 // Busca Pública de Familiares Acolhidos ("Encontre um Familiar" - LGPD-safe)
 // -----------------------------------------------------------------------------

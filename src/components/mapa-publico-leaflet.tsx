@@ -241,6 +241,9 @@ export default function MapaPublicoLeaflet({
         existente.marcador.options.title = titulo;
         existente.marcador.options.alt = titulo;
         existente.marcador.setIcon(criarIconeAbrigo(abrigo, selecionado));
+        // O Leaflet reaproveita o mesmo <div> no setIcon e só escreve o title ao
+        // criá-lo: sem isto, o leitor de tela anunciaria as vagas de antes.
+        existente.marcador.getElement()?.setAttribute("title", titulo);
         existente.marcador.setZIndexOffset(camadaZ);
         existente.assinatura = assinatura;
       }
