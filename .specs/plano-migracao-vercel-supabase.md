@@ -1,6 +1,6 @@
 # Plano de Migração — Render → Vercel + Supabase
 
-> **Documento de infraestrutura (v1.0, 23/11/2026)**
+> **Documento de infraestrutura (v1.1, 24/11/2026)**
 > **Projeto:** WhereToGo — Plataforma de Gestão de Crise para Abrigos Emergenciais
 > **Situação:** Fase 1 (código compatível com os dois ambientes) implementada. Fases 0 e 2 dependem de passos manuais nos painéis (seção 6).
 > **Regra da transição:** primeiro os dois ambientes ficam no ar recebendo a `main`; só depois o Render é retirado (arquivos e painel).
@@ -75,21 +75,23 @@ Verificado localmente: typecheck, lint, 149 testes (unitários + integração), 
 
 ## 6. Fase 0 — Passos manuais (contas e painéis)
 
-Fazer nesta ordem. Os nomes de menu podem variar um pouco entre versões dos painéis.
+Fazer nesta ordem: Supabase → Vercel → GitHub. Cada painel usa valores do anterior. Os nomes de menu podem variar um pouco entre versões dos painéis.
 
 ### 6.1 Supabase
-1. Criar o projeto: nome `wheretogo`, região **South America (São Paulo)**, plano Free. Guardar a senha do banco num gerenciador de senhas.
-2. **Desligar a Data API** (configurações da Data API do projeto). A aplicação não usa essa API; a migration 0015 já tira o acesso das tabelas, e isto fecha a porta de vez.
-3. Botão **Connect** → copiar duas URLs, trocando `[YOUR-PASSWORD]` pela senha:
+1. Criar o projeto: nome `wheretogo`, região **South America (São Paulo)**, plano Free. Guardar a senha do banco num gerenciador de senhas (se perder: **Project Settings → Database → Reset database password**).
+   - **Não vincular o repositório do GitHub** (integração GitHub/Branching do Supabase) nem a integração com a Vercel. A integração GitHub aplica migrations da pasta `supabase/` do Supabase CLI e cria bancos de preview; aqui quem aplica as migrations é a pipeline (`npm run db:preparar`), e não há previews. Entrar no Supabase com a conta do GitHub não tem problema: isso é só login.
+2. **Desligar a Data API:** **Integrations → Data API** → desligar **Enable Data API** (se aparecer, desligar também **Automatically expose new tables**). A aplicação não usa essa API; a migration 0015 já tira o acesso das tabelas, e isto fecha a porta de vez. Depois disso, os avisos de "RLS disabled" no Security Advisor (e por e-mail) são esperados: sem a Data API, as tabelas não ficam acessíveis de fora.
+3. Botão **Connect** (topo da página do projeto) → aba da connection string, tipo **URI** → copiar duas URLs, trocando `[YOUR-PASSWORD]` pela senha:
    - **Transaction pooler** (porta **6543**) → `DATABASE_URL` da Vercel.
    - **Session pooler** (porta **5432**) → secret `SUPABASE_DB_URL_SESSAO` do GitHub.
+   - As duas terminam em `.pooler.supabase.com` e usam o usuário `postgres.<ref>`. A **Direct connection** (`db.<ref>.supabase.co`) também usa a 5432, mas não serve: no plano Free ela é só IPv6.
+   - O host deve conter `sa-east-1` (São Paulo). Se não contiver, recrie o projeto agora, enquanto está vazio: as funções da Vercel rodam em São Paulo (`gru1`).
    - Se a senha tiver caracteres especiais, codifique-os na URL (ex.: `@` → `%40`, `#` → `%23`).
-4. PostGIS: a migration 0001 cria a extensão. Se o primeiro deploy falhar nesse ponto, habilite em **Database → Extensions** e rode o workflow de novo.
+4. Não habilitar PostGIS, RLS, Auth ou Storage à mão: a migration 0001 cria a extensão. Se o primeiro deploy falhar nesse ponto, habilite em **Database → Extensions** e rode o workflow de novo.
 
-### 6.2 Vercel
-5. Entrar com a conta do GitHub (plano Hobby) → **Add New → Project** → importar `ADS_JoaoVitor_WhereToGo`.
-6. **Project Name:** o nome define o endereço (`<nome>.vercel.app`). Sugestão: `wheretogo-upf`.
-7. **Environment Variables** (Production):
+### 6.2 Vercel (projeto criado pela importação do repositório)
+5. **Settings → Domains:** conferir o endereço `.vercel.app` de produção. Ele nasce do nome do projeto; para outro (ex.: `wheretogo-upf.vercel.app`), adicione-o aqui, se estiver livre. Use sempre esse domínio: as URLs de cada deploy (`<projeto>-<hash>-<conta>.vercel.app`) pedem login da Vercel.
+6. **Settings → Environment Variables**, só no ambiente **Production**:
 
    | Variável | Valor |
    |---|---|
@@ -101,29 +103,37 @@ Fazer nesta ordem. Os nomes de menu podem variar um pouco entre versões dos pai
    | `PROXIES_CONFIAVEIS` | `1` |
    | `GOOGLE_CLIENT_ID` | o Client ID do Google, se o login com Google estiver configurado (`.specs/guia-google-one-tap.md`). O "Google simulado" não existe em produção, então `PERMITIR_GOOGLE_SIMULADO` não é necessária. |
 
-   Não defina `NODE_ENV` (a Vercel já usa `production`). As variáveis do INMET têm padrão e são opcionais.
-8. Clicar em **Deploy**. Esse primeiro deploy vem da importação e pode falhar ou abrir sem dados (o banco ainda está vazio): pode ignorar, a pipeline substitui.
-9. **Settings → Build and Deployment → Node.js Version:** `22.x`.
-10. Copiar os identificadores: **Project ID** (Settings → General do projeto) e **Team ID** da conta (Settings da conta/time → General; é o `VERCEL_ORG_ID`).
-11. Criar um token: **Account Settings → Tokens** (escopo da sua conta; anote a expiração e renove antes de vencer).
+   - Pode marcar como **Sensitive**. O `next build` não lê essas variáveis (verificado em 24/11/2026: o build passa sem banco e sem `JWT_SECRET`), então não faz diferença que o `vercel pull` da pipeline as receba vazias; as funções recebem os valores em produção.
+   - Não defina `NODE_ENV` (a Vercel já usa `production`). As variáveis do INMET têm padrão e são opcionais.
+   - Não adicione o Supabase pela aba **Storage**/Marketplace da Vercel: essa integração cria ou conecta um projeto por conta própria e injeta variáveis que o app não lê (`POSTGRES_URL`, chaves da API). A `DATABASE_URL` vai à mão, como na tabela.
+7. **Settings → Build and Deployment:** Framework Preset **Next.js**, comandos no padrão. A **Node.js Version** do painel não vale: o `engines` do `package.json` (`>=22.12.0`) tem prioridade, e a Vercel usa a maior versão que ela suporta (o log do build avisa disso).
+8. **Settings → Git:** desconectar o repositório (**Disconnect**). Recomendado: quem publica é só a pipeline. O `vercel.json` já desliga o deploy por push; desconectar deixa um único caminho de publicação.
+9. **Settings → General** do projeto: copiar o **Project ID** (`prj_...`) → `VERCEL_PROJECT_ID`.
+10. `VERCEL_ORG_ID` é o ID do **dono** do projeto: o **Team ID** (`team_...`) se o projeto estiver num time (inclusive o time Hobby), ou o ID do usuário numa conta pessoal antiga. Trocar um pelo outro dá `Project not found` no `vercel pull`. O jeito mais seguro de obter o par certo é o `vercel link` na pasta do projeto, com o token do passo 11:
+    - `npx vercel@65.12.1 link --token "<token>"` → escolher o escopo onde o projeto está → **Link to existing project?** sim → nome do projeto. Responder **não** se a CLI oferecer baixar as variáveis (um `.env.local` faria o `npm run dev` usar o Supabase) ou conectar o repositório.
+    - `Get-Content .vercel\project.json` → `projectId` vai em `VERCEL_PROJECT_ID` e `orgId` em `VERCEL_ORG_ID`. A pasta `.vercel` está no `.gitignore`.
+    - Se o projeto não aparecer no escopo escolhido, o token foi criado com outro escopo: crie outro token com o escopo do projeto.
+11. **Account Settings → Tokens → Create:** nome `github-actions-wheretogo`, escopo da conta/time do projeto, expiração depois de 12/12/2026 (ex.: 1 ano; renove antes de vencer). Copie na hora: o valor não aparece de novo.
+12. O deploy que a importação fez (com falha ou sem dados) pode ser ignorado: a pipeline publica por cima.
 
 ### 6.3 GitHub (repositório → Settings → Secrets and variables → Actions)
-12. **Secrets:** `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `SUPABASE_DB_URL_SESSAO`.
+13. Aba **Secrets → New repository secret**, um por vez (nome exato, valor sem aspas): `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `SUPABASE_DB_URL_SESSAO`.
     - `SEED_SENHA_PADRAO` é opcional: sem ele, a senha das contas de demonstração continua `WhereToGo@2026`, a mesma que os botões de "Contas de demonstração" do login usam. **Não mude** sem mudar a tela de login.
-13. **Variables:** `DEPLOY_VERCEL` = `true`; `URL_PRODUCAO_VERCEL` = `https://<nome>.vercel.app` (sem barra no fim).
+14. Aba **Variables → New repository variable:** `DEPLOY_VERCEL` = `true`; `URL_PRODUCAO_VERCEL` = `https://<domínio do passo 5>` (sem barra no fim).
 
 ### 6.4 Google Cloud (só se o login real do Google estiver configurado)
-14. **APIs & Services → Credentials →** cliente OAuth → **Authorized JavaScript origins:** adicionar `https://<nome>.vercel.app`. Passo a passo completo: `.specs/guia-google-one-tap.md`.
+15. **APIs & Services → Credentials →** cliente OAuth → **Authorized JavaScript origins:** adicionar `https://<domínio do passo 5>`. Passo a passo completo: `.specs/guia-google-one-tap.md`.
 
 ### 6.5 Primeiro deploy
-15. Enviar o commit da Fase 1 para a `main` (o Render também recebe e aplica as migrations 0014/0015 no boot, sem efeito visível).
-16. Se o push acontecer antes dos passos 12–13, o job `deploy-vercel` aparece como ignorado: depois de configurar, use **Actions → CI → Run workflow** na `main`.
-17. Em **Actions → Manter o Supabase ativo → Run workflow**, rodar uma vez para confirmar o ping.
+16. Enviar o commit da Fase 1 para a `main` (o Render também recebe e aplica as migrations 0014/0015 no boot, sem efeito visível). **Feito:** a Fase 1 já está na `main` e no GitHub.
+17. Aba **Actions** → execução do workflow "CI — Lint, Testes PostGIS e Build de Produção": o job "Migrations no Supabase & Deploy na Vercel" roda depois do job de qualidade. Se o push aconteceu antes dos passos 13–14, ele aparece como ignorado: depois de configurar, use **Run workflow** na `main`.
+18. **Actions → Manter o Supabase ativo → Run workflow:** rodar uma vez para confirmar o ping.
+19. Abrir `https://<domínio>/api/health` (deve responder com a versão do PostGIS) e entrar com uma conta de demonstração. O restante da validação está na seção 7.
 
 ## 7. Fase 2 — Validação (Render continua sendo a produção)
 
 - [ ] `https://<nome>.vercel.app/api/health` responde `status: ok` e uma versão do PostGIS.
-- [ ] No Supabase (Table Editor ou SQL): `schema_migrations` tem 15 linhas e `usuario` tem as contas de demonstração.
+- [ ] No Supabase (Table Editor ou SQL): `schema_migrations` tem uma linha por arquivo de `db/migrations` (18 em 24/11/2026) e `usuario` tem as contas de demonstração.
 - [ ] Login pelas contas de demonstração (coordenador, voluntário, admin, defesa civil) e pelo Google, se configurado.
 - [ ] Mapa público, ficha do abrigo, PIX, filtros, "perto de mim".
 - [ ] Mapa em tempo real: com o mapa aberto num celular, mudar a lotação ou um item no painel (outro aparelho) e ver a mudança chegar em até ~3 s, sem recarregar. Em DevTools → Network, `/api/public/mapa/eventos` aparece como `eventsource`.
@@ -166,6 +176,7 @@ Sem dados a migrar (decisão 1). Basta:
 - **Cache do mapa público por instância** (`src/modules/publico/publico.cache.ts`): em serverless, o `revalidateTag` não chega às outras instâncias. Quem segura a carga é a CDN (`s-maxage=10, stale-while-revalidate=60`), então, no polling, uma mudança de status pode levar de alguns segundos a ~1 min para aparecer no mapa público. O tempo real (SSE) lê o banco direto e não tem esse atraso (~3 s); o polling só vale com a aba parada há 15 min. Evolução: `use cache: remote` (tem custo) ou reduzir o `stale-while-revalidate`.
 - **Mapa em tempo real e cota da Vercel** (`src/modules/publico/publico.tempo-real.ts`): cada conexão SSE mantém uma função ativa. O plano Hobby inclui 360 GB-h de memória provisionada (com 2 GB por instância, ~180 h/mês com pelo menos uma conexão aberta; conexões simultâneas dividem a mesma instância). Por isso a conexão fecha com a aba oculta ou sem uso por 15 min, e cada IP abre no máximo 10 por instância. Acompanhar em **Usage → Fluid Provisioned Memory**; se chegar perto do limite, `MAPA_TEMPO_REAL=false` nas variáveis da Vercel + novo deploy desliga o tempo real (o mapa volta ao polling).
 - **Versão do Postgres:** o CI usa a imagem `postgis/postgis:16`. Se o projeto Supabase for criado em outra versão principal (ex.: 17), alinhar a imagem do CI.
+- **Versão do PostGIS:** o Supabase respondeu PostGIS 3.3.7 no `/api/health` (25/11/2026); o CI usa 3.4. Todas as funções `ST_*` usadas no código e nas migrations já existem na 3.3.
 
 ## 11. Volta atrás (rollback)
 
