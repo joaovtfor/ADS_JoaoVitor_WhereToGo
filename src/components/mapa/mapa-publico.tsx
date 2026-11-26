@@ -1,17 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { BarraFiltros, PainelFiltros } from "@/components/mapa/barra-filtros";
 import { BarraResumo } from "@/components/mapa/barra-resumo";
 import { CabecalhoMapa } from "@/components/mapa/cabecalho-mapa";
 import { FichaAbrigo } from "@/components/mapa/ficha-abrigo";
-import { abrigoMaisProximo, filtrarAbrigos } from "@/components/mapa/filtrar-abrigos";
-import { SeloAvisoOficial } from "@/components/mapa/avisos-oficiais";
+import { abrigoMaisProximo, filtrarAbrigos, type PoligonoRiscoFiltro } from "@/components/mapa/filtrar-abrigos";
+import { SeloAvisoOficialAoVivo, useAvisosValidos } from "@/components/mapa/avisos-oficiais";
+import { calcularBBoxPoligono } from "@/components/mapa/cluster-mapa";
 import { ListaAbrigos, PainelAlertas, PainelBuscaFamiliar } from "@/components/mapa/paineis-laterais";
-import { ATALHOS_FILTRO, filtrarAvisosNaoVencidos, type AlertaMapa, type FiltroRapido } from "@/components/mapa/tipos";
+import { gerarCenarioSimulado, lerQuantidadeSimulacao } from "@/components/mapa/simulador-escala";
+import { ATALHOS_FILTRO, type AlertaMapa, type AvisoOficialMapa, type FiltroRapido } from "@/components/mapa/tipos";
 import { useDadosMapa, type DadosIniciaisMapa } from "@/components/mapa/use-dados-mapa";
 import { useServiceWorker } from "@/components/mapa/use-service-worker";
+import { Botao } from "@/components/ui/botao";
 import { juntarClasses } from "@/components/ui/classes";
 import type { NavegacaoFolha } from "@/components/ui/folha";
 import { SeloStatus, type NivelStatus } from "@/components/ui/selo-status";
@@ -95,6 +98,17 @@ function Aviso({ nivel, urgente = false, children }: { nivel: NivelStatus; urgen
   );
 }
 
+interface PropriedadesCabecalhoMapaAoVivo extends Omit<ComponentProps<typeof CabecalhoMapa>, "totalAlertas"> {
+  totalAlertasBase: number;
+  avisos: AvisoOficialMapa[];
+}
+
+/** Isola o relógio de 60 s dos avisos oficiais fora de `TelaMapaPublico`. */
+function CabecalhoMapaAoVivo({ totalAlertasBase, avisos, ...resto }: PropriedadesCabecalhoMapaAoVivo) {
+  const avisosValidos = useAvisosValidos(avisos);
+  return <CabecalhoMapa totalAlertas={totalAlertasBase + avisosValidos.length} {...resto} />;
+}
+
 interface PropriedadesMapaPublico {
   /** Abrigos, alertas e categorias já lidos pelo servidor; `null` se a leitura falhou. */
   inicial: DadosIniciaisMapa | null;
@@ -117,6 +131,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
 
   // Filtros (RF08)
   const [termoBusca, setTermoBusca] = useState("");
+  const termoBuscaDiferido = useDeferredValue(termoBusca);
   const [filtroRapido, setFiltroRapido] = useState<FiltroRapido>("TODOS");
   const [categoriaSlug, setCategoriaSlug] = useState<string | null>(null);
   const [itemFiltroId, setItemFiltroId] = useState<number | null>(null);
@@ -128,9 +143,13 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   // "voltar" as traz de volta como estavam.
   const [camadaAlertasVisivel, setCamadaAlertasVisivel] = useState(true);
   const [pilha, setPilha] = useState<Tela[]>(abrigoInicial ? ["abrigo"] : []);
+  const [idsClusterLista, setIdsClusterLista] = useState<number[] | null>(null);
   const [enquadrarTick, setEnquadrarTick] = useState(0);
 
-  // Localização do doador/cidadão (distância e raio calculados no servidor)
+  // Modo prévia em escala via ?simular=N (10..10000)
+  const [qtdSimulacao, setQtdSimulacao] = useState<number | null>(null);
+
+  // Localização do doador/cidadão (distância e raio calculados no cliente)
   const [posicaoUsuario, setPosicaoUsuario] = useState<Posicao | null>(null);
   const [buscandoGps, setBuscandoGps] = useState(false);
 
@@ -140,24 +159,12 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   const [focoCoordenada, setFocoCoordenada] = useState<{ lat: number; lng: number; tick: number } | null>(null);
   const [autoSelecao, setAutoSelecao] = useState<MotivoAutoSelecao | null>(null);
 
-  const { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, versao, recarregar } = useDadosMapa(
+  const { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, versao, recarregar } = useDadosMapa(
     posicaoUsuario,
     raioKm,
     inicial,
+    qtdSimulacao !== null,
   );
-
-  // Relógio dos avisos oficiais: tira da tela os que venceram (dados salvos do
-  // modo offline podem ter horas). Começa nulo e só liga no navegador: o
-  // servidor (UTC) escreveria os horários em outro fuso e o texto não bateria
-  // com o da hidratação.
-  const [agora, setAgora] = useState<number | null>(null);
-  useEffect(() => {
-    const atualizar = () => setAgora(Date.now());
-    void Promise.resolve().then(atualizar);
-    const relogio = window.setInterval(atualizar, 60_000);
-    return () => window.clearInterval(relogio);
-  }, []);
-  const avisosValidos = useMemo(() => (agora === null ? [] : filtrarAvisosNaoVencidos(avisos, agora)), [avisos, agora]);
 
   // A página pode ter vindo do cache offline (gerada para outro endereço): vale o que está na URL.
   useEffect(() => {
@@ -165,13 +172,50 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
       const id = lerAbrigoDaUrl();
       setIdSelecionado(id);
       setPilha(id ? ["abrigo"] : []);
+      setQtdSimulacao(lerQuantidadeSimulacao(window.location.search));
     });
   }, []);
 
-  const abrigosFiltrados = useMemo(
-    () => filtrarAbrigos(abrigos, { termoBusca, filtroRapido, ocultarNaoDestaque, categoriaSlug, itemFiltroId }),
-    [abrigos, termoBusca, filtroRapido, ocultarNaoDestaque, categoriaSlug, itemFiltroId],
+  const cenarioSimulado = useMemo(
+    () => (qtdSimulacao !== null ? gerarCenarioSimulado(qtdSimulacao, categorias) : null),
+    [qtdSimulacao, categorias],
   );
+  const abrigosEfetivos = cenarioSimulado ? cenarioSimulado.abrigos : abrigos;
+  const alertasEfetivos = cenarioSimulado ? cenarioSimulado.alertas : alertas;
+
+  const poligonosRisco = useMemo<PoligonoRiscoFiltro[]>(() => {
+    const lista: PoligonoRiscoFiltro[] = [];
+    for (const alerta of alertasEfetivos) {
+      if (Array.isArray(alerta.poligono) && alerta.poligono.length >= 3) {
+        lista.push({
+          vertices: alerta.poligono,
+          bbox: calcularBBoxPoligono(alerta.poligono),
+        });
+      }
+    }
+    return lista;
+  }, [alertasEfetivos]);
+
+  const abrigosFiltrados = useMemo(
+    () =>
+      filtrarAbrigos(abrigosEfetivos, {
+        termoBusca: termoBuscaDiferido,
+        filtroRapido,
+        ocultarNaoDestaque,
+        categoriaSlug,
+        itemFiltroId,
+        posicaoUsuario,
+        raioKm,
+        poligonosRisco,
+      }),
+    [abrigosEfetivos, termoBuscaDiferido, filtroRapido, ocultarNaoDestaque, categoriaSlug, itemFiltroId, posicaoUsuario, raioKm, poligonosRisco],
+  );
+
+  const abrigosParaLista = useMemo(() => {
+    if (!idsClusterLista) return abrigosFiltrados;
+    const conjunto = new Set(idsClusterLista);
+    return abrigosFiltrados.filter((abrigo) => conjunto.has(abrigo.id));
+  }, [abrigosFiltrados, idsClusterLista]);
 
   const resumo = useMemo(
     () => ({
@@ -183,7 +227,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
 
   const indiceSelecionado = abrigosFiltrados.findIndex((a) => a.id === idSelecionado);
   const abrigoSelecionado =
-    (indiceSelecionado >= 0 ? abrigosFiltrados[indiceSelecionado] : abrigos.find((a) => a.id === idSelecionado)) ?? null;
+    (indiceSelecionado >= 0 ? abrigosFiltrados[indiceSelecionado] : abrigosEfetivos.find((a) => a.id === idSelecionado)) ?? null;
 
   // A ficha só conta se o abrigo existe (um link antigo pode apontar para um abrigo desativado).
   const pilhaVisivel = useMemo(() => (abrigoSelecionado ? pilha : pilha.filter((tela) => tela !== "abrigo")), [pilha, abrigoSelecionado]);
@@ -200,19 +244,34 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   /** Troca a pilha inteira. Se a ficha sai dela, o abrigo deixa de estar selecionado. */
   const trocarPilha = useCallback((nova: Tela[]) => {
     setPilha(nova);
+    if (!nova.includes("lista")) {
+      setIdsClusterLista(null);
+    }
     if (!nova.includes("abrigo")) {
       setIdSelecionado(null);
       atualizarAbrigoNaUrl(null);
     }
   }, []);
 
-  const fecharPainel = useCallback(() => trocarPilha([]), [trocarPilha]);
+  const fecharPainel = useCallback(() => {
+    setIdsClusterLista(null);
+    trocarPilha([]);
+  }, [trocarPilha]);
+
   const voltar = useCallback(() => trocarPilha(pilhaVisivel.slice(0, -1)), [trocarPilha, pilhaVisivel]);
 
   /** Traz a tela para o topo; se já estava na pilha, ela sai de onde estava (não repete). */
-  function abrirTela(tela: Exclude<Tela, "abrigo">) {
-    trocarPilha([...pilhaVisivel.filter((t) => t !== tela), tela]);
-  }
+  const abrirTela = useCallback((tela: Exclude<Tela, "abrigo">) => {
+    setPilha((atual) => [...atual.filter((t) => t !== tela), tela]);
+  }, []);
+
+  const abrirClusterCoincidente = useCallback(
+    (ids: number[]) => {
+      setIdsClusterLista(ids);
+      abrirTela("lista");
+    },
+    [abrirTela],
+  );
 
   /** Para botões liga/desliga: se a tela já está à vista, volta; senão, abre. */
   function alternarTela(tela: Exclude<Tela, "abrigo">) {
@@ -241,18 +300,18 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     return () => window.removeEventListener("keydown", aoPressionar);
   }, [voltar, pilhaVisivel.length]);
 
-  // Seleciona o abrigo mais adequado depois que a lista reflete o GPS/filtro escolhido.
+  // Seleciona o abrigo mais adequado depois que o GPS/filtro escolhido atualiza a lista local.
   useEffect(() => {
     if (!autoSelecao) return;
-    if (posicaoUsuario && posicaoDosDados !== posicaoUsuario) return; // aguarda as distâncias calculadas
 
     void Promise.resolve().then(() => {
       if (abrigosFiltrados.length === 0) {
-        if (autoSelecao === "gps" && abrigos.length > 0) {
+        if (autoSelecao === "gps" && abrigosEfetivos.length > 0) {
           // A busca/filtro rápido esconde tudo: limpa e tenta de novo com a lista completa.
           setTermoBusca("");
           setFiltroRapido("TODOS");
           setOcultarNaoDestaque(false);
+          setIdsClusterLista(null);
           return;
         }
         setAutoSelecao(null);
@@ -282,8 +341,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   }, [
     autoSelecao,
     posicaoUsuario,
-    posicaoDosDados,
-    abrigos.length,
+    abrigosEfetivos.length,
     abrigosFiltrados,
     categoriaSlug,
     itemFiltroId,
@@ -311,6 +369,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     try {
       const posicao = await pedirLocalizacao();
       setPosicaoUsuario(posicao);
+      setIdsClusterLista(null);
       setAutoSelecao(motivo);
     } catch (erro) {
       // Sem localização, o filtro de doação ainda escolhe o primeiro da lista.
@@ -325,6 +384,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
   function pararDeUsarLocalizacao() {
     setPosicaoUsuario(null);
     setRaioKm(null);
+    setIdsClusterLista(null);
     fecharToast(TOAST_SELECAO);
   }
 
@@ -349,10 +409,16 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     else setAutoSelecao("filtro");
   }
 
+  function atualizarBusca(termo: string) {
+    setTermoBusca(termo);
+    setIdsClusterLista(null);
+  }
+
   function limparFiltroCategoria() {
     setCategoriaSlug(null);
     setItemFiltroId(null);
     setOcultarNaoDestaque(false);
+    setIdsClusterLista(null);
     fecharToast(TOAST_SELECAO);
   }
 
@@ -361,10 +427,12 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     setFiltroRapido("TODOS");
     setRaioKm(null);
     setTermoBusca("");
+    setIdsClusterLista(null);
   }
 
   /** Um filtro de abrigo por vez: tocar no que já está ligado desliga. */
   function alternarFiltroRapido(filtro: FiltroRapido) {
+    setIdsClusterLista(null);
     if (filtroRapido === filtro) return setFiltroRapido("TODOS");
     setFiltroRapido(filtro);
     pedirAutoSelecao();
@@ -381,6 +449,14 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
     setFocoCoordenada({ lat: alerta.latitude, lng: alerta.longitude, tick: Date.now() });
   }
 
+  function sairDaSimulacao() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("simular");
+    window.history.replaceState({}, "", url.toString());
+    setQtdSimulacao(null);
+    setIdsClusterLista(null);
+  }
+
   const temFiltroAtivo =
     filtroRapido !== "TODOS" || categoriaSlug !== null || itemFiltroId !== null || raioKm !== null || ocultarNaoDestaque || termoBusca.trim() !== "";
 
@@ -394,10 +470,11 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-fundo text-texto">
-      <CabecalhoMapa
-        totalAlertas={alertas.length + avisosValidos.length}
+      <CabecalhoMapaAoVivo
+        totalAlertasBase={alertasEfetivos.length}
+        avisos={avisos}
         termoBusca={termoBusca}
-        onBuscar={setTermoBusca}
+        onBuscar={atualizarBusca}
         onConfirmarBusca={() => abrigosFiltrados[0] && selecionarAbrigo(abrigosFiltrados[0].id)}
         telaAberta={telaAtual === "alertas" || telaAtual === "familiares" ? telaAtual : null}
         onAbrirTela={abrirTela}
@@ -408,7 +485,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
       <main className="relative h-full w-full flex-1 overflow-hidden">
         <MapaPublicoLeaflet
           abrigos={abrigosFiltrados}
-          alertas={alertas}
+          alertas={alertasEfetivos}
           mostrarAlertas={camadaAlertasVisivel}
           idSelecionado={idSelecionado}
           focoTick={focoTick}
@@ -416,7 +493,9 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
           enquadrarTick={enquadrarTick}
           posicaoUsuario={posicaoUsuario}
           painelAberto={pilhaVisivel.length > 0}
+          filtroDoacaoAtivo={Boolean(categoriaSlug || itemFiltroId)}
           aoSelecionarAbrigo={selecionarAbrigo}
+          aoAbrirClusterCoincidente={abrirClusterCoincidente}
         />
 
         {/* Filtros, avisos e toasts flutuam no alto do mapa; no desktop, à direita do painel aberto */}
@@ -433,26 +512,36 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             painelAberto={telaAtual === "filtros"}
             onAlternarPainel={() => alternarTela("filtros")}
           />
-          {dadosSalvosDe && (
+          {cenarioSimulado && qtdSimulacao !== null && (
+            <Aviso nivel="atencao">
+              <span className="flex flex-wrap items-center gap-2">
+                <span>{`Prévia simulada: ${qtdSimulacao} abrigos e ${cenarioSimulado.alertas.length} alertas`}</span>
+                <Botao tamanho="sm" variante="fantasma" onClick={sairDaSimulacao}>
+                  Sair
+                </Botao>
+              </span>
+            </Aviso>
+          )}
+          {!cenarioSimulado && dadosSalvosDe && (
             <Aviso nivel="atencao">
               {carregando
                 ? `Mostrando dados salvos às ${formatarMomento(dadosSalvosDe)} enquanto atualiza...`
                 : `Sem conexão. Dados de ${formatarMomento(dadosSalvosDe)}: vagas e alertas podem ter mudado.`}
             </Aviso>
           )}
-          {erro && (
+          {!cenarioSimulado && erro && (
             <Aviso nivel="critico" urgente>
               {erro}
             </Aviso>
           )}
-          <SeloAvisoOficial avisos={avisosValidos} onVer={() => abrirTela("alertas")} />
+          <SeloAvisoOficialAoVivo avisos={avisos} onVer={() => abrirTela("alertas")} />
           <RegiaoToasts origem="topo" className="max-w-full items-start sm:max-w-md" />
         </div>
 
         <BarraResumo
           totalVagasLivres={resumo.vagasLivres}
           totalAbrigos={abrigosFiltrados.length}
-          carregando={carregando}
+          carregando={cenarioSimulado ? false : carregando}
           filtrado={temFiltroAtivo}
           mostrarAlertas={camadaAlertasVisivel}
           lista={{ aberta: telaAtual === "lista", onAlternar: () => alternarTela("lista") }}
@@ -468,6 +557,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             categorias={categorias}
             categoriaSlug={categoriaSlug}
             onCategoria={(slug) => {
+              setIdsClusterLista(null);
               if (categoriaSlug === slug) return limparFiltroCategoria();
               setCategoriaSlug(slug);
               setItemFiltroId(null);
@@ -475,14 +565,18 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             }}
             itemFiltroId={itemFiltroId}
             onItem={(id) => {
+              setIdsClusterLista(null);
               setItemFiltroId(id);
               setAutoSelecao("filtro");
             }}
             totalDestaque={resumo.prioritarios}
             ocultarNaoDestaque={ocultarNaoDestaque}
-            onAlternarOcultar={() => setOcultarNaoDestaque((v) => !v)}
+            onAlternarOcultar={() => {
+              setIdsClusterLista(null);
+              setOcultarNaoDestaque((v) => !v);
+            }}
             alertas={{
-              total: alertas.length,
+              total: alertasEfetivos.length,
               camadaVisivel: camadaAlertasVisivel,
               onAlternarCamada: () => setCamadaAlertasVisivel((v) => !v),
               onVerPainel: () => abrirTela("alertas"),
@@ -492,6 +586,7 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
               buscando: buscandoGps,
               raioKm,
               onRaio: (raio) => {
+                setIdsClusterLista(null);
                 setRaioKm(raio);
                 setAutoSelecao("filtro");
               },
@@ -501,7 +596,10 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
             totalResultados={abrigosFiltrados.length}
             temFiltroAtivo={temFiltroAtivo}
             onLimparTudo={limparTodosFiltros}
-            onVerResultados={() => trocarPilha([...pilhaVisivel.filter((t) => t !== "filtros" && t !== "lista"), "lista"])}
+            onVerResultados={() => {
+              setIdsClusterLista(null);
+              trocarPilha([...pilhaVisivel.filter((t) => t !== "filtros" && t !== "lista"), "lista"]);
+            }}
             navegacao={navegacaoDa("filtros")}
             onFechar={fecharPainel}
           />
@@ -509,9 +607,9 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
 
         {pilhaVisivel.includes("alertas") && (
           <PainelAlertas
-            alertas={alertas}
-            avisos={avisosValidos}
-            abrigos={abrigos}
+            alertas={alertasEfetivos}
+            avisos={avisos}
+            abrigos={abrigosEfetivos}
             posicaoUsuario={posicaoUsuario}
             onVerNoMapa={verAlertaNoMapa}
             onVerAbrigo={selecionarAbrigo}
@@ -526,11 +624,12 @@ function TelaMapaPublico({ inicial, abrigoInicial }: PropriedadesMapaPublico) {
 
         {pilhaVisivel.includes("lista") && (
           <ListaAbrigos
-            abrigos={abrigosFiltrados}
-            carregando={carregando}
+            abrigos={abrigosParaLista}
+            carregando={cenarioSimulado ? false : carregando}
             idSelecionado={idSelecionado}
             onSelecionar={selecionarAbrigo}
             onLimparFiltros={limparTodosFiltros}
+            filtroCluster={idsClusterLista ? { quantidade: abrigosParaLista.length, onLimpar: () => setIdsClusterLista(null) } : null}
             navegacao={navegacaoDa("lista")}
             onFechar={fecharPainel}
           />

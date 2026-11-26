@@ -1,4 +1,13 @@
+import { segmentoCruzaPoligono, type BBoxMapa } from "./cluster-mapa";
 import type { AbrigoMapa, FiltroRapido } from "./tipos";
+
+const COLLATOR_PT_BR = new Intl.Collator("pt-BR");
+const CACHE_TEXTO_BUSCA = new WeakMap<AbrigoMapa, string>();
+
+export interface PoligonoRiscoFiltro {
+  vertices: Array<{ lat: number; lng: number }>;
+  bbox: BBoxMapa;
+}
 
 export interface CriteriosMapa {
   termoBusca: string;
@@ -6,6 +15,9 @@ export interface CriteriosMapa {
   ocultarNaoDestaque: boolean;
   categoriaSlug: string | null;
   itemFiltroId: number | null;
+  posicaoUsuario?: { lat: number; lng: number } | null;
+  raioKm?: number | null;
+  poligonosRisco?: ReadonlyArray<PoligonoRiscoFiltro>;
 }
 
 /**
@@ -20,13 +32,19 @@ export function precisaDoQueDoador(abrigo: AbrigoMapa, categoriaSlug: string | n
   );
 }
 
+function obterTextoBuscaNormalizado(abrigo: AbrigoMapa): string {
+  let texto = CACHE_TEXTO_BUSCA.get(abrigo);
+  if (texto === undefined) {
+    const urgentes = abrigo.necessidades.urgentes.map((item) => item.nome).join("\n");
+    texto = `${abrigo.nome}\n${abrigo.endereco}\n${urgentes}`.toLowerCase();
+    CACHE_TEXTO_BUSCA.set(abrigo, texto);
+  }
+  return texto;
+}
+
 function atendeBusca(abrigo: AbrigoMapa, busca: string): boolean {
   if (!busca) return true;
-  return (
-    abrigo.nome.toLowerCase().includes(busca) ||
-    abrigo.endereco.toLowerCase().includes(busca) ||
-    abrigo.necessidades.urgentes.some((i) => i.nome.toLowerCase().includes(busca))
-  );
+  return obterTextoBuscaNormalizado(abrigo).includes(busca);
 }
 
 function atendeFiltroRapido(abrigo: AbrigoMapa, filtro: FiltroRapido): boolean {
@@ -47,7 +65,7 @@ function atendeFiltroRapido(abrigo: AbrigoMapa, filtro: FiltroRapido): boolean {
 }
 
 /** Distância em linha reta (haversine), em km. Mesma medida que o servidor usa no PostGIS. */
-function distanciaEmLinhaReta(origem: { lat: number; lng: number }, abrigo: AbrigoMapa): number {
+export function distanciaEmLinhaReta(origem: { lat: number; lng: number }, abrigo: Pick<AbrigoMapa, "latitude" | "longitude">): number {
   const rad = (graus: number) => (graus * Math.PI) / 180;
   const dLat = rad(abrigo.latitude - origem.lat);
   const dLng = rad(abrigo.longitude - origem.lng);
@@ -77,19 +95,51 @@ export function abrigoMaisProximo(abrigos: AbrigoMapa[], origem: { lat: number; 
 export function filtrarAbrigos(abrigos: AbrigoMapa[], criterios: CriteriosMapa): AbrigoMapa[] {
   const busca = criterios.termoBusca.trim().toLowerCase();
   const somentePrioritarios = criterios.filtroRapido === "DESTAQUE" || criterios.ocultarNaoDestaque;
+  const { categoriaSlug, itemFiltroId, posicaoUsuario = null, raioKm = null, poligonosRisco } = criterios;
+  const semFiltroDoacao = categoriaSlug === null && itemFiltroId === null;
 
-  return abrigos
-    .map((abrigo) => ({ ...abrigo, destaque: precisaDoQueDoador(abrigo, criterios.categoriaSlug, criterios.itemFiltroId) }))
-    .filter(
-      (abrigo) =>
-        atendeBusca(abrigo, busca) &&
-        atendeFiltroRapido(abrigo, criterios.filtroRapido) &&
-        (!somentePrioritarios || abrigo.destaque === true),
-    )
-    .sort(
-      (a, b) =>
-        Number(b.destaque ?? false) - Number(a.destaque ?? false) ||
-        (a.distanciaKm ?? Number.POSITIVE_INFINITY) - (b.distanciaKm ?? Number.POSITIVE_INFINITY) ||
-        a.nome.localeCompare(b.nome, "pt-BR"),
-    );
+  const filtrados: AbrigoMapa[] = [];
+
+  for (const abrigo of abrigos) {
+    if (!atendeBusca(abrigo, busca)) continue;
+    if (!atendeFiltroRapido(abrigo, criterios.filtroRapido)) continue;
+
+    const destaque = precisaDoQueDoador(abrigo, categoriaSlug, itemFiltroId);
+    if (somentePrioritarios && destaque !== true) continue;
+
+    if (posicaoUsuario) {
+      const distanciaKm = Math.round(distanciaEmLinhaReta(posicaoUsuario, abrigo) * 100) / 100;
+      if (raioKm != null && distanciaKm > raioKm) continue;
+
+      const rotaCruzaAreaRisco =
+        poligonosRisco !== undefined
+          ? poligonosRisco.some((pol) =>
+              segmentoCruzaPoligono(posicaoUsuario, { lat: abrigo.latitude, lng: abrigo.longitude }, pol.vertices, pol.bbox),
+            )
+          : abrigo.rotaCruzaAreaRisco;
+
+      filtrados.push({
+        ...abrigo,
+        destaque,
+        distanciaKm,
+        ...(rotaCruzaAreaRisco !== undefined ? { rotaCruzaAreaRisco } : {}),
+      });
+      continue;
+    }
+
+    if (semFiltroDoacao && abrigo.destaque === null) {
+      filtrados.push(abrigo);
+    } else if (abrigo.destaque === destaque) {
+      filtrados.push(abrigo);
+    } else {
+      filtrados.push({ ...abrigo, destaque });
+    }
+  }
+
+  return filtrados.sort(
+    (a, b) =>
+      Number(b.destaque ?? false) - Number(a.destaque ?? false) ||
+      (a.distanciaKm ?? Number.POSITIVE_INFINITY) - (b.distanciaKm ?? Number.POSITIVE_INFINITY) ||
+      COLLATOR_PT_BR.compare(a.nome, b.nome),
+  );
 }

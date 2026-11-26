@@ -360,8 +360,9 @@ body {
   opacity: 0.35;
 }
 
-/* Único indicador extra: há alerta de acesso ou infraestrutura neste abrigo. */
-.wtg-pino__aviso {
+/* Único indicador extra: há alerta de acesso ou infraestrutura neste abrigo ou grupo. */
+.wtg-pino__aviso,
+.wtg-cluster__aviso {
   position: absolute;
   top: -6px;
   right: -6px;
@@ -405,6 +406,85 @@ body {
 }
 
 .wtg-alerta--atencao {
+  color: var(--wtg-atencao-claro);
+}
+
+/* Grupo (cluster) de abrigos próximos no mapa */
+.wtg-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wtg-cluster__corpo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 48px;
+  height: 32px;
+  padding: 0 9px;
+  border: 2px solid var(--wtg-fundo);
+  border-radius: 10px;
+  color: #06110a;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.wtg-cluster--ok .wtg-cluster__corpo {
+  background: var(--wtg-ok);
+}
+
+.wtg-cluster--atencao .wtg-cluster__corpo {
+  background: var(--wtg-atencao);
+}
+
+.wtg-cluster--critico .wtg-cluster__corpo {
+  background: var(--wtg-critico);
+}
+
+.wtg-cluster--apagado {
+  opacity: 0.35;
+}
+
+.wtg-cluster__vagas {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wtg-cluster__qtd {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.78;
+  padding-left: 5px;
+  border-left: 1px solid color-mix(in srgb, #06110a 28%, transparent);
+}
+
+/* Grupo (cluster) de alertas pontuais no mapa */
+.wtg-alerta-cluster {
+  display: inline-flex;
+  min-width: 34px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 6px;
+  border: 1.5px solid currentColor;
+  border-radius: 8px;
+  background: var(--wtg-superficie);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.wtg-alerta-cluster--critico {
+  color: var(--wtg-critico-claro);
+}
+
+.wtg-alerta-cluster--atencao {
   color: var(--wtg-atencao-claro);
 }
 

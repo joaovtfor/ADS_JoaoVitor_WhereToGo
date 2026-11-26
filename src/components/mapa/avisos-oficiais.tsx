@@ -1,11 +1,36 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, ExternalLink } from "lucide-react";
 import { classesBotao } from "@/components/ui/botao";
 import { FOCO, juntarClasses } from "@/components/ui/classes";
 import { Icone } from "@/components/ui/icone";
 import { SeloStatus } from "@/components/ui/selo-status";
-import { avisoEmVigor, descreverPeriodoAviso, obterNivelAviso, type AvisoOficialMapa } from "./tipos";
+import { avisoEmVigor, descreverPeriodoAviso, filtrarAvisosNaoVencidos, obterNivelAviso, type AvisoOficialMapa } from "./tipos";
+
+/**
+ * Relógio isolado de 60 s para filtrar avisos vencidos sem re-renderizar a tela
+ * inteira do mapa. Começa nulo e só liga no navegador para evitar mismatch de
+ * hidratação entre o fuso do servidor (UTC) e o local.
+ */
+export function useAvisosValidos(avisos: AvisoOficialMapa[]): AvisoOficialMapa[] {
+  const [agora, setAgora] = useState<number | null>(null);
+
+  useEffect(() => {
+    let ativo = true;
+    const atualizar = () => {
+      if (ativo) setAgora(Date.now());
+    };
+    void Promise.resolve().then(atualizar);
+    const relogio = window.setInterval(atualizar, 60_000);
+    return () => {
+      ativo = false;
+      window.clearInterval(relogio);
+    };
+  }, []);
+
+  return useMemo(() => (agora === null ? [] : filtrarAvisosNaoVencidos(avisos, agora)), [avisos, agora]);
+}
 
 /** Cidade dos avisos, quando o servidor a informa (dados salvos antigos não têm). */
 function cidadeDosAvisos(avisos: AvisoOficialMapa[]): string | null {
@@ -48,6 +73,12 @@ export function SeloAvisoOficial({ avisos, onVer }: { avisos: AvisoOficialMapa[]
       <Icone de={ChevronRight} tamanho={16} className="text-texto-3" />
     </button>
   );
+}
+
+/** Versão ao vivo do selo de aviso oficial com atualização automática por minuto. */
+export function SeloAvisoOficialAoVivo({ avisos, onVer }: { avisos: AvisoOficialMapa[]; onVer: () => void }) {
+  const avisosValidos = useAvisosValidos(avisos);
+  return <SeloAvisoOficial avisos={avisosValidos} onVer={onVer} />;
 }
 
 /** Avisos oficiais no painel de alertas: evento, nível oficial, período, risco, o que fazer e link para o original. */

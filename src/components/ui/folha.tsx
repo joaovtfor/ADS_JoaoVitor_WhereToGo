@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type TouchEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject, type TouchEvent } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import { BotaoIcone } from "./botao";
 import { juntarClasses } from "./classes";
@@ -64,6 +64,8 @@ interface PropriedadesFolha extends NavegacaoFolha {
   nivelInicial?: NivelFolha;
   /** Faixa fixa no fim do painel (ações, navegação). */
   rodape?: ReactNode;
+  /** Referência opcional ao contêiner rolável interno (ex.: listas virtualizadas). */
+  scrollRef?: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }
 
@@ -73,7 +75,7 @@ interface PropriedadesFolha extends NavegacaoFolha {
  * no elemento, sem passar pelo estado do React: o conteúdo não é renderizado de
  * novo a cada quadro e a altura só muda uma vez, ao soltar (DESIGN.md §6).
  */
-export function Folha({ rotulo, titulo, rotuloFechar, onFechar, nivelInicial = "medio", rodape, oculta = false, voltar, children }: PropriedadesFolha) {
+export function Folha({ rotulo, titulo, rotuloFechar, onFechar, nivelInicial = "medio", rodape, oculta = false, voltar, scrollRef, children }: PropriedadesFolha) {
   const [nivel, setNivel] = useState<NivelFolha>(nivelInicial);
   const folhaRef = useRef<HTMLElement | null>(null);
   const arrasteRef = useRef<{ inicioY: number; dy: number; quadro: number } | null>(null);
@@ -206,7 +208,10 @@ export function Folha({ rotulo, titulo, rotuloFechar, onFechar, nivelInicial = "
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 [scrollbar-color:var(--wtg-borda-forte)_transparent] [scrollbar-width:thin]">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 [scrollbar-color:var(--wtg-borda-forte)_transparent] [scrollbar-width:thin]"
+      >
         {children}
       </div>
 

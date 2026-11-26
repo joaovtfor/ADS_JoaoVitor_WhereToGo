@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { agendarSalvamentoOffline, lerEstadoOffline } from "./armazenamento-offline";
 import type { AbrigoMapa, AlertaMapa, AvisoOficialMapa, CategoriaPublica } from "./tipos";
 
 type Posicao = { lat: number; lng: number };
 
-const CHAVE_ESTADO_SALVO = "wtg:mapa:ultimo-estado";
 const INTERVALO_BASE_MS = 30_000;
 const INTERVALO_MAXIMO_MS = 120_000;
 /** A cada N consultas seguidas sem mudança, o intervalo dobra (até o máximo). */
@@ -52,21 +52,12 @@ interface DadosMapa {
   avisos?: AvisoOficialMapa[];
 }
 
-function lerEstadoSalvo(): EstadoSalvo | null {
-  try {
-    const texto = localStorage.getItem(CHAVE_ESTADO_SALVO);
-    return texto ? (JSON.parse(texto) as EstadoSalvo) : null;
-  } catch {
-    return null;
-  }
+function assinaturaAlertas(alertas: AlertaMapa[]): string {
+  return JSON.stringify(alertas);
 }
 
-function salvarEstado(estado: EstadoSalvo) {
-  try {
-    localStorage.setItem(CHAVE_ESTADO_SALVO, JSON.stringify(estado));
-  } catch {
-    // Armazenamento cheio ou bloqueado (aba anônima): segue sem modo offline.
-  }
+function assinaturaAvisos(avisos: AvisoOficialMapa[]): string {
+  return JSON.stringify(avisos);
 }
 
 async function buscarDados<T>(url: string, signal: AbortSignal): Promise<T> {
@@ -75,38 +66,24 @@ async function buscarDados<T>(url: string, signal: AbortSignal): Promise<T> {
   return ((await resposta.json()) as { dados: T }).dados;
 }
 
-/** Parâmetros da consulta (localização e raio): os mesmos no polling e no tempo real. */
-function montarConsulta(posicao: Posicao | null, raioKm: number | null): string {
-  const params = new URLSearchParams();
-  if (posicao) {
-    params.set("lat", String(posicao.lat));
-    params.set("lng", String(posicao.lng));
-    if (raioKm) params.set("raioKm", String(raioKm));
-  }
-  return params.toString();
-}
-
 /**
  * Dados do mapa público: abrigos, alertas, avisos oficiais (INMET) e categorias.
  *
  * - A primeira leitura vem do servidor, no HTML da página (`inicial`): o mapa
  *   tem dados antes de qualquer requisição do navegador.
+ * - As URLs de polling e SSE não levam `lat`, `lng` nem `raioKm`, mantendo a
+ *   mesma chave de cache para todos os visitantes; distância e raio são aplicados
+ *   localmente sem reconectar o SSE ao ligar o GPS.
  * - Tempo real (SSE, `/api/public/mapa/eventos`) enquanto a aba está visível e
- *   em uso: o servidor envia cada mudança assim que ela acontece. Cada conexão
- *   mantém uma função ativa no servidor (cota da Vercel), então ela fecha com a
- *   aba oculta ou sem uso por 15 min, e volta no próximo toque.
+ *   em uso: o servidor envia cada mudança assim que ela acontece.
  * - Fora do tempo real (aba parada, navegador sem SSE, servidor recusou), vale
- *   o polling: um único endpoint (`/api/public/mapa`) com ETag, a cada 30 s
- *   com a aba visível; sem mudanças, o intervalo dobra até 2 min. Se nada
- *   mudou, a resposta é um 304 sem corpo e nada é redesenhado nem gravado.
- * - Os dois caminhos usam a mesma versão (ETag): trocar de um para o outro não
- *   baixa o mapa de novo.
- * - Cada carga cancela a anterior (AbortController): uma resposta antiga nunca
- *   sobrescreve a mais nova ao trocar de localização.
- * - O último estado bom fica no navegador: sem conexão, o mapa mostra esses
+ *   o polling (`/api/public/mapa`) com ETag e 304 sem corpo.
+ * - O último estado bom fica no IndexedDB: sem conexão, o mapa mostra esses
  *   dados com o horário em que foram salvos.
  */
-export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, inicial: DadosIniciaisMapa | null = null) {
+export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, inicial: DadosIniciaisMapa | null = null, pausado = false) {
+  void raioKm;
+
   const [abrigos, setAbrigos] = useState<AbrigoMapa[]>(inicial?.abrigos ?? []);
   const [alertas, setAlertas] = useState<AlertaMapa[]>(inicial?.alertas ?? []);
   const [avisos, setAvisos] = useState<AvisoOficialMapa[]>(inicial?.avisos ?? []);
@@ -115,29 +92,44 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
   const [erro, setErro] = useState<string | null>(null);
   /** Horário dos dados salvos em exibição (null = dados ao vivo). */
   const [dadosSalvosDe, setDadosSalvosDe] = useState<string | null>(null);
-  /** Localização usada na lista atual (para saber quando a lista já reflete o GPS). */
-  const [posicaoDosDados, setPosicaoDosDados] = useState<Posicao | null | undefined>(inicial ? null : undefined);
   /** Versão (ETag) dos dados em exibição: muda a cada alteração no mapa. */
   const [versao, setVersao] = useState<string | null>(inicial?.etag ?? null);
 
   const controladorRef = useRef<AbortController | null>(null);
-  /** Versão que o navegador tem de cada consulta (a URL muda com a localização). */
+  /** Versão que o navegador tem da URL base compartilhada do mapa. */
   const versaoRef = useRef<{ url: string; etag: string } | null>(inicial ? { url: URL_MAPA, etag: inicial.etag } : null);
   const categoriasRef = useRef<CategoriaPublica[]>(inicial?.categorias ?? []);
   /** Versão das categorias recebida pelo tempo real (o HTML não traz uma). */
   const versaoCategoriasRef = useRef<string | null>(null);
+  const assinaturaAlertasRef = useRef<string>(assinaturaAlertas(inicial?.alertas ?? []));
+  const assinaturaAvisosRef = useRef<string>(assinaturaAvisos(inicial?.avisos ?? []));
   const ultimaAtualizacaoRef = useRef<string | null>(inicial?.geradoEm ?? null);
   const consultasSemMudancaRef = useRef(0);
   const inicialSalvoRef = useRef(false);
+  const cancelarSalvamentoRef = useRef<(() => void) | null>(null);
   /** Último toque, clique, rolagem ou tecla (zero até o efeito começar). */
   const ultimoUsoRef = useRef(0);
   const recusasTempoRealRef = useRef(0);
   const tempoRealBloqueadoAteRef = useRef(0);
 
+  const agendarSnapshot = useCallback((estado: EstadoSalvo) => {
+    cancelarSalvamentoRef.current?.();
+    cancelarSalvamentoRef.current = agendarSalvamentoOffline(estado);
+  }, []);
+
   const aplicarEstadoSalvo = useCallback((salvo: EstadoSalvo) => {
     setAbrigos(salvo.abrigos);
-    setAlertas(salvo.alertas);
-    setAvisos(salvo.avisos ?? []);
+    const novaAssinaturaAlertas = assinaturaAlertas(salvo.alertas);
+    if (novaAssinaturaAlertas !== assinaturaAlertasRef.current) {
+      assinaturaAlertasRef.current = novaAssinaturaAlertas;
+      setAlertas(salvo.alertas);
+    }
+    const novosAvisos = salvo.avisos ?? [];
+    const novaAssinaturaAvisos = assinaturaAvisos(novosAvisos);
+    if (novaAssinaturaAvisos !== assinaturaAvisosRef.current) {
+      assinaturaAvisosRef.current = novaAssinaturaAvisos;
+      setAvisos(novosAvisos);
+    }
     if (categoriasRef.current.length === 0) {
       categoriasRef.current = salvo.categorias;
       setCategorias(salvo.categorias);
@@ -146,49 +138,59 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
   }, []);
 
   /** Sem rede: mantém o que está na tela ou recorre ao último estado salvo. */
-  const marcarSemConexao = useCallback(() => {
+  const marcarSemConexao = useCallback(async () => {
     if (ultimaAtualizacaoRef.current) {
       setDadosSalvosDe(ultimaAtualizacaoRef.current);
       return;
     }
-    const salvo = lerEstadoSalvo();
+    const salvo = await lerEstadoOffline<EstadoSalvo>();
+    if (ultimaAtualizacaoRef.current) return;
     if (salvo) aplicarEstadoSalvo(salvo);
     else setErro("Não foi possível carregar os abrigos. Verifique sua conexão e tente novamente.");
   }, [aplicarEstadoSalvo]);
 
   /** Mostra uma versão nova do mapa, vinda do polling ou do tempo real, e a guarda para o modo offline. */
-  const aplicarMapa = useCallback((dados: DadosMapa, etag: string | null, chave: string, posicaoDaConsulta: Posicao | null) => {
-    const novosAvisos = dados.avisos ?? [];
-    const agora = new Date().toISOString();
-    ultimaAtualizacaoRef.current = agora;
-    versaoRef.current = etag ? { url: chave, etag } : null;
-    // Lista e localização mudam juntas, no mesmo render. Se `posicaoDosDados`
-    // mudasse antes, a tela veria "lista pronta para o GPS" ainda sem as
-    // distâncias, e o "mais próximo" sairia em ordem alfabética.
-    setAbrigos(dados.abrigos);
-    setAlertas(dados.alertas);
-    setAvisos(novosAvisos);
-    setVersao(etag);
-    setPosicaoDosDados(posicaoDaConsulta);
-    setErro(null);
-    setDadosSalvosDe(null);
-    setCarregando(false);
-    salvarEstado({ abrigos: dados.abrigos, alertas: dados.alertas, avisos: novosAvisos, categorias: categoriasRef.current, salvoEm: agora });
-  }, []);
+  const aplicarMapa = useCallback(
+    (dados: DadosMapa, etag: string | null, chave: string) => {
+      const novosAvisos = dados.avisos ?? [];
+      const agora = new Date().toISOString();
+      ultimaAtualizacaoRef.current = agora;
+      versaoRef.current = etag ? { url: chave, etag } : null;
+      setAbrigos(dados.abrigos);
+
+      const novaAssinaturaAlertas = assinaturaAlertas(dados.alertas);
+      if (novaAssinaturaAlertas !== assinaturaAlertasRef.current) {
+        assinaturaAlertasRef.current = novaAssinaturaAlertas;
+        setAlertas(dados.alertas);
+      }
+
+      const novaAssinaturaAvisos = assinaturaAvisos(novosAvisos);
+      if (novaAssinaturaAvisos !== assinaturaAvisosRef.current) {
+        assinaturaAvisosRef.current = novaAssinaturaAvisos;
+        setAvisos(novosAvisos);
+      }
+
+      setVersao(etag);
+      setErro(null);
+      setDadosSalvosDe(null);
+      setCarregando(false);
+      agendarSnapshot({ abrigos: dados.abrigos, alertas: dados.alertas, avisos: novosAvisos, categorias: categoriasRef.current, salvoEm: agora });
+    },
+    [agendarSnapshot],
+  );
 
   /** Busca os dados pelo polling; retorna `true` se algo mudou em relação à última carga. */
   const carregar = useCallback(async (): Promise<boolean> => {
+    if (pausado) return false;
     controladorRef.current?.abort();
     const controlador = new AbortController();
     controladorRef.current = controlador;
 
-    const consulta = montarConsulta(posicao, raioKm);
-    const url = `${URL_MAPA}${consulta ? `?${consulta}` : ""}`;
-    const versaoAtual = versaoRef.current?.url === url ? versaoRef.current : null;
+    const versaoAtual = versaoRef.current?.url === URL_MAPA ? versaoRef.current : null;
 
     try {
       const [resposta, listaCategorias] = await Promise.all([
-        fetch(url, { signal: controlador.signal, headers: versaoAtual ? { "If-None-Match": versaoAtual.etag } : undefined }),
+        fetch(URL_MAPA, { signal: controlador.signal, headers: versaoAtual ? { "If-None-Match": versaoAtual.etag } : undefined }),
         categoriasRef.current.length > 0 ? categoriasRef.current : buscarDados<CategoriaPublica[]>("/api/public/categorias", controlador.signal),
       ]);
       if (resposta.status !== 304 && !resposta.ok) throw new Error(`HTTP ${resposta.status}`);
@@ -201,33 +203,36 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
       // 304: o servidor confirmou que nada mudou. Nada a redesenhar nem a gravar.
       if (resposta.status === 304) {
         ultimaAtualizacaoRef.current = new Date().toISOString();
-        setPosicaoDosDados(posicao);
         setErro(null);
         setDadosSalvosDe(null);
         return false;
       }
 
       const { dados } = (await resposta.json()) as { dados: DadosMapa };
-      aplicarMapa(dados, resposta.headers.get("ETag"), url, posicao);
+      aplicarMapa(dados, resposta.headers.get("ETag"), URL_MAPA);
       return true;
     } catch {
       if (controlador.signal.aborted) return false;
-      marcarSemConexao();
-      setPosicaoDosDados(posicao);
+      await marcarSemConexao();
       return false;
     } finally {
       if (controladorRef.current === controlador) setCarregando(false);
     }
-  }, [posicao, raioKm, aplicarMapa, marcarSemConexao]);
+  }, [aplicarMapa, marcarSemConexao, pausado]);
 
   useEffect(() => {
+    if (pausado) {
+      controladorRef.current?.abort();
+      cancelarSalvamentoRef.current?.();
+      cancelarSalvamentoRef.current = null;
+      return;
+    }
+
     let cancelado = false;
     let temporizadorPolling: number | undefined;
     let temporizadorQueda: number | undefined;
     let fonte: EventSource | null = null;
-    const consulta = montarConsulta(posicao, raioKm);
-    /** Chave da versão: a URL do polling, para os dois caminhos compartilharem o ETag. */
-    const chave = `${URL_MAPA}${consulta ? `?${consulta}` : ""}`;
+    const chave = URL_MAPA;
 
     // --- Polling (aba parada, navegador sem SSE ou servidor recusou o tempo real) ---
 
@@ -268,10 +273,11 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
     const abrirTempoReal = () => {
       if (cancelado || fonte) return;
       pararPolling();
-      const params = new URLSearchParams(consulta);
+      const params = new URLSearchParams();
       if (versaoRef.current?.url === chave) params.set("versao", versaoRef.current.etag);
       if (versaoCategoriasRef.current) params.set("versaoCategorias", versaoCategoriasRef.current);
-      const nova = new EventSource(`${URL_EVENTOS}?${params}`);
+      const consulta = params.toString();
+      const nova = new EventSource(consulta ? `${URL_EVENTOS}?${consulta}` : URL_EVENTOS);
       fonte = nova;
       let conectada = false;
 
@@ -283,13 +289,11 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
         ultimaAtualizacaoRef.current = new Date().toISOString();
         setErro(null);
         setDadosSalvosDe(null);
-        // Mesma consulta da versão em tela: o servidor não reenvia nada, e a lista já é desta localização.
-        if (versaoRef.current?.url === chave) setPosicaoDosDados(posicao);
       };
 
       nova.addEventListener("mapa", (evento) => {
         const { versao: etag, ...dados } = JSON.parse((evento as MessageEvent<string>).data) as DadosMapa & { versao: string };
-        aplicarMapa(dados, etag, chave, posicao);
+        aplicarMapa(dados, etag, chave);
       });
 
       nova.addEventListener("categorias", (evento) => {
@@ -300,8 +304,11 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
         versaoCategoriasRef.current = versaoCategorias;
         categoriasRef.current = lista;
         setCategorias(lista);
-        const salvo = lerEstadoSalvo();
-        if (salvo) salvarEstado({ ...salvo, categorias: lista });
+        void (async () => {
+          const salvo = await lerEstadoOffline<EstadoSalvo>();
+          if (cancelado || !salvo) return;
+          agendarSnapshot({ ...salvo, categorias: lista });
+        })();
       });
 
       nova.onerror = () => {
@@ -320,7 +327,9 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
         if (conectada) ultimaAtualizacaoRef.current = new Date().toISOString();
         conectada = false;
         window.clearTimeout(temporizadorQueda);
-        temporizadorQueda = window.setTimeout(marcarSemConexao, TOLERANCIA_QUEDA_MS);
+        temporizadorQueda = window.setTimeout(() => {
+          if (!cancelado) void marcarSemConexao();
+        }, TOLERANCIA_QUEDA_MS);
       };
     };
 
@@ -368,7 +377,7 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
       // Os dados enviados pelo servidor com a página também valem para o modo offline.
       if (inicial && !inicialSalvoRef.current) {
         inicialSalvoRef.current = true;
-        salvarEstado({
+        agendarSnapshot({
           abrigos: inicial.abrigos,
           alertas: inicial.alertas,
           avisos: inicial.avisos ?? [],
@@ -379,16 +388,17 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
 
       // Rede lenta: mostra o último estado salvo enquanto a primeira carga não chega.
       if (!ultimaAtualizacaoRef.current) {
-        const salvo = lerEstadoSalvo();
-        if (salvo) aplicarEstadoSalvo(salvo);
+        const salvo = await lerEstadoOffline<EstadoSalvo>();
+        if (cancelado) return;
+        if (salvo && !ultimaAtualizacaoRef.current) aplicarEstadoSalvo(salvo);
       }
 
       if (podeUsarTempoReal()) return abrirTempoReal();
 
-      // O que está na tela é o mapa sem localização e tem menos de um intervalo de
-      // idade (acabou de vir no HTML ou de uma consulta): a próxima espera a vez.
+      // O que está na tela tem menos de um intervalo de idade (acabou de vir no
+      // HTML ou de uma consulta): a próxima atualização espera a vez.
       const idadeMs = ultimaAtualizacaoRef.current ? Date.now() - Date.parse(ultimaAtualizacaoRef.current) : Number.POSITIVE_INFINITY;
-      if (posicao === null && versaoRef.current?.url === URL_MAPA && idadeMs < INTERVALO_BASE_MS) return agendarPolling();
+      if (versaoRef.current?.url === URL_MAPA && idadeMs < INTERVALO_BASE_MS) return agendarPolling();
       void consultar();
     };
 
@@ -398,6 +408,8 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
     window.addEventListener("online", aoVoltarRede);
     return () => {
       cancelado = true;
+      cancelarSalvamentoRef.current?.();
+      cancelarSalvamentoRef.current = null;
       pararPolling();
       fecharTempoReal();
       window.clearInterval(verificarInatividade);
@@ -406,12 +418,15 @@ export function useDadosMapa(posicao: Posicao | null, raioKm: number | null, ini
       document.removeEventListener("visibilitychange", aoMudarVisibilidade);
       window.removeEventListener("online", aoVoltarRede);
     };
-  }, [carregar, aplicarEstadoSalvo, aplicarMapa, marcarSemConexao, posicao, raioKm, inicial]);
+  }, [agendarSnapshot, aplicarEstadoSalvo, aplicarMapa, carregar, inicial, marcarSemConexao, pausado]);
 
   const recarregar = useCallback(() => {
     consultasSemMudancaRef.current = 0;
     void carregar();
   }, [carregar]);
+
+  /** Localização refletida localmente assim que há dados prontos (distância calculada no cliente). */
+  const posicaoDosDados = !carregando || dadosSalvosDe !== null ? posicao : undefined;
 
   return { abrigos, alertas, avisos, categorias, carregando, erro, dadosSalvosDe, posicaoDosDados, versao, recarregar };
 }

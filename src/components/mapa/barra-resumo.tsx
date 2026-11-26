@@ -63,6 +63,15 @@ export function BarraResumo({ totalVagasLivres, totalAbrigos, carregando, filtra
               <span aria-hidden className="size-2 shrink-0 rounded-full bg-texto" />
               Ponto no canto do pino: alerta de acesso ou infraestrutura
             </li>
+            <li className="flex items-center gap-2 text-meta text-texto-2">
+              <span aria-hidden className="wtg-cluster--ok shrink-0">
+                <span className="wtg-cluster__corpo">
+                  <span className="wtg-cluster__vagas">12</span>
+                  <span className="wtg-cluster__qtd">3</span>
+                </span>
+              </span>
+              <span>Grupo de abrigos: soma de vagas e total de locais (toque para aproximar)</span>
+            </li>
             {mostrarAlertas && (
               <li className="flex items-center gap-2 text-meta text-texto-2">
                 <span aria-hidden className="size-2 shrink-0 border border-dashed border-critico" />
